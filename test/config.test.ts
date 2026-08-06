@@ -21,6 +21,7 @@ import {
   loadRepoKnowledgeConfig,
   parseRepoKnowledgeConfig,
   resolveRepositoryPolicy,
+  SqliteCanonicalProjection,
 } from "../src/index.js";
 import { rm } from "node:fs/promises";
 
@@ -201,6 +202,19 @@ describe("private storage initialization", () => {
     expect(second.config.defaultRepo).toBe("tamat/first");
     expect(await readFile(second.configPath)).toEqual(firstBytes);
     expect((await stat(second.configPath)).mode & 0o777).toBe(0o600);
+  });
+
+  it("creates and tightens the derived SQLite projection to mode 600", async () => {
+    const repositoryRoot = join(await temporaryDirectory(), "repository");
+    await mkdir(repositoryRoot, { mode: 0o700 });
+    const projection = new SqliteCanonicalProjection(repositoryRoot);
+
+    await projection.rebuild();
+    expect((await stat(projection.databasePath)).mode & 0o777).toBe(0o600);
+
+    await chmod(projection.databasePath, 0o644);
+    await projection.ensureCurrent();
+    expect((await stat(projection.databasePath)).mode & 0o777).toBe(0o600);
   });
 
   it("reports invalid JSON and invalid UTF-8 as config errors", async () => {

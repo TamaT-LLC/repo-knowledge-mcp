@@ -1,3 +1,4 @@
+import { chmodSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -112,6 +113,14 @@ export class SqliteCanonicalProjection {
 
   private openDatabase(): Database.Database {
     const database = new Database(this.databasePath);
+    try {
+      // SQLite otherwise inherits the process umask and commonly creates 0644.
+      // Tighten the main file before WAL/SHM creation so sidecars inherit 0600.
+      chmodSync(this.databasePath, 0o600);
+    } catch (error) {
+      database.close();
+      throw error;
+    }
     database.pragma("journal_mode = WAL");
     database.pragma("synchronous = FULL");
     createSchema(database);
