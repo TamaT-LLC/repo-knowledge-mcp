@@ -74,6 +74,10 @@ export {
   KnowledgeCategorySchema,
   KnowledgeEvidenceSchema,
   KnowledgeIdSchema,
+  KnowledgeOutcomeSchema,
+  KnowledgeRevisionPatchSchema,
+  KnowledgeRevisionProposalSchema,
+  KnowledgeRevisionProposalStatusSchema,
   KnowledgeStatusSchema,
   LlmConfigSchema,
   MergeDecisionRequiredStableResponseSchema,
@@ -115,6 +119,10 @@ export {
   type IngestConfig,
   type KnowledgeCategory,
   type KnowledgeEvidence,
+  type KnowledgeOutcome,
+  type KnowledgeRevisionPatch,
+  type KnowledgeRevisionProposal,
+  type KnowledgeRevisionProposalStatus,
   type KnowledgeStatus,
   type LlmConfig,
   type MergeDecision,
@@ -135,6 +143,17 @@ export {
   createDomainId,
   type DomainIdKind,
 } from "./ids.js";
+export {
+  DomainProjectionError,
+  buildDomainProjectionSnapshot,
+  projectKnowledgeDocuments,
+  reduceDomainRecords,
+  type DomainProjectionErrorCode,
+  type DomainProjectionSnapshot,
+  type ProjectedKnowledge,
+  type ProjectedKnowledgeOutcome,
+  type ReducedDomainProjection,
+} from "./domain-projection.js";
 export {
   CanonicalJsonlError,
   canonicalJsonlLineSha256,
@@ -208,6 +227,27 @@ export {
   type KnowledgeDocumentPatch,
   type KnowledgeFrontmatter,
 } from "./knowledge-document.js";
+export {
+  DEFAULT_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
+  MAX_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
+  MAX_KNOWLEDGE_SEARCH_QUERY_CODE_POINTS,
+  KnowledgeSearchError,
+  computeKnowledgeSearchScore,
+  escapeLikeLiteral,
+  evidenceBoost,
+  normalizeKnowledgeSearchQuery,
+  reciprocalRank,
+  severityBoost,
+  toFtsLiteral,
+  validateKnowledgeSearchCandidateLimit,
+  violationBoost,
+  type KnowledgeSearchErrorCode,
+  type KnowledgeSearchHit,
+  type KnowledgeSearchMode,
+  type KnowledgeSearchRequest,
+  type KnowledgeSearchResult,
+  type NormalizedKnowledgeSearchQuery,
+} from "./knowledge-search.js";
 export { FileLockTimeoutError, withPosixFileLock } from "./posix-file-lock.js";
 export {
   RequestIntegrityError,

@@ -32,6 +32,10 @@ import {
   SqliteCanonicalProjection,
   type CanonicalProjectionSnapshot,
 } from "./sqlite-projection.js";
+import type {
+  KnowledgeSearchRequest,
+  KnowledgeSearchResult,
+} from "./knowledge-search.js";
 
 export type CanonicalCommitPoint =
   | "after_staged_payloads"
@@ -213,6 +217,15 @@ export class CanonicalTransactionStore {
     return this.withRepoLock(async () => {
       await this.recoverLocked();
       return this.projection.rebuild();
+    });
+  }
+
+  async searchKnowledge(
+    request: KnowledgeSearchRequest,
+  ): Promise<KnowledgeSearchResult> {
+    return this.withRepoLock(async () => {
+      await this.recoverLocked();
+      return this.projection.searchKnowledge(request);
     });
   }
 

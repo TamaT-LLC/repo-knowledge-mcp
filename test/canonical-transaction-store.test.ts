@@ -22,9 +22,15 @@ import {
   type CanonicalCommitPoint,
   type CanonicalJsonlRecord,
   type CanonicalTransactionRequest,
+  type KnowledgeEvidence,
 } from "../src/index.js";
 
 const temporaryRepositories: string[] = [];
+const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const OTHER_KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAX";
+const EVIDENCE_ID = "ev_01ARZ3NDEKTSV4RRFFQ69G5FAW";
+const CONTENT_FINGERPRINT = `sha256:${"a".repeat(64)}`;
+const STATE_FINGERPRINT = `sha256:${"b".repeat(64)}`;
 
 afterEach(async () => {
   await Promise.all(
@@ -173,7 +179,11 @@ describe("acceptance tests 44-46", () => {
     await seedOldState(repository);
     const conflictingRecord = {
       ...evidenceRecord(),
-      payload: { knowledge_id: "kn_other" },
+      payload: {
+        ...evidenceRecord().payload,
+        knowledge_id: OTHER_KNOWLEDGE_ID,
+        occurrence_key: `${OTHER_KNOWLEDGE_ID}:thread-1`,
+      },
     };
     await mkdir(join(repository, "events"), { recursive: true });
     await writeFile(
@@ -504,14 +514,37 @@ function transactionRequest(): CanonicalTransactionRequest {
   };
 }
 
-function evidenceRecord(): CanonicalJsonlRecord<{ knowledge_id: string }> {
+function evidenceRecord(): CanonicalJsonlRecord<KnowledgeEvidence> {
+  const actor = {
+    actor_kind: "user" as const,
+    comment_id: "C_comment_1",
+    login: "reviewer",
+    provider: "human" as const,
+    trust: "trusted" as const,
+  };
   return {
     schema_version: 1,
     record_id: "evt_acceptance_25",
     record_type: "EvidenceCreated",
     transaction_id: "txn_acceptance_25",
     recorded_at: "2026-08-06T00:00:00.000Z",
-    payload: { knowledge_id: "kn_1" },
+    payload: {
+      actors: [actor],
+      comment_ids: ["C_comment_1"],
+      content_fingerprint: CONTENT_FINGERPRINT,
+      eligible_for_count: true,
+      evidence_id: EVIDENCE_ID,
+      knowledge_id: KNOWLEDGE_ID,
+      observed_at: "2026-08-06T00:00:00.000Z",
+      occurrence_key: `${KNOWLEDGE_ID}:thread-1`,
+      originator: actor,
+      pr_number: 25,
+      repo_id: "repo_1",
+      sources: ["human"],
+      state_fingerprint: STATE_FINGERPRINT,
+      status: "active",
+      thread_id: "thread-1",
+    },
   };
 }
 
@@ -620,11 +653,16 @@ function knowledgeMarkdown(rule: string, revision: number): string {
   return [
     "---",
     "schema_version: 1",
-    "id: kn_1",
+    `id: ${KNOWLEDGE_ID}`,
     "repo_id: repo_1",
     `rule: ${JSON.stringify(rule)}`,
+    "category: test",
+    'scope: ["**/*"]',
+    "severity: should",
     "status: active",
     `revision: ${revision}`,
+    'created_at: "2026-08-06T00:00:00.000Z"',
+    'updated_at: "2026-08-06T00:00:00.000Z"',
     "---",
     "Body",
     "",
