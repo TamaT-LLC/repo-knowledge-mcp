@@ -111,6 +111,15 @@ export {
   type UnknownBotWarning,
 } from "./github-snapshot-normalizer.js";
 export {
+  IngestPrMutationError,
+  IngestPrMutationService,
+  type IngestPrMutationErrorCode,
+  type IngestPrMutationServiceOptions,
+  type ProviderPostIngestRequest,
+  type ProviderPostIngestResult,
+  type ProviderPostIngestRunner,
+} from "./ingest-pr-mutation-service.js";
+export {
   PULL_REQUEST_SNAPSHOT_RECORD_TYPE,
   RAW_COMMENT_PATH,
   RAW_PULL_REQUEST_PATH,
@@ -479,6 +488,13 @@ export {
   type ProviderDistillationPipelineSkippedResult,
 } from "./provider-distillation-pipeline.js";
 export {
+  CanonicalProviderPostIngestRunner,
+  ProviderPostIngestError,
+  type CanonicalProviderPostIngestRunnerOptions,
+  type ProviderPostIngestErrorCode,
+  type ProviderPostIngestRepository,
+} from "./provider-post-ingest-runner.js";
+export {
   MERGE_CLASSIFIER_OUTPUT_JSON_SCHEMA,
   MERGE_CLASSIFIER_OUTPUT_SCHEMA_VERSION,
   MERGE_CLASSIFIER_SYSTEM_PROMPT,
@@ -586,6 +602,48 @@ export {
   type RepoKnowledgeLogger,
   type ServeRepoKnowledgeStdioOptions,
 } from "./mcp-server.js";
+export {
+  AddKnowledgeInputSchema,
+  AddKnowledgeOutputSchema,
+  AddKnowledgeResultSchema,
+  CanonicalKnowledgeMutationServiceResolver,
+  IngestPrInputSchema,
+  IngestPrOutputSchema,
+  IngestPrResultSchema,
+  MUTATION_TOOL_ANNOTATIONS,
+  MutationToolSummarySchema,
+  PrepareDistillationInputSchema,
+  PrepareDistillationOutputSchema,
+  PrepareDistillationResultSchema,
+  SubmitDistillationInputSchema,
+  SubmitDistillationOutputSchema,
+  SubmitDistillationResultSchema,
+  UpdateKnowledgeInputSchema,
+  UpdateKnowledgeOutputSchema,
+  UpdateKnowledgeResultSchema,
+  mapMutationError,
+  registerMutationTools,
+  type CanonicalKnowledgeMutationServiceResolverOptions,
+  type IngestPrMutationRequest,
+  type KnowledgeMutationOperations,
+  type KnowledgeMutationServiceResolutionInput,
+  type KnowledgeMutationServiceResolver,
+  type MutationToolErrorPayload,
+  type RegisterMutationToolsOptions,
+  type RepositoryMutationPipelineFactory,
+  type RepositoryMutationPipelineFactoryContext,
+  type RepositoryMutationPipelineOperations,
+} from "./mcp-mutation-tools.js";
+export {
+  ModelPlaneKnowledgeError,
+  ModelPlaneKnowledgeService,
+  type ModelPlaneAddKnowledgeRequest,
+  type ModelPlaneAddKnowledgeResult,
+  type ModelPlaneKnowledgeErrorCode,
+  type ModelPlaneKnowledgeServiceOptions,
+  type ModelPlaneUpdateKnowledgeRequest,
+  type ModelPlaneUpdateKnowledgeResult,
+} from "./model-plane-knowledge-service.js";
 export { FileLockTimeoutError, withPosixFileLock } from "./posix-file-lock.js";
 export {
   RequestIntegrityError,

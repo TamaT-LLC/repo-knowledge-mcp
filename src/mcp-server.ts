@@ -38,6 +38,10 @@ import {
   type SearchKnowledgeResult,
 } from "./knowledge-read-service.js";
 import {
+  registerMutationTools,
+  type KnowledgeMutationServiceResolver,
+} from "./mcp-mutation-tools.js";
+import {
   RepositoryResolver,
   type RepositoryResolutionInput,
   type RepositoryResolverOptions,
@@ -277,6 +281,7 @@ export class CanonicalKnowledgeReadServiceResolver implements KnowledgeReadServi
 
 export interface BuildServerOptions {
   readonly instructions?: string;
+  readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
   readonly readServiceResolver: KnowledgeReadServiceResolver;
   readonly startupRepo?: string;
   readonly startupWorkspace?: string;
@@ -377,6 +382,16 @@ export function buildServer(options: BuildServerOptions): McpServer {
     },
   );
 
+  registerMutationTools(server, {
+    mutationServiceResolver: options.mutationServiceResolver,
+    ...(options.startupRepo === undefined
+      ? {}
+      : { startupRepo: options.startupRepo }),
+    ...(options.startupWorkspace === undefined
+      ? {}
+      : { startupWorkspace: options.startupWorkspace }),
+  });
+
   return server;
 }
 
@@ -406,6 +421,7 @@ export function serveRepoKnowledgeStdio(
     ...(options.instructions === undefined
       ? {}
       : { instructions: options.instructions }),
+    mutationServiceResolver: options.mutationServiceResolver,
     readServiceResolver: options.readServiceResolver,
     ...(options.startupRepo === undefined
       ? {}
