@@ -1,4 +1,7 @@
 import { sortAndDedupeStrings } from "./canonical.js";
+import type { SkipReason, SkippedStableResponse } from "./domain-schemas.js";
+
+export type { SkipReason, SkippedStableResponse } from "./domain-schemas.js";
 
 export const DEFINITIVE_NON_KNOWLEDGE_SKIP_REASONS = [
   "typo",
@@ -10,22 +13,12 @@ export const DEFINITIVE_NON_KNOWLEDGE_SKIP_REASONS = [
 export type DefinitiveNonKnowledgeSkipReason =
   (typeof DEFINITIVE_NON_KNOWLEDGE_SKIP_REASONS)[number];
 
-export type SkipReason =
-  DefinitiveNonKnowledgeSkipReason | "duplicate_noise" | "insufficient_context";
-
 export type EvidenceStatus = "active" | "withdrawn";
 
 export interface EvidenceRecord {
   readonly id: string;
   readonly knowledgeId: string;
   readonly status: EvidenceStatus;
-}
-
-export interface SkippedStableResponse {
-  readonly skip_reason: SkipReason;
-  readonly staled_knowledge_ids: readonly string[];
-  readonly state: "skipped";
-  readonly withdrawn_evidence_ids: readonly string[];
 }
 
 export interface ManualReviewMarker {
