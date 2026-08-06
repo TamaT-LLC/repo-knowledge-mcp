@@ -212,6 +212,7 @@ async function seedCompleteDomainState(repository: string): Promise<{
     state: "pending",
     thread_id: "thread-1",
     updated_at: NOW,
+    validation_failures: 0,
   };
   const projectedEvidence = evidence(knowledgeId, evidenceId, "thread-1");
   const proposal: KnowledgeRevisionProposal = {
@@ -267,7 +268,12 @@ async function seedCompleteDomainState(repository: string): Promise<{
       },
       NOW,
     ),
-    canonicalRecord("DistillationJobCreated", job),
+    canonicalRecord("DistillationJobCreated", {
+      distillation_key: job.distillation_key,
+      job_id: job.job_id,
+      repo_id: job.repo_id,
+      thread_id: job.thread_id,
+    }),
     canonicalRecord("EvidenceCreated", projectedEvidence),
     canonicalRecord("KnowledgeRevisionProposal", proposal),
     canonicalRecord("SubmissionReceipt", receipt),

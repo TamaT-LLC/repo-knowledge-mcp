@@ -4,7 +4,6 @@ import type { CanonicalJsonlRecord } from "./canonical-jsonl.js";
 import { compareCodeUnits, sortAndDedupeStrings } from "./canonical.js";
 import {
   CommentObservationSchema,
-  DistillJobSchema,
   KnowledgeCategorySchema,
   KnowledgeEvidenceSchema,
   KnowledgeIdSchema,
@@ -29,19 +28,15 @@ import {
   type ThreadObservation,
 } from "./domain-schemas.js";
 import {
+  DISTILLATION_JOB_RECORD_TYPES,
+  DistillJobStateError,
+  reduceDistillationJobRecords,
+} from "./distill-job-state.js";
+import {
   KnowledgeStoreInvalidError,
   type KnowledgeDocument,
 } from "./knowledge-document.js";
 
-const JOB_RECORD_TYPES = new Set([
-  "DistillJob",
-  "DistillationJobCreated",
-  "DistillationJobFailed",
-  "DistillationJobLeaseExpired",
-  "DistillationJobLeased",
-  "DistillationJobSkipped",
-  "DistillationJobSucceeded",
-]);
 const EVIDENCE_RECORD_TYPES = new Set([
   "EvidenceCreated",
   "EvidenceSuperseded",
@@ -142,7 +137,7 @@ export function reduceDomainRecords(
   const snapshots = new Map<string, Sequenced<PullRequestSnapshot>>();
   const threads = new Map<string, Sequenced<ThreadObservation>>();
   const comments = new Map<string, Sequenced<CommentObservation>>();
-  const jobs = new Map<string, Sequenced<DistillJob>>();
+  const jobRecords: CanonicalJsonlRecord[] = [];
   const evidence = new Map<string, Sequenced<KnowledgeEvidence>>();
   const proposals = new Map<string, Sequenced<KnowledgeRevisionProposal>>();
   const receipts = new Map<string, Sequenced<SubmissionReceipt>>();
@@ -224,9 +219,8 @@ export function reduceDomainRecords(
         break;
     }
 
-    if (JOB_RECORD_TYPES.has(record.record_type)) {
-      const value = parsePayload(record, DistillJobSchema);
-      upsertLatest(jobs, value.job_id, value, value.updated_at, sequence);
+    if (DISTILLATION_JOB_RECORD_TYPES.has(record.record_type)) {
+      jobRecords.push(record);
       return;
     }
     if (EVIDENCE_RECORD_TYPES.has(record.record_type)) {
@@ -252,9 +246,24 @@ export function reduceDomainRecords(
     }
   });
 
+  let distillJobs: readonly DistillJob[];
+  try {
+    distillJobs = reduceDistillationJobRecords(jobRecords);
+  } catch (error) {
+    if (error instanceof DistillJobStateError) {
+      throw new DomainProjectionError(
+        error.recordId ?? "unknown",
+        error.recordType ?? "DistillJobEvent",
+        error.message,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+
   return {
     comments: sortedValues(comments),
-    distillJobs: sortedValues(jobs),
+    distillJobs,
     evidence: sortedValues(evidence),
     outcomes: sortedValues(outcomes),
     pullRequestSnapshots: sortedValues(snapshots),

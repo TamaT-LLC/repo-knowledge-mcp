@@ -361,17 +361,34 @@ export const DistillJobSchema = z
     state: DistillJobStateSchema,
     thread_id: NonEmptyStringSchema,
     updated_at: IsoDateTimeSchema,
+    validation_failures: z.number().int().nonnegative().default(0),
   })
   .strict()
   .superRefine((value, context) => {
+    const hasCompleteLease =
+      value.lease_expires_at !== undefined &&
+      value.lease_token_hash !== undefined;
+    const hasAnyLease =
+      value.lease_expires_at !== undefined ||
+      value.lease_token_hash !== undefined;
     if (
       (value.state === "processing" || value.state === "awaiting_finalize") &&
-      (value.lease_expires_at === undefined ||
-        value.lease_token_hash === undefined)
+      !hasCompleteLease
     ) {
       context.addIssue({
         code: "custom",
         message: `${value.state} jobs require an active lease`,
+        path: ["lease_expires_at"],
+      });
+    }
+    if (
+      value.state !== "processing" &&
+      value.state !== "awaiting_finalize" &&
+      hasAnyLease
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: `${value.state} jobs must not retain a lease`,
         path: ["lease_expires_at"],
       });
     }
@@ -380,6 +397,20 @@ export const DistillJobSchema = z
         code: "custom",
         message: "skipped jobs require skip_reason",
         path: ["skip_reason"],
+      });
+    }
+    if (value.state !== "skipped" && value.skip_reason != null) {
+      context.addIssue({
+        code: "custom",
+        message: `${value.state} jobs must not have skip_reason`,
+        path: ["skip_reason"],
+      });
+    }
+    if (value.state === "failed" && value.last_error == null) {
+      context.addIssue({
+        code: "custom",
+        message: "failed jobs require last_error",
+        path: ["last_error"],
       });
     }
   });
