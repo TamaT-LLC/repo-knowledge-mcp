@@ -30,6 +30,7 @@ import {
 import { withPosixFileLock } from "./posix-file-lock.js";
 import {
   SqliteCanonicalProjection,
+  type CanonicalKnowledgeReadView,
   type CanonicalProjectionSnapshot,
 } from "./sqlite-projection.js";
 import type {
@@ -226,6 +227,15 @@ export class CanonicalTransactionStore {
     return this.withRepoLock(async () => {
       await this.recoverLocked();
       return this.projection.searchKnowledge(request);
+    });
+  }
+
+  async readKnowledgeView(
+    searchRequest?: KnowledgeSearchRequest,
+  ): Promise<CanonicalKnowledgeReadView> {
+    return this.withRepoLock(async () => {
+      await this.recoverLocked();
+      return this.projection.readKnowledgeView(searchRequest);
     });
   }
 

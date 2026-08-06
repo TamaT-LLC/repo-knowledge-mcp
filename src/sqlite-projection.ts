@@ -52,6 +52,11 @@ export interface CanonicalProjectionSnapshot {
   readonly records: readonly ProjectedCanonicalRecord[];
 }
 
+export interface CanonicalKnowledgeReadView {
+  readonly searchResult: KnowledgeSearchResult | null;
+  readonly snapshot: CanonicalProjectionSnapshot;
+}
+
 interface CapturedKnowledge {
   readonly document: KnowledgeDocument;
   readonly mtimeNs: bigint;
@@ -128,18 +133,7 @@ export class SqliteCanonicalProjection {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
     try {
-      const currentDigest = getProjectionMeta(database, "canonical_digest");
-      if (
-        currentDigest === capture.canonicalDigest &&
-        getProjectionMeta(database, "schema_version") === "2"
-      ) {
-        return readSnapshot(database);
-      }
-      const checkpoint = getProjectionMeta(
-        database,
-        "last_committed_transaction_id",
-      );
-      rebuildDatabase(database, capture, checkpoint);
+      ensureCaptureProjected(database, capture);
       return readSnapshot(database);
     } finally {
       database.close();
@@ -169,18 +163,35 @@ export class SqliteCanonicalProjection {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
     try {
-      const currentDigest = getProjectionMeta(database, "canonical_digest");
-      if (
-        currentDigest !== capture.canonicalDigest ||
-        getProjectionMeta(database, "schema_version") !== "2"
-      ) {
-        rebuildDatabase(
-          database,
-          capture,
-          getProjectionMeta(database, "last_committed_transaction_id"),
-        );
-      }
+      ensureCaptureProjected(database, capture);
       return searchKnowledgeDatabase(database, request);
+    } finally {
+      database.close();
+    }
+  }
+
+  async readKnowledgeView(
+    searchRequest?: KnowledgeSearchRequest,
+  ): Promise<CanonicalKnowledgeReadView> {
+    const capture = await captureCanonicalState(this.repositoryRoot);
+    const database = this.openDatabase();
+    try {
+      ensureCaptureProjected(database, capture);
+      database.exec("BEGIN");
+      try {
+        const view = {
+          searchResult:
+            searchRequest === undefined
+              ? null
+              : searchKnowledgeDatabase(database, searchRequest),
+          snapshot: readSnapshot(database),
+        };
+        database.exec("COMMIT");
+        return view;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     } finally {
       database.close();
     }
@@ -203,6 +214,24 @@ export class SqliteCanonicalProjection {
     createSchema(database);
     return database;
   }
+}
+
+function ensureCaptureProjected(
+  database: Database.Database,
+  capture: CanonicalCapture,
+): void {
+  if (
+    getProjectionMeta(database, "canonical_digest") ===
+      capture.canonicalDigest &&
+    getProjectionMeta(database, "schema_version") === "2"
+  ) {
+    return;
+  }
+  rebuildDatabase(
+    database,
+    capture,
+    getProjectionMeta(database, "last_committed_transaction_id"),
+  );
 }
 
 function createSchema(database: Database.Database): void {
