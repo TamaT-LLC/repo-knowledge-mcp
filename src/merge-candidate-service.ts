@@ -69,7 +69,14 @@ export interface MergeCandidateSearchResult {
   readonly possible_matches: readonly PossibleMatchSet<PossibleKnowledgeMatch>[];
 }
 
-interface SearchableCandidate {
+export interface MergeCandidateSearchPlan {
+  readonly candidateLimit: number;
+  readonly candidates: readonly ExtractCandidate[];
+  readonly searchable: readonly SearchableCandidate[];
+  readonly threadId: string;
+}
+
+export interface SearchableCandidate {
   readonly candidate: ExtractCandidate;
   readonly request: ExhaustiveKnowledgeSearchRequest;
 }
@@ -89,123 +96,154 @@ export class MergeCandidateSearchService {
   async search(
     request: MergeCandidateSearchRequest,
   ): Promise<MergeCandidateSearchResult> {
-    const threadId = NonEmptyStringSchema.parse(request.threadId);
-    const candidates = collapseExactCandidateRules(request.candidates);
-    if (candidates.length === 0) {
-      throw new MergeCandidateSearchError(
-        "CANDIDATE_SET_INVALID",
-        "merge search requires at least one candidate",
-      );
-    }
-
-    const searchable = candidates.map((candidate): SearchableCandidate => {
-      const query = candidateSearchQuery(candidate.candidate);
-      if (query === null) {
-        throw new MergeCandidateSearchError(
-          "CANDIDATE_SET_INVALID",
-          `candidate ${candidate.candidate_id} has no searchable rule or detail`,
-        );
-      }
-      return {
-        candidate,
-        request: {
-          category: candidate.candidate.category,
-          query,
-          repoId: this.repoId,
-          statuses: ["active", "proposed"],
-        },
-      };
+    const plan = createMergeCandidateSearchPlan({
+      candidateLimit: this.candidateLimit,
+      candidates: request.candidates,
+      repoId: this.repoId,
+      threadId: request.threadId,
     });
     const view = await this.repository.readKnowledgeSearchView(
-      searchable.map((entry) => entry.request),
+      plan.searchable.map((entry) => entry.request),
     );
-    if (view.searchResults.length !== searchable.length) {
+    return resolveMergeCandidateSearch(plan, view);
+  }
+}
+
+export interface CreateMergeCandidateSearchPlanRequest {
+  readonly candidateLimit?: number;
+  readonly candidates: readonly ExtractCandidate[];
+  readonly repoId: string;
+  readonly threadId: string;
+}
+
+/** Creates the deterministic FTS work needed by both extract and finalize. */
+export function createMergeCandidateSearchPlan(
+  request: CreateMergeCandidateSearchPlanRequest,
+): MergeCandidateSearchPlan {
+  const repoId = RepositoryIdSchema.parse(request.repoId);
+  const threadId = NonEmptyStringSchema.parse(request.threadId);
+  const candidateLimit = validateCandidateLimit(request.candidateLimit);
+  const candidates = collapseExactCandidateRules(request.candidates);
+  if (candidates.length === 0) {
+    throw new MergeCandidateSearchError(
+      "CANDIDATE_SET_INVALID",
+      "merge search requires at least one candidate",
+    );
+  }
+
+  const searchable = candidates.map((candidate): SearchableCandidate => {
+    const query = candidateSearchQuery(candidate.candidate);
+    if (query === null) {
       throw new MergeCandidateSearchError(
-        "MERGE_SEARCH_INVALID",
-        "repository returned the wrong number of search results",
+        "CANDIDATE_SET_INVALID",
+        `candidate ${candidate.candidate_id} has no searchable rule or detail`,
       );
     }
-
-    const hitsByCandidate = new Map<string, readonly KnowledgeSearchHit[]>();
-    searchable.forEach((entry, index) => {
-      const result = view.searchResults[index]!;
-      const hits = rerankAfterScopeFilter(
-        result.hits.filter((hit) =>
-          scopesMayOverlap(entry.candidate.candidate.scope, hit.scope),
-        ),
-      ).slice(0, this.candidateLimit);
-      hitsByCandidate.set(entry.candidate.candidate_id, hits);
-    });
-
-    const previousKnowledgeIds = sortAndDedupeStrings(
-      view.snapshot.domain.evidence
-        .filter(
-          (evidence) =>
-            evidence.repo_id === this.repoId && evidence.thread_id === threadId,
-        )
-        .map((evidence) => evidence.knowledge_id),
-    );
-    const previousKnowledgeIdSet = new Set(previousKnowledgeIds);
-    const knowledgeById = new Map(
-      view.snapshot.domain.knowledge
-        .filter((knowledge) => knowledge.repoId === this.repoId)
-        .map((knowledge) => [knowledge.id, knowledge] as const),
-    );
-    const possibleMatches = normalizePossibleMatchSets(
-      candidates.map((candidate) => {
-        const ids = new Set(
-          (hitsByCandidate.get(candidate.candidate_id) ?? []).map(
-            (hit) => hit.id,
-          ),
-        );
-        for (const id of previousKnowledgeIds) ids.add(id);
-
-        const matches = [...ids].flatMap((id): PossibleKnowledgeMatch[] => {
-          const knowledge = knowledgeById.get(id);
-          if (knowledge === undefined) return [];
-          if (
-            knowledge.status === "rejected" ||
-            knowledge.status === "deprecated"
-          ) {
-            return [];
-          }
-          if (
-            knowledge.status !== "active" &&
-            knowledge.status !== "proposed" &&
-            !(
-              knowledge.status === "stale" &&
-              previousKnowledgeIdSet.has(knowledge.id)
-            )
-          ) {
-            return [];
-          }
-          return [
-            {
-              category: knowledge.category,
-              detail: knowledge.detail,
-              etag: knowledge.etag,
-              knowledge_id: knowledge.id,
-              revision: knowledge.revision,
-              rule: knowledge.rule,
-              scope: knowledge.scope,
-              severity: knowledge.severity,
-              status: knowledge.status,
-            },
-          ];
-        });
-        return {
-          candidate_id: candidate.candidate_id,
-          possible_matches: matches,
-        };
-      }),
-    );
-
     return {
-      candidates,
-      match_set_digest: computeMatchSetDigest(possibleMatches),
-      possible_matches: possibleMatches,
+      candidate,
+      request: {
+        category: candidate.candidate.category,
+        query,
+        repoId,
+        statuses: ["active", "proposed"],
+      },
     };
+  });
+  return { candidateLimit, candidates, searchable, threadId };
+}
+
+/** Resolves one already-consistent projection view into the bound match set. */
+export function resolveMergeCandidateSearch(
+  plan: MergeCandidateSearchPlan,
+  view: CanonicalKnowledgeSearchView,
+): MergeCandidateSearchResult {
+  if (view.searchResults.length !== plan.searchable.length) {
+    throw new MergeCandidateSearchError(
+      "MERGE_SEARCH_INVALID",
+      "repository returned the wrong number of search results",
+    );
   }
+
+  const hitsByCandidate = new Map<string, readonly KnowledgeSearchHit[]>();
+  plan.searchable.forEach((entry, index) => {
+    const result = view.searchResults[index]!;
+    const hits = rerankAfterScopeFilter(
+      result.hits.filter((hit) =>
+        scopesMayOverlap(entry.candidate.candidate.scope, hit.scope),
+      ),
+    ).slice(0, plan.candidateLimit);
+    hitsByCandidate.set(entry.candidate.candidate_id, hits);
+  });
+
+  const repoId = plan.searchable[0]!.request.repoId;
+  const previousKnowledgeIds = sortAndDedupeStrings(
+    view.snapshot.domain.evidence
+      .filter(
+        (evidence) =>
+          evidence.repo_id === repoId && evidence.thread_id === plan.threadId,
+      )
+      .map((evidence) => evidence.knowledge_id),
+  );
+  const previousKnowledgeIdSet = new Set(previousKnowledgeIds);
+  const knowledgeById = new Map(
+    view.snapshot.domain.knowledge
+      .filter((knowledge) => knowledge.repoId === repoId)
+      .map((knowledge) => [knowledge.id, knowledge] as const),
+  );
+  const possibleMatches = normalizePossibleMatchSets(
+    plan.candidates.map((candidate) => {
+      const ids = new Set(
+        (hitsByCandidate.get(candidate.candidate_id) ?? []).map(
+          (hit) => hit.id,
+        ),
+      );
+      for (const id of previousKnowledgeIds) ids.add(id);
+
+      const matches = [...ids].flatMap((id): PossibleKnowledgeMatch[] => {
+        const knowledge = knowledgeById.get(id);
+        if (knowledge === undefined) return [];
+        if (
+          knowledge.status === "rejected" ||
+          knowledge.status === "deprecated"
+        ) {
+          return [];
+        }
+        if (
+          knowledge.status !== "active" &&
+          knowledge.status !== "proposed" &&
+          !(
+            knowledge.status === "stale" &&
+            previousKnowledgeIdSet.has(knowledge.id)
+          )
+        ) {
+          return [];
+        }
+        return [
+          {
+            category: knowledge.category,
+            detail: knowledge.detail,
+            etag: knowledge.etag,
+            knowledge_id: knowledge.id,
+            revision: knowledge.revision,
+            rule: knowledge.rule,
+            scope: knowledge.scope,
+            severity: knowledge.severity,
+            status: knowledge.status,
+          },
+        ];
+      });
+      return {
+        candidate_id: candidate.candidate_id,
+        possible_matches: matches,
+      };
+    }),
+  );
+
+  return {
+    candidates: plan.candidates,
+    match_set_digest: computeMatchSetDigest(possibleMatches),
+    possible_matches: possibleMatches,
+  };
 }
 
 /** NFKC/whitespace normalization used only for exact duplicate collapse. */
