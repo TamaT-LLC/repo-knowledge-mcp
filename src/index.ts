@@ -1,4 +1,22 @@
 export {
+  DEFAULT_ADMIN_POSSIBLE_MATCH_LIMIT,
+  AdminPlaneError,
+  AdminPlaneService,
+  NodeAdminTerminal,
+  type AdminAddActiveInput,
+  type AdminEvidenceReview,
+  type AdminInteractionResult,
+  type AdminKnowledgeReview,
+  type AdminKnowledgeSummary,
+  type AdminPlaneErrorCode,
+  type AdminPlaneServiceOptions,
+  type AdminPossibleMatch,
+  type AdminReviewQueue,
+  type AdminRevisionProposalReview,
+  type AdminRevisionProposalSummary,
+  type AdminTerminal,
+} from "./admin-plane-service.js";
+export {
   SET_LIKE_STRING_ARRAY_FIELDS,
   canonicalizeJson,
   compareCodeUnits,
