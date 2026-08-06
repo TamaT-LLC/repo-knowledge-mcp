@@ -22,6 +22,7 @@ export interface RuntimeFinalizeContextInput {
   readonly lease_generation: number;
   readonly match_set_digest: string;
   readonly possible_matches: readonly PossibleMatchBinding[];
+  readonly request_sha256: string;
   readonly source_snapshot_id: string;
 }
 
@@ -61,6 +62,8 @@ export class RuntimeFinalizeContextStoreError extends Error {
 /**
  * Keeps finalize authorization in process memory only. The map is keyed by a
  * SHA-256 digest, so the plaintext token exists only in the returned handle.
+ * The immutable context also binds that handle to its canonical extract
+ * request digest.
  */
 export class RuntimeFinalizeContextStore {
   readonly #contexts = new Map<string, FinalizeContext>();
@@ -210,6 +213,7 @@ function validateContextInput(
       lease_generation: input.lease_generation,
       match_set_digest: matchSetDigest,
       possible_matches: possibleMatches,
+      request_sha256: Sha256DigestSchema.parse(input.request_sha256),
       source_snapshot_id: SnapshotIdSchema.parse(input.source_snapshot_id),
     };
   } catch (error) {

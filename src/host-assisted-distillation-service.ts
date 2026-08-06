@@ -397,7 +397,8 @@ export class HostAssistedDistillationService {
     source: CurrentDistillationSource,
     snapshot: CanonicalProjectionSnapshot,
   ): Promise<HostAssistedFinalizeJob> {
-    const candidates = extractCandidates(snapshot, lease.job_id);
+    const receipt = extractReceipt(snapshot, lease.job_id);
+    const candidates = receipt.stable_response.candidates;
     const matches = await this.mergeCandidates.search({
       candidates,
       threadId: lease.job.thread_id,
@@ -448,6 +449,7 @@ export class HostAssistedDistillationService {
         lease_generation: lease.lease_generation,
         match_set_digest: matches.match_set_digest,
         possible_matches: matches.possible_matches,
+        request_sha256: receipt.request_sha256,
         source_snapshot_id: currentSource.snapshotId,
       });
     } catch (error) {
@@ -723,6 +725,18 @@ function extractCandidates(
   snapshot: CanonicalProjectionSnapshot,
   jobId: string,
 ): readonly ExtractCandidate[] {
+  return extractReceipt(snapshot, jobId).stable_response.candidates;
+}
+
+function extractReceipt(
+  snapshot: CanonicalProjectionSnapshot,
+  jobId: string,
+): Extract<SubmissionReceipt, { readonly phase: "extract" }> & {
+  readonly stable_response: Extract<
+    SubmissionReceipt["stable_response"],
+    { readonly state: "merge_decision_required" }
+  >;
+} {
   const receipts = snapshot.domain.submissionReceipts
     .filter(
       (
@@ -764,7 +778,12 @@ function extractCandidates(
       );
     }
   }
-  return first.stable_response.candidates;
+  return first as Extract<SubmissionReceipt, { readonly phase: "extract" }> & {
+    readonly stable_response: Extract<
+      SubmissionReceipt["stable_response"],
+      { readonly state: "merge_decision_required" }
+    >;
+  };
 }
 
 /** Computes the candidate-set binding independent of receipt array order. */
