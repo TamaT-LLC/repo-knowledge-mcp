@@ -1,6 +1,10 @@
 import picomatch from "picomatch";
 
-import { compareCodeUnits, sortAndDedupeStrings } from "./canonical.js";
+import {
+  canonicalizeJson,
+  compareCodeUnits,
+  sortAndDedupeStrings,
+} from "./canonical.js";
 import {
   ExtractCandidateSchema,
   NonEmptyStringSchema,
@@ -219,7 +223,7 @@ export function normalizeCandidateRule(rule: string): string {
   return normalized;
 }
 
-/** Collapses exact normalized rules and unions their set-like evidence/scope. */
+/** Collapses scalar-equivalent exact rules and unions set-like evidence/scope. */
 export function collapseExactCandidateRules(
   values: readonly ExtractCandidate[],
 ): ExtractCandidate[] {
@@ -237,7 +241,7 @@ export function collapseExactCandidateRules(
 
   const groups = new Map<string, ExtractCandidate[]>();
   for (const candidate of candidates) {
-    const key = normalizeCandidateRule(candidate.candidate.rule);
+    const key = candidateCollapseKey(candidate.candidate);
     const group = groups.get(key);
     if (group === undefined) groups.set(key, [candidate]);
     else group.push(candidate);
@@ -270,6 +274,19 @@ export function collapseExactCandidateRules(
     .sort((left, right) =>
       compareCodeUnits(left.candidate_id, right.candidate_id),
     );
+}
+
+function candidateCollapseKey(candidate: DistilledCandidate): string {
+  return canonicalizeJson({
+    category: candidate.category,
+    detail: normalizeCandidateText(candidate.detail),
+    rule: normalizeCandidateRule(candidate.rule),
+    severity: candidate.severity,
+  });
+}
+
+function normalizeCandidateText(value: string): string {
+  return value.normalize("NFKC").trim().replaceAll(/\s+/gu, " ");
 }
 
 /** Conservative glob-overlap test: uncertain pattern pairs remain candidates. */

@@ -40,6 +40,7 @@ const HASH_B = `sha256:${"b".repeat(64)}`;
 const CANDIDATE_A = "cand_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const CANDIDATE_B = "cand_01ARZ3NDEKTSV4RRFFQ69G5FAW";
 const CANDIDATE_C = "cand_01ARZ3NDEKTSV4RRFFQ69G5FAX";
+const CANDIDATE_D = "cand_01ARZ3NDEKTSV4RRFFQ69G5FAY";
 const KNOWLEDGE_A = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const KNOWLEDGE_B = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAW";
 const KNOWLEDGE_C = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAX";
@@ -177,6 +178,22 @@ describe("MergeCandidateSearchService", () => {
         }),
         candidate_id: CANDIDATE_A,
       },
+    ]);
+  });
+
+  it("does not discard differing category, detail, or severity attributes", () => {
+    const collapsed = collapseExactCandidateRules([
+      candidate(CANDIDATE_A, "Use cache"),
+      candidate(CANDIDATE_B, "Use cache", { category: "architecture" }),
+      candidate(CANDIDATE_C, "Use cache", { detail: "A different meaning." }),
+      candidate(CANDIDATE_D, "Use cache", { severity: "must" }),
+    ]);
+
+    expect(collapsed.map((value) => value.candidate_id)).toEqual([
+      CANDIDATE_A,
+      CANDIDATE_B,
+      CANDIDATE_C,
+      CANDIDATE_D,
     ]);
   });
 
