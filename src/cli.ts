@@ -8,6 +8,7 @@ import {
   type KnowledgeStatus,
 } from "./domain-schemas.js";
 import type { AdminPlaneService } from "./admin-plane-service.js";
+import type { RepoKnowledgeDoctorLike } from "./doctor-service.js";
 import type {
   KnowledgeMutationServiceResolutionInput,
   KnowledgeMutationServiceResolver,
@@ -32,6 +33,7 @@ Commands:
   edit <id> <patch options>     Edit canonical knowledge (TTY only)
   approve-revision <id>         Apply a pending revision proposal (TTY only)
   add --active <fields>         Add active manual knowledge (TTY only)
+  doctor [repo]                 Diagnose installation and canonical state
 
 Repository selection:
   --repo <owner/name>           Select a GitHub repository
@@ -148,6 +150,7 @@ export interface CliRepositoryOperationsResolver {
 
 export interface RunRepoKnowledgeCliOptions {
   readonly argv: readonly string[];
+  readonly doctor: RepoKnowledgeDoctorLike;
   readonly io: RepoKnowledgeCliIo;
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
   readonly operationsResolver: CliRepositoryOperationsResolver;
@@ -156,6 +159,10 @@ export interface RunRepoKnowledgeCliOptions {
 
 export type ParsedCliCommand =
   | { readonly kind: "help" }
+  | {
+      readonly kind: "doctor";
+      readonly selection: CliRepositorySelection;
+    }
   | {
       readonly kind: "serve";
       readonly selection: CliRepositorySelection;
@@ -241,8 +248,10 @@ export async function runRepoKnowledgeCli(
       options.argv,
       options.io.stdinIsTTY,
     );
-    await executeCliCommand(command, options);
-    return REPO_KNOWLEDGE_CLI_EXIT.success;
+    return (
+      (await executeCliCommand(command, options)) ??
+      REPO_KNOWLEDGE_CLI_EXIT.success
+    );
   } catch (error) {
     const diagnostic = cliDiagnostic(error);
     options.io.writeStderr(`${diagnostic.code}: ${diagnostic.message}\n`);
@@ -279,6 +288,8 @@ export function parseRepoKnowledgeCliArguments(
   switch (name) {
     case "serve":
       return parseServe(argv.slice(1));
+    case "doctor":
+      return parseDoctor(argv.slice(1));
     case "ingest":
       return parseIngest(argv.slice(1));
     case "distill":
@@ -310,7 +321,7 @@ export function parseRepoKnowledgeCliArguments(
 async function executeCliCommand(
   command: ParsedCliCommand,
   options: RunRepoKnowledgeCliOptions,
-): Promise<void> {
+): Promise<number | void> {
   switch (command.kind) {
     case "help":
       options.io.writeStdout(REPO_KNOWLEDGE_CLI_HELP);
@@ -325,6 +336,13 @@ async function executeCliCommand(
           : { startupWorkspace: command.selection.workspacePath }),
       });
       return;
+    case "doctor": {
+      const result = await options.doctor.run(command.selection);
+      writeJson(options.io, result);
+      return result.ok
+        ? REPO_KNOWLEDGE_CLI_EXIT.success
+        : REPO_KNOWLEDGE_CLI_EXIT.failure;
+    }
     case "ingest": {
       const service = await options.mutationServiceResolver.resolve(
         command.selection,
@@ -452,6 +470,15 @@ function parseServe(args: readonly string[]): ParsedCliCommand {
   const parsed = parseOptions(args, REPOSITORY_OPTION_DEFINITION);
   assertPositionalCount(parsed, 0, 0, "serve");
   return { kind: "serve", selection: selection(parsed) };
+}
+
+function parseDoctor(args: readonly string[]): ParsedCliCommand {
+  const parsed = parseOptions(args, REPOSITORY_OPTION_DEFINITION);
+  assertPositionalCount(parsed, 0, 1, "doctor");
+  return {
+    kind: "doctor",
+    selection: selection(parsed, parsed.positionals[0]),
+  };
 }
 
 function parseIngest(args: readonly string[]): ParsedCliCommand {

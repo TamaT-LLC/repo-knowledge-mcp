@@ -53,6 +53,12 @@ export interface CanonicalProjectionSnapshot {
   readonly records: readonly ProjectedCanonicalRecord[];
 }
 
+export interface ReadOnlyCanonicalStateCapture {
+  readonly canonicalDigest: string;
+  readonly knowledge: readonly KnowledgeDocument[];
+  readonly records: readonly ProjectedCanonicalRecord[];
+}
+
 export interface CanonicalKnowledgeReadView {
   readonly searchResult: KnowledgeSearchResult | null;
   readonly snapshot: CanonicalProjectionSnapshot;
@@ -232,6 +238,22 @@ export class SqliteCanonicalProjection {
     createSchema(database);
     return database;
   }
+}
+
+/** Captures and validates canonical files without opening or updating SQLite. */
+export async function captureCanonicalStateReadOnly(
+  repositoryRoot: string,
+): Promise<ReadOnlyCanonicalStateCapture> {
+  const capture = await captureCanonicalState(resolve(repositoryRoot));
+  return {
+    canonicalDigest: capture.canonicalDigest,
+    knowledge: capture.knowledge.map((entry) => entry.document),
+    records: capture.records.map((entry) => ({
+      lineSha256: entry.lineSha256,
+      record: entry.record,
+      targetPath: entry.targetPath,
+    })),
+  };
 }
 
 function ensureCaptureProjected(

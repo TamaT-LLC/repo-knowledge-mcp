@@ -12,6 +12,7 @@ import {
 import { CanonicalCliRepositoryOperationsResolver } from "./cli-maintenance-service.js";
 import { initializeStorage } from "./config.js";
 import { loadDistillationPrompt } from "./distillation-prompt.js";
+import { RepoKnowledgeDoctor } from "./doctor-service.js";
 import { GhRunner, type GhRunnerLike } from "./gh-runner.js";
 import {
   CanonicalKnowledgeMutationServiceResolver,
@@ -52,10 +53,7 @@ export interface RunDefaultRepoKnowledgeCliOptions extends CreateDefaultCliRunti
 export async function createDefaultCliRuntime(
   options: CreateDefaultCliRuntimeOptions = {},
 ): Promise<DefaultCliRuntime> {
-  const storageRoot =
-    options.storageRoot ??
-    process.env.REPO_KNOWLEDGE_HOME ??
-    join(homedir(), ".repo-knowledge");
+  const storageRoot = defaultStorageRoot(options.storageRoot);
   const storage = await initializeStorage(storageRoot);
   const prompt = await loadDistillationPrompt(
     options.promptPath ??
@@ -115,13 +113,23 @@ export async function createDefaultCliRuntime(
 export async function runDefaultRepoKnowledgeCli(
   options: RunDefaultRepoKnowledgeCliOptions = {},
 ): Promise<number> {
+  const storageRoot = defaultStorageRoot(options.storageRoot);
+  const ghRunner = options.ghRunner ?? new GhRunner();
   let runtime: Promise<DefaultCliRuntime> | undefined;
   const loadRuntime = (): Promise<DefaultCliRuntime> => {
-    runtime ??= createDefaultCliRuntime(options);
+    runtime ??= createDefaultCliRuntime({
+      ...options,
+      ghRunner,
+      storageRoot,
+    });
     return runtime;
   };
   return runRepoKnowledgeCli({
     argv: options.argv ?? process.argv.slice(2),
+    doctor: new RepoKnowledgeDoctor({
+      ghRunner,
+      storageRoot,
+    }),
     io: options.io ?? processCliIo(),
     mutationServiceResolver: {
       async resolve(input) {
@@ -137,6 +145,14 @@ export async function runDefaultRepoKnowledgeCli(
       (await loadRuntime()).serve(request);
     },
   });
+}
+
+function defaultStorageRoot(explicit: string | undefined): string {
+  return (
+    explicit ??
+    process.env.REPO_KNOWLEDGE_HOME ??
+    join(homedir(), ".repo-knowledge")
+  );
 }
 
 function processCliIo(): RepoKnowledgeCliIo {
