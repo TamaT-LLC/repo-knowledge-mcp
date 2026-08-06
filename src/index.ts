@@ -9,3 +9,17 @@ export {
   sortAndDedupeStrings,
   type NormalizableComment,
 } from "./canonical.js";
+export {
+  ProjectionStaleError,
+  buildKnowledgeProjection,
+  computeKnowledgeFileState,
+  ensureProjectionCurrent,
+  isProjectionCurrent,
+  readKnowledgeSnapshot,
+  type KnowledgeFile,
+  type KnowledgeFileHash,
+  type KnowledgeFileState,
+  type KnowledgeProjection,
+  type KnowledgeProjectionBuilder,
+  type KnowledgeSnapshot,
+} from "./knowledge-file-state.js";
