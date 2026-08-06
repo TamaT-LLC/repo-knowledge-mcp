@@ -41,9 +41,12 @@ export const RepositoryIdSchema = NonEmptyStringSchema;
 export const RepositoryNameSchema = z
   .string()
   .regex(
-    /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/u,
+    /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\/[A-Za-z0-9._-]{1,100}$/u,
     "must use owner/name form",
-  );
+  )
+  .refine((value) => !value.endsWith("/.") && !value.endsWith("/.."), {
+    message: "repository name must not be '.' or '..'",
+  });
 export const GitHubNodeIdSchema = NonEmptyStringSchema;
 
 export const ActorKindSchema = z.enum(["user", "bot", "unknown"]);
