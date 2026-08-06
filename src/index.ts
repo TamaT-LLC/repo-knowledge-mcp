@@ -270,6 +270,57 @@ export {
   type SkipDistillJobRequest,
 } from "./distill-job-coordinator.js";
 export {
+  ANTHROPIC_API_VERSION,
+  ANTHROPIC_PROVIDER,
+  DEFAULT_ANTHROPIC_MAX_TOKENS,
+  DEFAULT_ANTHROPIC_MESSAGES_ENDPOINT,
+  AnthropicProviderAdapter,
+  type AnthropicProviderAdapterOptions,
+} from "./anthropic-provider.js";
+export {
+  LlmProviderError,
+  type LlmProviderAdapter,
+  type LlmProviderErrorCode,
+  type LlmProviderFailureKind,
+  type StructuredCompletionRequest,
+  type StructuredCompletionResponse,
+} from "./llm-provider.js";
+export {
+  DISTILLATION_OUTPUT_JSON_SCHEMA,
+  DISTILLATION_OUTPUT_SCHEMA_DIGEST,
+  DISTILLATION_OUTPUT_SCHEMA_VERSION,
+  buildDistillationUserInput,
+  loadDistillationPrompt,
+  parseDistillationPrompt,
+  type BuildDistillationUserInputRequest,
+  type DistillationPromptActor,
+  type DistillationPromptComment,
+  type DistillationPromptTemplate,
+  type DistillationPromptThread,
+} from "./distillation-prompt.js";
+export {
+  DistillationOutputValidationError,
+  ProviderDistillationService,
+  ProviderDistillationServiceError,
+  evaluateProviderTransmission,
+  parseDistillationOutput,
+  writeProviderDistillationDiagnostic,
+  type DistillationProvenance,
+  type ProviderDistillationDiagnostic,
+  type ProviderDistillationDiagnosticEvent,
+  type ProviderDistillationDiagnosticSink,
+  type ProviderDistillationExtractedResult,
+  type ProviderDistillationFailedResult,
+  type ProviderDistillationPendingResult,
+  type ProviderDistillationRunRequest,
+  type ProviderDistillationRunResult,
+  type ProviderDistillationServiceErrorCode,
+  type ProviderDistillationServiceOptions,
+  type ProviderDistillationThread,
+  type ProviderTransmissionDecision,
+  type ProviderTransmissionDeniedReason,
+} from "./provider-distillation-service.js";
+export {
   CanonicalJsonlError,
   canonicalJsonlLineSha256,
   parseCanonicalJsonlLine,
