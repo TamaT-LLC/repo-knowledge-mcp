@@ -22,6 +22,7 @@ import {
   parseDistillationPrompt,
   parseRepoKnowledgeConfig,
   type LlmProviderAdapter,
+  type DistillJobCoordinatorOptions,
   type ProviderDistillationDiagnostic,
   type ProviderDistillationThread,
   type RepoKnowledgeConfig,
@@ -188,7 +189,7 @@ describe("ProviderDistillationService", () => {
       const results = [];
       for (const deniedConfig of deniedConfigs) {
         results.push(
-          await service(coordinator, deniedConfig, adapter).run(
+          await service(repositoryRoot, deniedConfig, adapter).run(
             runRequest(created.job.job_id, thread),
           ),
         );
@@ -231,7 +232,7 @@ describe("ProviderDistillationService", () => {
     const diagnostics: ProviderDistillationDiagnostic[] = [];
 
     const result = await service(
-      coordinator,
+      repositoryRoot,
       configured,
       adapter,
       diagnostics,
@@ -280,7 +281,13 @@ describe("ProviderDistillationService", () => {
       "not-json-and-never-echoed",
       JSON.stringify({ candidates: [], skip_reason: null }),
     ]);
-    const runner = service(coordinator, configured, adapter);
+    const runner = service(repositoryRoot, configured, adapter, [], {
+      coordinator: {
+        jsonValidationRetryDelayMs: 1,
+        now: () => new Date(now),
+        tokens: ["lease-token-1", "lease-token-2"],
+      },
+    });
 
     const retry = await runner.run(runRequest(created.job.job_id, thread));
     expect(retry).toMatchObject({
@@ -336,7 +343,7 @@ describe("ProviderDistillationService", () => {
       provider: "different-provider",
     }));
 
-    const result = await service(coordinator, configured, adapter).run(
+    const result = await service(repositoryRoot, configured, adapter).run(
       runRequest(created.job.job_id, thread),
     );
 
@@ -366,7 +373,7 @@ describe("ProviderDistillationService", () => {
     ]);
 
     await expect(
-      service(coordinator, configured, adapter).run({
+      service(repositoryRoot, configured, adapter).run({
         ...runRequest(created.job.job_id, thread),
         repositoryContext: { language: "Rust" },
       }),
@@ -378,12 +385,69 @@ describe("ProviderDistillationService", () => {
     expect(snapshot.domain.distillJobs[0]?.state).toBe("pending");
   });
 
+  it("cannot combine an allowed repository name with another repo ID", async () => {
+    const repositoryRoot = await createRepository();
+    const configured = enabledConfig();
+    const coordinator = createCoordinator(repositoryRoot);
+    const thread = threadFor(configured);
+    const created = await coordinator.createJob({
+      distillation_key: thread.distillationKey,
+      repo_id: "repo-policy-denied",
+      thread_id: thread.threadId,
+    });
+    const adapter = new FakeProvider([
+      JSON.stringify({ candidates: [], skip_reason: "pr_specific" }),
+    ]);
+
+    await expect(
+      service(repositoryRoot, configured, adapter).run(
+        runRequest(created.job.job_id, thread),
+      ),
+    ).rejects.toMatchObject({ code: "DISTILL_JOB_NOT_FOUND" });
+    expect(adapter.requests).toEqual([]);
+  });
+
+  it("renews the lease while a provider call exceeds its initial duration", async () => {
+    const repositoryRoot = await createRepository();
+    const configured = enabledConfig();
+    const coordinator = createCoordinator(repositoryRoot);
+    const thread = threadFor(configured);
+    const created = await coordinator.createJob({
+      distillation_key: thread.distillationKey,
+      repo_id: REPO_ID,
+      thread_id: thread.threadId,
+    });
+    const adapter = new FakeProvider([], async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 1_200));
+      return fakeResponse(
+        JSON.stringify({ candidates: [], skip_reason: "pr_specific" }),
+      );
+    });
+    const runner = service(repositoryRoot, configured, adapter, [], {
+      coordinator: { leaseDurationMs: 500 },
+      leaseHeartbeatIntervalMs: 50,
+    });
+
+    await expect(
+      runner.run(runRequest(created.job.job_id, thread)),
+    ).resolves.toMatchObject({
+      job: { state: "awaiting_finalize" },
+      state: "extracted",
+    });
+    const snapshot = await new CanonicalTransactionStore(
+      repositoryRoot,
+    ).readSnapshot();
+    expect(
+      snapshot.records.filter(
+        (record) => record.record.record_type === "DistillationJobLeaseRenewed",
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("does not hold the repo writer lock while the provider is waiting", async () => {
     const repositoryRoot = await createRepository();
     const configured = enabledConfig();
-    const coordinator = createCoordinator(repositoryRoot, {
-      tokens: ["provider-wait-token"],
-    });
+    const coordinator = createCoordinator(repositoryRoot);
     const thread = threadFor(configured);
     const created = await coordinator.createJob({
       distillation_key: thread.distillationKey,
@@ -406,7 +470,7 @@ describe("ProviderDistillationService", () => {
       );
     });
 
-    const running = service(coordinator, configured, adapter).run(
+    const running = service(repositoryRoot, configured, adapter).run(
       runRequest(created.job.job_id, thread),
     );
     await started;
@@ -473,21 +537,36 @@ async function createRepository(): Promise<string> {
   return repository;
 }
 
+interface TestCoordinatorOptions {
+  readonly jsonValidationRetryDelayMs?: number;
+  readonly leaseDurationMs?: number;
+  readonly now?: () => Date;
+  readonly tokens?: readonly string[];
+}
+
 function createCoordinator(
   repository: string,
-  options: {
-    readonly jsonValidationRetryDelayMs?: number;
-    readonly now?: () => Date;
-    readonly tokens?: string[];
-  } = {},
+  options: TestCoordinatorOptions = {},
 ): DistillJobCoordinator {
+  return new DistillJobCoordinator(
+    new CanonicalTransactionStore(repository),
+    coordinatorOptions(options),
+  );
+}
+
+function coordinatorOptions(
+  options: TestCoordinatorOptions,
+): DistillJobCoordinatorOptions {
   const tokens = [...(options.tokens ?? [])];
-  return new DistillJobCoordinator(new CanonicalTransactionStore(repository), {
+  return {
     ...(options.jsonValidationRetryDelayMs === undefined
       ? {}
       : {
           jsonValidationRetryDelayMs: options.jsonValidationRetryDelayMs,
         }),
+    ...(options.leaseDurationMs === undefined
+      ? {}
+      : { leaseDurationMs: options.leaseDurationMs }),
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(tokens.length === 0
       ? {}
@@ -498,20 +577,36 @@ function createCoordinator(
             return token;
           },
         }),
-  });
+  };
 }
 
 function service(
-  coordinator: DistillJobCoordinator,
+  repositoryRoot: string,
   configured: RepoKnowledgeConfig,
   adapter: LlmProviderAdapter,
   diagnostics: ProviderDistillationDiagnostic[] = [],
+  options: {
+    readonly coordinator?: TestCoordinatorOptions;
+    readonly leaseHeartbeatIntervalMs?: number;
+  } = {},
 ): ProviderDistillationService {
-  return new ProviderDistillationService(coordinator, {
+  return new ProviderDistillationService({
     adapter,
     config: configured,
+    coordinatorOptions: coordinatorOptions(options.coordinator ?? {}),
     diagnosticSink: (diagnostic) => diagnostics.push(diagnostic),
+    ...(options.leaseHeartbeatIntervalMs === undefined
+      ? {}
+      : { leaseHeartbeatIntervalMs: options.leaseHeartbeatIntervalMs }),
     prompt: parseDistillationPrompt(PROMPT_SOURCE),
+    repository: {
+      absolutePath: repositoryRoot,
+      aliases: [],
+      currentName: REPOSITORY,
+      path: "repo-1",
+      repoId: REPO_ID,
+      source: "tool-repo",
+    },
   });
 }
 
@@ -588,15 +683,11 @@ function runRequest(
   thread: ProviderDistillationThread,
 ): {
   readonly job_id: string;
-  readonly repo_id: string;
-  readonly repository: string;
   readonly repositoryContext: { readonly language: string };
   readonly thread: ProviderDistillationThread;
 } {
   return {
     job_id: jobId,
-    repo_id: REPO_ID,
-    repository: REPOSITORY,
     repositoryContext: REPOSITORY_CONTEXT,
     thread,
   };

@@ -299,7 +299,9 @@ export {
   type DistillationPromptThread,
 } from "./distillation-prompt.js";
 export {
+  DEFAULT_PROVIDER_LEASE_HEARTBEAT_INTERVAL_MS,
   DistillationOutputValidationError,
+  ProviderLeaseHeartbeatError,
   ProviderDistillationService,
   ProviderDistillationServiceError,
   evaluateProviderTransmission,

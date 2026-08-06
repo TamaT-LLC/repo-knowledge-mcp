@@ -15,6 +15,7 @@ import {
   type DistillationOutput,
   type RepoKnowledgeConfig,
 } from "./domain-schemas.js";
+import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
 import {
   DISTILLATION_OUTPUT_JSON_SCHEMA,
   DISTILLATION_OUTPUT_SCHEMA_DIGEST,
@@ -24,7 +25,9 @@ import {
   type DistillationPromptThread,
 } from "./distillation-prompt.js";
 import {
+  DEFAULT_DISTILL_JOB_LEASE_DURATION_MS,
   DistillJobCoordinator,
+  type DistillJobCoordinatorOptions,
   type DistillJobLeaseCredentials,
 } from "./distill-job-coordinator.js";
 import {
@@ -38,6 +41,9 @@ import {
   type LlmProviderFailureKind,
   type StructuredCompletionResponse,
 } from "./llm-provider.js";
+import type { RepositoryResolution } from "./repository-resolver.js";
+
+export const DEFAULT_PROVIDER_LEASE_HEARTBEAT_INTERVAL_MS = 60_000;
 
 export type ProviderTransmissionDeniedReason =
   "cloud_transmission_disabled" | "mode_disabled" | "repository_policy_denied";
@@ -60,8 +66,6 @@ export interface ProviderDistillationThread extends DistillationPromptThread {
 
 export interface ProviderDistillationRunRequest {
   readonly job_id: string;
-  readonly repo_id: string;
-  readonly repository: string;
   readonly repositoryContext: unknown;
   readonly signal?: AbortSignal;
   readonly thread: ProviderDistillationThread;
@@ -127,8 +131,12 @@ export type ProviderDistillationDiagnosticSink = (
 export interface ProviderDistillationServiceOptions {
   readonly adapter: LlmProviderAdapter;
   readonly config: RepoKnowledgeConfig;
+  readonly coordinatorOptions?: DistillJobCoordinatorOptions;
   readonly diagnosticSink?: ProviderDistillationDiagnosticSink;
+  readonly leaseHeartbeatIntervalMs?: number;
   readonly prompt: DistillationPromptTemplate;
+  /** A single identity returned by RepositoryResolver binds name, ID, and root. */
+  readonly repository: RepositoryResolution;
 }
 
 export type ProviderDistillationServiceErrorCode =
@@ -188,17 +196,26 @@ export function evaluateProviderTransmission(
 export class ProviderDistillationService {
   private readonly adapter: LlmProviderAdapter;
   private readonly config: RepoKnowledgeConfig;
+  private readonly coordinator: DistillJobCoordinator;
   private readonly diagnosticSink: ProviderDistillationDiagnosticSink;
+  private readonly leaseHeartbeatIntervalMs: number;
   private readonly outputSchemaDigest: string;
   private readonly prompt: DistillationPromptTemplate;
+  private readonly repoId: string;
+  private readonly repositoryName: string;
   private readonly trustPolicyDigest: string;
 
-  constructor(
-    private readonly coordinator: DistillJobCoordinator,
-    options: ProviderDistillationServiceOptions,
-  ) {
+  constructor(options: ProviderDistillationServiceOptions) {
     this.adapter = options.adapter;
     this.config = RepoKnowledgeConfigSchema.parse(options.config);
+    this.repoId = RepositoryIdSchema.parse(options.repository.repoId);
+    this.repositoryName = RepositoryNameSchema.parse(
+      options.repository.currentName,
+    );
+    this.coordinator = new DistillJobCoordinator(
+      new CanonicalTransactionStore(options.repository.absolutePath),
+      options.coordinatorOptions,
+    );
     this.prompt = {
       instructions: NonEmptyStringSchema.parse(options.prompt.instructions),
       promptDigest: Sha256DigestSchema.parse(options.prompt.promptDigest),
@@ -206,6 +223,18 @@ export class ProviderDistillationService {
     };
     this.diagnosticSink =
       options.diagnosticSink ?? writeProviderDistillationDiagnostic;
+    this.leaseHeartbeatIntervalMs = positiveHeartbeatInterval(
+      options.leaseHeartbeatIntervalMs ??
+        DEFAULT_PROVIDER_LEASE_HEARTBEAT_INTERVAL_MS,
+    );
+    const leaseDuration =
+      options.coordinatorOptions?.leaseDurationMs ??
+      DEFAULT_DISTILL_JOB_LEASE_DURATION_MS;
+    if (this.leaseHeartbeatIntervalMs >= leaseDuration) {
+      throw new TypeError(
+        "leaseHeartbeatIntervalMs must be shorter than the job lease duration",
+      );
+    }
     this.outputSchemaDigest = Sha256DigestSchema.parse(
       computeOutputSchemaDigest(DISTILLATION_OUTPUT_JSON_SCHEMA),
     );
@@ -218,10 +247,11 @@ export class ProviderDistillationService {
   async run(
     request: ProviderDistillationRunRequest,
   ): Promise<ProviderDistillationRunResult> {
-    const repoId = RepositoryIdSchema.parse(request.repo_id);
     const jobId = JobIdSchema.parse(request.job_id);
-    const repository = RepositoryNameSchema.parse(request.repository);
-    const access = evaluateProviderTransmission(this.config, repository);
+    const access = evaluateProviderTransmission(
+      this.config,
+      this.repositoryName,
+    );
     if (!access.allowed) {
       return { reason: access.reason, state: "pending" };
     }
@@ -245,7 +275,7 @@ export class ProviderDistillationService {
     });
     const lease = await this.coordinator.acquireLease({
       job_id: jobId,
-      repo_id: repoId,
+      repo_id: this.repoId,
     });
     if (lease === null) {
       return { reason: "job_unavailable", state: "pending" };
@@ -276,19 +306,35 @@ export class ProviderDistillationService {
       provider: this.adapter.provider,
     });
 
+    const providerAbort = new AbortController();
+    const providerSignal =
+      request.signal === undefined
+        ? providerAbort.signal
+        : AbortSignal.any([request.signal, providerAbort.signal]);
+    const heartbeat = startLeaseHeartbeat(
+      this.coordinator,
+      lease,
+      this.leaseHeartbeatIntervalMs,
+      providerAbort,
+    );
     let response: StructuredCompletionResponse;
     try {
       response = validateProviderResponse(
-        await this.adapter.completeStructured({
-          input,
-          jsonSchema: DISTILLATION_OUTPUT_JSON_SCHEMA,
-          ...(access.model === null ? {} : { model: access.model }),
-          ...(request.signal === undefined ? {} : { signal: request.signal }),
-          system: this.prompt.instructions,
-        }),
+        await Promise.race([
+          this.adapter.completeStructured({
+            input,
+            jsonSchema: DISTILLATION_OUTPUT_JSON_SCHEMA,
+            ...(access.model === null ? {} : { model: access.model }),
+            signal: providerSignal,
+            system: this.prompt.instructions,
+          }),
+          heartbeat.failure,
+        ]),
         this.adapter.provider,
       );
     } catch (error) {
+      await heartbeat.stop();
+      if (error instanceof ProviderLeaseHeartbeatError) throw error;
       const failureKind =
         error instanceof LlmProviderError ? error.failureKind : "system";
       const failureCode =
@@ -309,6 +355,7 @@ export class ProviderDistillationService {
       });
       return { failure_kind: failureKind, job, state: "failed" };
     }
+    await heartbeat.stop();
 
     let output: DistillationOutput;
     try {
@@ -515,8 +562,76 @@ function validateProviderResponse(
   };
 }
 
+export class ProviderLeaseHeartbeatError extends Error {
+  readonly code = "PROVIDER_LEASE_HEARTBEAT_FAILED";
+
+  constructor(options: ErrorOptions) {
+    super("PROVIDER_LEASE_HEARTBEAT_FAILED: job lease renewal failed", options);
+    this.name = "ProviderLeaseHeartbeatError";
+  }
+}
+
+interface LeaseHeartbeat {
+  readonly failure: Promise<never>;
+  stop(): Promise<void>;
+}
+
+function startLeaseHeartbeat(
+  coordinator: DistillJobCoordinator,
+  lease: DistillJobLeaseCredentials,
+  intervalMs: number,
+  providerAbort: AbortController,
+): LeaseHeartbeat {
+  let stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+  let inFlight = Promise.resolve();
+  let rejectFailure!: (reason: ProviderLeaseHeartbeatError) => void;
+  const failure = new Promise<never>((_, reject) => {
+    rejectFailure = reject;
+  });
+  const schedule = (): void => {
+    timer = setTimeout(() => {
+      if (stopped) return;
+      inFlight = coordinator
+        .renewLease(lease)
+        .then(() => {
+          if (!stopped) schedule();
+        })
+        .catch((error: unknown) => {
+          if (stopped) return;
+          stopped = true;
+          const failureError = new ProviderLeaseHeartbeatError({
+            cause: error,
+          });
+          providerAbort.abort(failureError);
+          rejectFailure(failureError);
+        });
+    }, intervalMs);
+    timer.unref();
+  };
+  schedule();
+  return {
+    failure,
+    stop: async () => {
+      if (stopped) return inFlight;
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+      await inFlight;
+    },
+  };
+}
+
 function zodFreeString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function positiveHeartbeatInterval(value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(
+      "leaseHeartbeatIntervalMs must be a positive safe integer",
+    );
+  }
+  return value;
 }
 
 function leaseCredentials(
