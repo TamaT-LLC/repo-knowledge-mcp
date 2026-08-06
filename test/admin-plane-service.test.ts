@@ -89,7 +89,7 @@ describe("AdminPlaneService review views", () => {
       status: "proposed",
     });
     expect(cancelled).toEqual({ confirmed: false });
-    const screen = terminal.output.join("");
+    const screen = terminal.output[0] ?? "";
     expect(screen).toContain("Rule:");
     expect(screen).toContain("Severity:");
     expect(screen).toContain("Scope:");
