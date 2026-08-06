@@ -4,6 +4,9 @@
   "description": "Deterministic primitives for the repo knowledge MCP write path",
   "type": "module",
   "private": true,
+  "bin": {
+    "repo-knowledge-mcp": "./dist/stdio-bin.js"
+  },
   "engines": {
     "node": "^22.13.0 || >=24.0.0"
   },

@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
@@ -22,10 +26,16 @@ const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const REPOSITORY = "owner/repository";
 const handles: Array<{ close(): Promise<void> }> = [];
 const clients: WireClient[] = [];
+const temporaryHomes: string[] = [];
 
 afterEach(async () => {
   await Promise.all(handles.splice(0).map(async (handle) => handle.close()));
   await Promise.all(clients.splice(0).map(async (client) => client.close()));
+  await Promise.all(
+    temporaryHomes
+      .splice(0)
+      .map((path) => rm(path, { force: true, recursive: true })),
+  );
 });
 
 describe("repo-knowledge MCP read server", () => {
@@ -192,6 +202,46 @@ describe("repo-knowledge MCP read server", () => {
       msg: "stderr-only-marker",
       name: "repo-knowledge",
     });
+  });
+
+  it("starts the packaged stdio bin with JSON-RPC-only stdout", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "rkm-stdio-bin-"));
+    temporaryHomes.push(storageRoot);
+    const messages = [
+      {
+        id: 1,
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {
+          capabilities: {},
+          clientInfo: { name: "stdio-bin-test", version: "1.0.0" },
+          protocolVersion: "2025-11-25",
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+        params: {},
+      },
+      { id: 2, jsonrpc: "2.0", method: "tools/list", params: {} },
+    ];
+    const result = await execa(process.execPath, ["dist/stdio-bin.js"], {
+      cwd: process.cwd(),
+      env: { ...process.env, REPO_KNOWLEDGE_HOME: storageRoot },
+      input: `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
+    });
+
+    expect(result.stderr).toBe("");
+    const replies = result.stdout
+      .split(/\r?\n/u)
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as JsonRpcReply);
+    expect(replies).toHaveLength(2);
+    expect(replies[0]).toMatchObject({
+      id: 1,
+      result: { serverInfo: { name: "repo-knowledge" } },
+    });
+    expect(readTools(replies[1]!)).toHaveLength(3);
   });
 });
 
