@@ -563,6 +563,29 @@ export {
   type SearchKnowledgeRequest,
   type SearchKnowledgeResult,
 } from "./knowledge-read-service.js";
+export {
+  CanonicalKnowledgeReadServiceResolver,
+  GetKnowledgeInputSchema,
+  GetKnowledgeOutputSchema,
+  GetRulesInputSchema,
+  GetRulesOutputSchema,
+  READ_TOOL_ANNOTATIONS,
+  REPO_KNOWLEDGE_SERVER_INSTRUCTIONS,
+  REPO_KNOWLEDGE_SERVER_NAME,
+  REPO_KNOWLEDGE_SERVER_VERSION,
+  SearchKnowledgeInputSchema,
+  SearchKnowledgeOutputSchema,
+  buildServer,
+  createStderrLogger,
+  serveRepoKnowledgeStdio,
+  type BuildServerOptions,
+  type CanonicalKnowledgeReadServiceResolverOptions,
+  type KnowledgeReadOperations,
+  type KnowledgeReadServiceResolutionInput,
+  type KnowledgeReadServiceResolver,
+  type RepoKnowledgeLogger,
+  type ServeRepoKnowledgeStdioOptions,
+} from "./mcp-server.js";
 export { FileLockTimeoutError, withPosixFileLock } from "./posix-file-lock.js";
 export {
   RequestIntegrityError,
