@@ -425,8 +425,8 @@ describe("ProviderDistillationService", () => {
       );
     });
     const runner = service(repositoryRoot, configured, adapter, [], {
-      coordinator: { leaseDurationMs: 500 },
-      leaseHeartbeatIntervalMs: 50,
+      coordinator: { leaseDurationMs: 1_000 },
+      leaseHeartbeatIntervalMs: 100,
     });
 
     await expect(

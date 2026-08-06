@@ -1,7 +1,6 @@
 import {
   computeOutputSchemaDigest,
   computeTrustPolicyDigest,
-  resolveRepositoryPolicy,
 } from "./config.js";
 import {
   DistillationOutputSchema,
@@ -41,23 +40,19 @@ import {
   type LlmProviderFailureKind,
   type StructuredCompletionResponse,
 } from "./llm-provider.js";
+import {
+  evaluateProviderTransmission,
+  type ProviderTransmissionDeniedReason,
+} from "./provider-transmission.js";
 import type { RepositoryResolution } from "./repository-resolver.js";
 
+export { evaluateProviderTransmission } from "./provider-transmission.js";
+export type {
+  ProviderTransmissionDecision,
+  ProviderTransmissionDeniedReason,
+} from "./provider-transmission.js";
+
 export const DEFAULT_PROVIDER_LEASE_HEARTBEAT_INTERVAL_MS = 60_000;
-
-export type ProviderTransmissionDeniedReason =
-  "cloud_transmission_disabled" | "mode_disabled" | "repository_policy_denied";
-
-export type ProviderTransmissionDecision =
-  | {
-      readonly allowed: false;
-      readonly reason: ProviderTransmissionDeniedReason;
-    }
-  | {
-      readonly allowed: true;
-      readonly mode: "anthropic";
-      readonly model: string | null;
-    };
 
 export interface ProviderDistillationThread extends DistillationPromptThread {
   readonly distillationInputDigest: string;
@@ -162,34 +157,6 @@ export class DistillationOutputValidationError extends Error {
     super(`DISTILLATION_OUTPUT_INVALID: ${validationSummary}`);
     this.name = "DistillationOutputValidationError";
   }
-}
-
-/** Evaluates mode and the effective per-repository transmission opt-in. */
-export function evaluateProviderTransmission(
-  config: RepoKnowledgeConfig,
-  repository: string,
-): ProviderTransmissionDecision {
-  const parsed = RepoKnowledgeConfigSchema.parse(config);
-  const normalizedRepository = RepositoryNameSchema.parse(repository);
-  if (parsed.llm.mode === "disabled") {
-    return { allowed: false, reason: "mode_disabled" };
-  }
-  const policy = resolveRepositoryPolicy(parsed, normalizedRepository);
-  if (!policy.allowCloudTransmission) {
-    return {
-      allowed: false,
-      reason:
-        parsed.repoPolicies[normalizedRepository]?.allowCloudTransmission ===
-        false
-          ? "repository_policy_denied"
-          : "cloud_transmission_disabled",
-    };
-  }
-  return {
-    allowed: true,
-    mode: parsed.llm.mode,
-    model: parsed.llm.model,
-  };
 }
 
 /** Processes one leased provider attempt; all provider waits occur lock-free. */

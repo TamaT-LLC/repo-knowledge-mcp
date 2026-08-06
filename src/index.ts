@@ -376,6 +376,44 @@ export {
   type FingerprintComment,
 } from "./finalize-guard.js";
 export {
+  normalizePossibleMatchSets,
+  type PossibleKnowledgeMatch,
+  type PossibleKnowledgeMatchBinding,
+  type PossibleMatchBinding,
+  type PossibleMatchSet,
+  type PossibleMatchStatus,
+} from "./possible-match.js";
+export {
+  DEFAULT_MERGE_CANDIDATE_LIMIT,
+  MAX_MERGE_CANDIDATE_LIMIT,
+  MIN_MERGE_CANDIDATE_LIMIT,
+  MergeCandidateSearchError,
+  MergeCandidateSearchService,
+  collapseExactCandidateRules,
+  normalizeCandidateRule,
+  scopesMayOverlap,
+  type MergeCandidateSearchErrorCode,
+  type MergeCandidateSearchRepository,
+  type MergeCandidateSearchRequest,
+  type MergeCandidateSearchResult,
+  type MergeCandidateSearchServiceOptions,
+} from "./merge-candidate-service.js";
+export {
+  MERGE_CLASSIFIER_OUTPUT_JSON_SCHEMA,
+  MERGE_CLASSIFIER_OUTPUT_SCHEMA_VERSION,
+  MERGE_CLASSIFIER_SYSTEM_PROMPT,
+  MergeClassifierError,
+  ProviderMergeRelationClassifier,
+  buildMergeClassifierInput,
+  parseProviderMergeDecisions,
+  validateMergeDecisions,
+  type MergeClassificationRequest,
+  type MergeClassificationResult,
+  type MergeClassifierErrorCode,
+  type MergeRelationClassifier,
+  type ProviderMergeRelationClassifierOptions,
+} from "./merge-classifier.js";
+export {
   ProjectionStaleError,
   buildKnowledgeProjection,
   computeKnowledgeFileState,
@@ -481,7 +519,6 @@ export {
   type FinalizeReplayResult,
   type MergeDecisionRequiredRuntimeResponse,
   type MergeDecisionRequiredStableResponse,
-  type PossibleMatchBinding,
   type Receipt,
   type ReceiptMissResult,
   type ReceiptReplayDependencies,
@@ -517,6 +554,7 @@ export {
 export {
   SqliteCanonicalProjection,
   type CanonicalKnowledgeReadView,
+  type CanonicalKnowledgeSearchView,
   type CanonicalProjectionSnapshot,
   type ProjectedCanonicalRecord,
 } from "./sqlite-projection.js";
