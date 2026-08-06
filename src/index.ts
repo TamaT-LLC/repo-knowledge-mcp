@@ -10,6 +10,19 @@ export {
   type NormalizableComment,
 } from "./canonical.js";
 export {
+  DEFINITIVE_NON_KNOWLEDGE_SKIP_REASONS,
+  applySkipReasonPolicy,
+  isDefinitiveNonKnowledge,
+  type DefinitiveNonKnowledgeSkipReason,
+  type EvidenceRecord,
+  type EvidenceStatus,
+  type ManualReviewMarker,
+  type SkipPolicyInput,
+  type SkipPolicyResult,
+  type SkipReason,
+  type SkippedStableResponse,
+} from "./evidence-policy.js";
+export {
   ProjectionStaleError,
   buildKnowledgeProjection,
   computeKnowledgeFileState,
