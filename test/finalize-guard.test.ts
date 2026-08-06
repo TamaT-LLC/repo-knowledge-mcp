@@ -315,6 +315,7 @@ function finalizeContext(
     lease_generation: 7,
     match_set_digest: computeMatchSetDigest(BASE_MATCHES),
     possible_matches: BASE_MATCHES,
+    request_sha256: `sha256:${"a".repeat(64)}`,
     source_snapshot_id: "snapshot-original",
     token_hash: "finalize-token-hash",
     ...overrides,

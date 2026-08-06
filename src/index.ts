@@ -604,6 +604,16 @@ export {
   type ReplayJob,
 } from "./receipt-replay.js";
 export {
+  SUBMISSION_EVENT_PATH,
+  SubmitDistillationError,
+  SubmitDistillationService,
+  type SubmitDistillationErrorCode,
+  type SubmitDistillationServiceOptions,
+  type SubmitExtractMergeResponse,
+  type SubmitExtractRequest,
+  type SubmitExtractResponse,
+} from "./submit-distillation-service.js";
+export {
   RepositoryRegistry,
   RepositoryRegistryError,
   repositoryStorageId,

@@ -368,6 +368,7 @@ function extractRequest(
     lease_token: "lease-token",
     phase: "extract",
     request_schema_version: 1,
+    skip_reason: null,
     submission_id: "extract-submission",
     thread_fingerprint: "thread-fingerprint",
     ...overrides,

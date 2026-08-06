@@ -67,6 +67,7 @@ describe("request_sha256 input", () => {
       lease_token_hash: sha256(request.lease_token),
       phase: "extract",
       request_schema_version: 1,
+      skip_reason: null,
       thread_fingerprint: request.thread_fingerprint,
     });
   });
@@ -130,6 +131,53 @@ describe("request_sha256 input", () => {
     });
 
     expect(computeRequestSha256(first)).toBe(computeRequestSha256(second));
+  });
+
+  it("treats candidate and decision arrays as sets while binding skip_reason", () => {
+    const candidateA = {
+      evidence_comment_ids: ["comment-a"],
+      rule: "Rule A",
+      scope: ["src/a/**"],
+    };
+    const candidateB = {
+      evidence_comment_ids: ["comment-b"],
+      rule: "Rule B",
+      scope: ["src/b/**"],
+    };
+    expect(
+      computeRequestSha256(
+        extractRequest({ candidates: [candidateA, candidateB] }),
+      ),
+    ).toBe(
+      computeRequestSha256(
+        extractRequest({ candidates: [candidateB, candidateA] }),
+      ),
+    );
+    expect(
+      computeRequestSha256(
+        extractRequest({ candidates: [], skip_reason: "typo" }),
+      ),
+    ).not.toBe(
+      computeRequestSha256(
+        extractRequest({
+          candidates: [],
+          skip_reason: "insufficient_context",
+        }),
+      ),
+    );
+
+    const firstFinalize = finalizeRequest({
+      decisions: [
+        { candidate_id: "candidate-a", decision: "create" },
+        { candidate_id: "candidate-b", decision: "merge" },
+      ],
+    });
+    const secondFinalize = finalizeRequest({
+      decisions: [...firstFinalize.decisions].reverse(),
+    });
+    expect(computeRequestSha256(firstFinalize)).toBe(
+      computeRequestSha256(secondFinalize),
+    );
   });
 });
 
@@ -254,6 +302,7 @@ function extractRequest(
     lease_token: "plaintext-lease-token",
     phase: "extract",
     request_schema_version: 1,
+    skip_reason: null,
     submission_id: "submission-1",
     thread_fingerprint: "thread-fingerprint-1",
     ...overrides,

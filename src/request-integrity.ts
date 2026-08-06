@@ -2,6 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import {
   canonicalizeJson,
+  compareCodeUnits,
   normalizeSetArrays,
   sha256Jcs,
 } from "./canonical.js";
@@ -13,6 +14,7 @@ export interface ExtractRequest {
   readonly lease_token: string;
   readonly phase: "extract";
   readonly request_schema_version: 1;
+  readonly skip_reason: string | null;
   readonly submission_id: string;
   readonly thread_fingerprint: string;
 }
@@ -38,6 +40,7 @@ export interface ExtractRequestHashPayload {
   readonly lease_token_hash: string;
   readonly phase: "extract";
   readonly request_schema_version: number;
+  readonly skip_reason: string | null;
   readonly thread_fingerprint: string;
 }
 
@@ -69,23 +72,24 @@ export function buildRequestHashPayload(
   };
 
   if (request.phase === "extract") {
-    return normalizeSetArrays({
+    return {
       ...common,
-      candidates: request.candidates,
+      candidates: normalizeUnorderedObjects(request.candidates),
       lease_token_hash: sha256Text(request.lease_token),
       phase: "extract" as const,
+      skip_reason: request.skip_reason,
       thread_fingerprint: request.thread_fingerprint,
-    });
+    };
   }
 
-  return normalizeSetArrays({
+  return {
     ...common,
     candidate_set_sha256: request.candidate_set_sha256,
-    decisions: request.decisions,
+    decisions: normalizeUnorderedObjects(request.decisions),
     finalize_token_hash: sha256Text(request.finalize_token),
     lease_token_hash: sha256Text(request.lease_token),
     phase: "finalize" as const,
-  });
+  };
 }
 
 /** Computes the request SHA-256 over the normalized RFC 8785 JCS payload. */
@@ -273,6 +277,15 @@ export class SubmissionIdempotencyStore {
 
 function sha256Text(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+/** Normalizes set-valued members and the order of an object-valued set. */
+function normalizeUnorderedObjects(values: readonly unknown[]): unknown[] {
+  return values
+    .map((value) => normalizeSetArrays(value))
+    .sort((left, right) =>
+      compareCodeUnits(canonicalizeJson(left), canonicalizeJson(right)),
+    );
 }
 
 function signTokenPayload(encodedClaims: string, secret: Uint8Array): string {

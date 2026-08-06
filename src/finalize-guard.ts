@@ -36,6 +36,8 @@ export interface FinalizeContext {
   readonly lease_generation: number;
   readonly match_set_digest: string;
   readonly possible_matches: readonly PossibleMatchBinding[];
+  /** Canonical extract request digest that authorized this handle. */
+  readonly request_sha256: string;
   /** Provenance only; a changed snapshot ID is not itself a mismatch. */
   readonly source_snapshot_id: string;
   readonly token_hash: string;

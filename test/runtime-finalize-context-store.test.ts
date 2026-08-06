@@ -83,6 +83,7 @@ function contextInput() {
     lease_generation: 2,
     match_set_digest: computeMatchSetDigest(POSSIBLE_MATCHES),
     possible_matches: POSSIBLE_MATCHES,
+    request_sha256: `sha256:${"4".repeat(64)}`,
     source_snapshot_id: "snap_01ARZ3NDEKTSV4RRFFQ69G5FAV",
   } as const;
 }
