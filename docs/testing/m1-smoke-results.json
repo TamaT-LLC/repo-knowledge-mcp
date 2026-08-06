@@ -1,0 +1,192 @@
+{
+  "cases": [
+    {
+      "pr_number": 36,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 0,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC5089YQNJKRK9JJNETA7MM",
+        "unchanged": 0,
+        "warnings": 0
+      },
+      "status": "pass"
+    },
+    {
+      "pr_number": 37,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 0,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC509TYMHXTJ88X4GAXEKF5",
+        "unchanged": 0,
+        "warnings": 0
+      },
+      "status": "pass"
+    },
+    {
+      "pr_number": 38,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 0,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC50B9V686M7PC9WQK290NV",
+        "unchanged": 0,
+        "warnings": 0
+      },
+      "status": "pass"
+    },
+    {
+      "pr_number": 39,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 3,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC50CWV4DTXKEJSGY4MCEF3",
+        "unchanged": 0,
+        "warnings": 1
+      },
+      "status": "pass"
+    },
+    {
+      "pr_number": 40,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 6,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC50EH0VRQQXMZHE69QB725",
+        "unchanged": 0,
+        "warnings": 1
+      },
+      "status": "pass"
+    },
+    {
+      "pr_number": 41,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 0,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC50G5V0YZ71Q7YTTRAV4YH",
+        "unchanged": 0,
+        "warnings": 0
+      },
+      "status": "pass"
+    },
+    {
+      "pr_number": 42,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 3,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC50HYPNM1AMB10ZKGHWBRD",
+        "unchanged": 0,
+        "warnings": 1
+      },
+      "status": "pass"
+    },
+    {
+      "pr_number": 43,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 0,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC50KGJ2MQEJG9MMT2KM4EJ",
+        "unchanged": 0,
+        "warnings": 0
+      },
+      "status": "pass"
+    },
+    {
+      "pr_number": 44,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 8,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC50NCZ07DKJHN5K10JDRRY",
+        "unchanged": 0,
+        "warnings": 1
+      },
+      "status": "pass"
+    },
+    {
+      "pr_number": 45,
+      "result": {
+        "changed_threads": 0,
+        "distilled": 0,
+        "jobs_created": 0,
+        "new_threads": 3,
+        "pending": 0,
+        "snapshot_id": "snap_01KZC50QD4GTPYW7EK68A3VQSZ",
+        "unchanged": 0,
+        "warnings": 1
+      },
+      "status": "pass"
+    }
+  ],
+  "commit": "a232e92ba6faa7d940ef667ebdd116d139ad1a1b",
+  "environment": {
+    "node": "24.18.0",
+    "platform": "darwin"
+  },
+  "finished_at": "2026-08-06T18:22:57.780Z",
+  "idempotency": {
+    "jobs_created": 0,
+    "pr_number": 36,
+    "status": "pass",
+    "unchanged": 0
+  },
+  "maintenance": {
+    "doctor": {
+      "status": "pass",
+      "summary": {
+        "fail": 0,
+        "pass": 26,
+        "warn": 0
+      }
+    },
+    "list": {
+      "status": "pass",
+      "summary": {
+        "knowledge": 0,
+        "repo": "TamaT-LLC/repo-knowledge-mcp",
+        "revision_proposals": 0
+      }
+    },
+    "reindex": {
+      "status": "pass",
+      "summary": {
+        "evidence": 0,
+        "jobs": 0,
+        "knowledge": 0,
+        "repo": "TamaT-LLC/repo-knowledge-mcp",
+        "submissions": 0
+      }
+    }
+  },
+  "manifest": {
+    "pull_requests": [36, 37, 38, 39, 40, 41, 42, 43, 44, 45],
+    "repository": "TamaT-LLC/repo-knowledge-mcp",
+    "schema_version": 1
+  },
+  "ok": true,
+  "schema_version": 1,
+  "started_at": "2026-08-06T18:22:36.208Z"
+}
