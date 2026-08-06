@@ -421,6 +421,59 @@ export const KnowledgeEvidenceSchema = z
   })
   .strict();
 
+export const KnowledgeOutcomeSchema = z
+  .object({
+    at: IsoDateTimeSchema,
+    context: z
+      .object({
+        file_paths: stringSetSchema(NonEmptyStringSchema).optional(),
+        pr_number: z.number().int().positive().optional(),
+        task_id: NonEmptyStringSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    knowledge_id: KnowledgeIdSchema,
+    note: NonEmptyStringSchema.optional(),
+    outcome: z.enum([
+      "applied",
+      "violated",
+      "not_applicable",
+      "false_positive",
+    ]),
+    repo_id: RepositoryIdSchema,
+  })
+  .strict();
+
+export const KnowledgeRevisionProposalStatusSchema = z.enum([
+  "pending",
+  "approved",
+  "rejected",
+]);
+export const KnowledgeRevisionPatchSchema = z
+  .object({
+    category: KnowledgeCategorySchema.optional(),
+    detail: NonEmptyStringSchema.optional(),
+    rule: NonEmptyStringSchema.optional(),
+    scope: stringSetSchema(ScopePatternSchema).optional(),
+    severity: SeveritySchema.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "revision proposal patch must not be empty",
+  });
+export const KnowledgeRevisionProposalSchema = z
+  .object({
+    created_at: IsoDateTimeSchema,
+    evidence_ids: stringSetSchema(EvidenceIdSchema).default([]),
+    knowledge_id: KnowledgeIdSchema,
+    patch: KnowledgeRevisionPatchSchema,
+    proposal_id: NonEmptyStringSchema,
+    repo_id: RepositoryIdSchema,
+    status: KnowledgeRevisionProposalStatusSchema.default("pending"),
+    updated_at: IsoDateTimeSchema,
+  })
+  .strict();
+
 export const ExtractCandidateSchema = z
   .object({
     candidate: DistilledCandidateSchema,
@@ -515,6 +568,16 @@ export type MergeDecision = z.infer<typeof MergeDecisionSchema>;
 export type DistillJob = z.infer<typeof DistillJobSchema>;
 export type EvidenceStatus = z.infer<typeof EvidenceStatusSchema>;
 export type KnowledgeEvidence = z.infer<typeof KnowledgeEvidenceSchema>;
+export type KnowledgeOutcome = z.infer<typeof KnowledgeOutcomeSchema>;
+export type KnowledgeRevisionPatch = z.infer<
+  typeof KnowledgeRevisionPatchSchema
+>;
+export type KnowledgeRevisionProposal = z.infer<
+  typeof KnowledgeRevisionProposalSchema
+>;
+export type KnowledgeRevisionProposalStatus = z.infer<
+  typeof KnowledgeRevisionProposalStatusSchema
+>;
 export type ExtractCandidate = z.infer<typeof ExtractCandidateSchema>;
 export type MergeDecisionRequiredStableResponse = z.infer<
   typeof MergeDecisionRequiredStableResponseSchema
