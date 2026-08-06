@@ -9,6 +9,7 @@ import {
   CanonicalTransactionStore,
   DISTILLATION_JOB_LEASE_EXPIRED,
   DISTILLATION_JOB_LEASED,
+  DISTILLATION_JOB_LEASE_REVOKED,
   DISTILL_JOB_EVENT_PATH,
   DistillJobCoordinator,
   reduceDistillationJobRecords,
@@ -273,6 +274,46 @@ describe("DistillJobCoordinator", () => {
       lease_generation: 2,
       job: { state: "awaiting_finalize" },
     });
+  });
+
+  it("explicitly resumes an active awaiting-finalize lease and fences its old token", async () => {
+    const repository = await createRepository();
+    let now = START;
+    const service = coordinator(repository, {
+      now: () => new Date(now),
+      tokens: ["active-finalize-token", "replacement-finalize-token"],
+    });
+    await service.createJob(jobRequest());
+    const original = await service.acquireLease({ repo_id: REPO_ID });
+    await service.markAwaitingFinalize(original!);
+
+    now += 1_000;
+    expect(
+      await service.acquireLease({
+        job_id: original!.job_id,
+        repo_id: REPO_ID,
+      }),
+    ).toBeNull();
+    const resumed = await service.acquireLease({
+      job_id: original!.job_id,
+      repo_id: REPO_ID,
+      resume_awaiting_finalize: true,
+    });
+
+    expect(resumed).toMatchObject({
+      lease_generation: 2,
+      lease_token: "replacement-finalize-token",
+      job: { state: "awaiting_finalize" },
+    });
+    await expect(service.succeed(original!)).rejects.toMatchObject({
+      code: "STALE_LEASE",
+    });
+    const snapshot = await new CanonicalTransactionStore(
+      repository,
+    ).readSnapshot();
+    expect(snapshot.records.map((entry) => entry.record.record_type)).toContain(
+      DISTILLATION_JOB_LEASE_REVOKED,
+    );
   });
 
   it("rejects an incorrect token for the current generation", async () => {
