@@ -10,6 +10,27 @@ export {
   type NormalizableComment,
 } from "./canonical.js";
 export {
+  CanonicalJsonlError,
+  canonicalJsonlLineSha256,
+  parseCanonicalJsonlLine,
+  serializeCanonicalJsonlRecord,
+  type CanonicalJsonlRecord,
+} from "./canonical-jsonl.js";
+export {
+  CanonicalStoreError,
+  CanonicalTransactionStore,
+  KnowledgeConflictError,
+  type CanonicalAppendRecordRequest,
+  type CanonicalCommitPoint,
+  type CanonicalFaultContext,
+  type CanonicalFaultInjector,
+  type CanonicalFileWriteRequest,
+  type CanonicalStoreErrorCode,
+  type CanonicalTransactionRequest,
+  type CanonicalTransactionStoreOptions,
+  type KnowledgeUpdateRequest,
+} from "./canonical-transaction-store.js";
+export {
   DEFINITIVE_NON_KNOWLEDGE_SKIP_REASONS,
   applySkipReasonPolicy,
   isDefinitiveNonKnowledge,
@@ -51,6 +72,17 @@ export {
   type KnowledgeProjectionBuilder,
   type KnowledgeSnapshot,
 } from "./knowledge-file-state.js";
+export {
+  KnowledgeStoreInvalidError,
+  applyKnowledgeDocumentPatch,
+  computeByteSha256,
+  parseKnowledgeDocument,
+  serializeKnowledgeDocument,
+  type KnowledgeDocument,
+  type KnowledgeDocumentPatch,
+  type KnowledgeFrontmatter,
+} from "./knowledge-document.js";
+export { FileLockTimeoutError, withPosixFileLock } from "./posix-file-lock.js";
 export {
   RequestIntegrityError,
   SubmissionIdempotencyStore,
@@ -95,3 +127,18 @@ export {
   type ReceiptStore,
   type ReplayJob,
 } from "./receipt-replay.js";
+export {
+  RepositoryRegistry,
+  RepositoryRegistryError,
+  repositoryStorageId,
+  type RegisterRepositoryRequest,
+  type RepositoryRegistryEntry,
+  type RepositoryRegistryErrorCode,
+  type RepositoryRegistryOptions,
+  type ResolvedRepository,
+} from "./repository-registry.js";
+export {
+  SqliteCanonicalProjection,
+  type CanonicalProjectionSnapshot,
+  type ProjectedCanonicalRecord,
+} from "./sqlite-projection.js";
