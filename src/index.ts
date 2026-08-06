@@ -23,6 +23,21 @@ export {
   type SkippedStableResponse,
 } from "./evidence-policy.js";
 export {
+  FinalizeGuard,
+  FinalizeGuardError,
+  computeContentFingerprint,
+  computeDistillationKey,
+  computeMatchSetDigest,
+  normalizePossibleMatchBindings,
+  type CurrentFinalizeSource,
+  type DistillationKeyInput,
+  type FinalizeContext,
+  type FinalizeGuardDependencies,
+  type FinalizeGuardErrorCode,
+  type FinalizeJob,
+  type FingerprintComment,
+} from "./finalize-guard.js";
+export {
   ProjectionStaleError,
   buildKnowledgeProjection,
   computeKnowledgeFileState,
