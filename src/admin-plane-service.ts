@@ -54,6 +54,7 @@ export type AdminPlaneErrorCode =
   | "ADMIN_PROJECTION_INVALID"
   | "INVALID_ADMIN_STATE"
   | "KNOWLEDGE_NOT_FOUND"
+  | "POSSIBLE_MATCH_QUERY_INVALID"
   | "REVISION_PROPOSAL_NOT_FOUND"
   | "REVISION_PROPOSAL_CHANGED"
   | "REVISION_PROPOSAL_NOT_PENDING"
@@ -67,31 +68,6 @@ export class AdminPlaneError extends Error {
   ) {
     super(`${code}: ${message}`, options);
     this.name = "AdminPlaneError";
-  }
-}
-
-/** Minimal prompt/output adapter; TTY trust is checked directly on process I/O. */
-export interface AdminTerminal {
-  readLine(prompt: string): Promise<string>;
-  write(value: string): Promise<void> | void;
-}
-
-/** Production terminal adapter backed by the process's real stdin/stdout. */
-export class NodeAdminTerminal implements AdminTerminal {
-  async readLine(prompt: string): Promise<string> {
-    const input = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-    try {
-      return await input.question(prompt);
-    } finally {
-      input.close();
-    }
-  }
-
-  write(value: string): void {
-    process.stdout.write(value);
   }
 }
 
@@ -183,7 +159,6 @@ export interface AdminPlaneServiceOptions {
   readonly repo: string;
   readonly repoId: string;
   readonly repository: CanonicalTransactionStore;
-  readonly terminal?: AdminTerminal;
 }
 
 interface CurrentKnowledge {
@@ -220,13 +195,11 @@ export class AdminPlaneService {
   private readonly possibleMatchLimit: number;
   private readonly proposalEventPath: string;
   private readonly repository: CanonicalTransactionStore;
-  private readonly terminal: AdminTerminal;
 
   constructor(options: AdminPlaneServiceOptions) {
     this.repo = RepositoryNameSchema.parse(options.repo);
     this.repoId = RepositoryIdSchema.parse(options.repoId);
     this.repository = options.repository;
-    this.terminal = options.terminal ?? new NodeAdminTerminal();
     this.now = options.now ?? (() => new Date());
     this.nextEventId =
       options.nextEventId ??
@@ -432,9 +405,14 @@ export class AdminPlaneService {
   private async findPossibleMatches(
     subject: AdminSearchSubject,
   ): Promise<readonly AdminPossibleMatch[]> {
-    const view = await this.repository.readKnowledgeView(
-      adminSearchRequest(subject, this.repoId),
-    );
+    const searchRequest = adminSearchRequest(subject, this.repoId);
+    if (searchRequest === undefined) {
+      throw new AdminPlaneError(
+        "POSSIBLE_MATCH_QUERY_INVALID",
+        "add --active requires rule or detail that can be normalized for possible-match review",
+      );
+    }
+    const view = await this.repository.readKnowledgeView(searchRequest);
     return possibleMatchesForReview(
       view,
       this.repoId,
@@ -444,11 +422,19 @@ export class AdminPlaneService {
   }
 
   private async confirm(expected: string, screen: string): Promise<boolean> {
-    await this.terminal.write(
+    process.stdout.write(
       `${screen}\nRequired confirmation: ${safeTerminalValue(expected)}\n`,
     );
-    const answer = await this.terminal.readLine("admin> ");
-    return answer.trim() === expected;
+    const input = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    try {
+      const answer = await input.question("admin> ");
+      return answer.trim() === expected;
+    } finally {
+      input.close();
+    }
   }
 
   private assertInteractiveTerminal(): void {

@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough, Writable } from "node:stream";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   AdminPlaneService,
@@ -11,7 +12,6 @@ import {
   createDomainId,
   parseKnowledgeDocument,
   serializeKnowledgeDocument,
-  type AdminTerminal,
   type CanonicalJsonlRecord,
   type KnowledgeEvidence,
   type KnowledgeRevisionProposal,
@@ -32,22 +32,12 @@ const SEED_TRANSACTION_ID = "txn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const HASH_A = `sha256:${"a".repeat(64)}`;
 const HASH_B = `sha256:${"b".repeat(64)}`;
 const temporaryRepositories: string[] = [];
-const originalStdinTty = Object.getOwnPropertyDescriptor(
-  process.stdin,
-  "isTTY",
-);
-const originalStdoutTty = Object.getOwnPropertyDescriptor(
-  process.stdout,
-  "isTTY",
-);
-
-beforeEach(() => {
-  setProcessTty(true, true);
-});
+const originalStdin = Object.getOwnPropertyDescriptor(process, "stdin")!;
+const originalStdout = Object.getOwnPropertyDescriptor(process, "stdout")!;
 
 afterEach(async () => {
-  restoreProperty(process.stdin, "isTTY", originalStdinTty);
-  restoreProperty(process.stdout, "isTTY", originalStdoutTty);
+  Object.defineProperty(process, "stdin", originalStdin);
+  Object.defineProperty(process, "stdout", originalStdout);
   await Promise.all(
     temporaryRepositories
       .splice(0)
@@ -124,8 +114,10 @@ describe("AdminPlaneService TTY boundary", () => {
     { inputIsTTY: false, outputIsTTY: false },
   ])("rejects non-interactive input/output %#", async (terminalState) => {
     const fixture = await createFixture();
-    const terminal = new FakeTerminal({ answers: [`approve ${PROPOSED_ID}`] });
-    setProcessTty(terminalState.inputIsTTY, terminalState.outputIsTTY);
+    const terminal = new FakeTerminal({
+      answers: [`approve ${PROPOSED_ID}`],
+      ...terminalState,
+    });
 
     await expect(
       service(fixture.store, terminal).approve(PROPOSED_ID),
@@ -152,8 +144,7 @@ describe("AdminPlaneService TTY boundary", () => {
 
   it("guards every admin mutation before reading confirmation input", async () => {
     const fixture = await createFixture();
-    const terminal = new FakeTerminal();
-    setProcessTty(false, true);
+    const terminal = new FakeTerminal({ inputIsTTY: false });
     const admin = service(fixture.store, terminal);
     const mutations = [
       () => admin.approve(PROPOSED_ID),
@@ -321,6 +312,31 @@ describe("AdminPlaneService knowledge mutations", () => {
     expect(terminal.output.join("")).toContain("Possible matches:");
     expect(terminal.output.join("")).toContain(ACTIVE_ID);
   });
+
+  it("rejects add --active when possible-match input cannot be normalized", async () => {
+    const fixture = await createFixture();
+    const terminal = new FakeTerminal({ answers: ["add --active"] });
+    const admin = service(fixture.store, terminal, {
+      nextKnowledgeId: () => ADDED_ID,
+    });
+
+    await expect(
+      admin.addActive({
+        category: "security",
+        detail: "***",
+        rule: "---",
+        scope: ["src/admin/**"],
+        severity: "must",
+      }),
+    ).rejects.toMatchObject({ code: "POSSIBLE_MATCH_QUERY_INVALID" });
+
+    expect(terminal.output).toEqual([]);
+    expect(
+      (await fixture.store.readSnapshot()).domain.knowledge.map(
+        (knowledge) => knowledge.id,
+      ),
+    ).not.toContain(ADDED_ID);
+  });
 });
 
 describe("AdminPlaneService revision proposals", () => {
@@ -415,29 +431,65 @@ describe("AdminPlaneService revision proposals", () => {
   });
 });
 
-class FakeTerminal implements AdminTerminal {
+class FakeTerminal {
   readonly output: string[] = [];
 
   private readonly answers: string[];
   private readonly beforeRead: (() => Promise<void>) | undefined;
+  private readonly input: PassThrough;
+  private readonly outputStream: Writable;
+  private promptCount = 0;
 
   constructor(
     options: {
       readonly answers?: readonly string[];
       readonly beforeRead?: () => Promise<void>;
+      readonly inputIsTTY?: boolean;
+      readonly outputIsTTY?: boolean;
     } = {},
   ) {
     this.answers = [...(options.answers ?? [])];
     this.beforeRead = options.beforeRead;
+    this.input = new PassThrough();
+    Object.defineProperty(this.input, "isTTY", {
+      value: options.inputIsTTY ?? true,
+    });
+    this.outputStream = new Writable({
+      write: (chunk, _encoding, callback) => {
+        const value = Buffer.isBuffer(chunk)
+          ? chunk.toString("utf8")
+          : String(chunk);
+        this.output.push(value);
+        callback();
+        if (value.includes("admin> ")) {
+          void this.answerPrompt();
+        }
+      },
+    });
+    Object.defineProperties(this.outputStream, {
+      columns: { value: 80 },
+      isTTY: { value: options.outputIsTTY ?? true },
+    });
   }
 
-  async readLine(): Promise<string> {
+  install(): void {
+    Object.defineProperty(process, "stdin", {
+      configurable: true,
+      enumerable: true,
+      value: this.input,
+    });
+    Object.defineProperty(process, "stdout", {
+      configurable: true,
+      enumerable: true,
+      value: this.outputStream,
+    });
+  }
+
+  private async answerPrompt(): Promise<void> {
+    const prompt = this.promptCount;
+    this.promptCount += 1;
     await this.beforeRead?.();
-    return this.answers.shift() ?? "";
-  }
-
-  write(value: string): void {
-    this.output.push(value);
+    this.input.write(`${this.answers[prompt] ?? ""}\n`);
   }
 }
 
@@ -624,12 +676,12 @@ function service(
   terminal: FakeTerminal,
   overrides: Partial<ConstructorParameters<typeof AdminPlaneService>[0]> = {},
 ): AdminPlaneService {
+  terminal.install();
   return new AdminPlaneService({
     now: () => new Date(NOW),
     repo: REPO,
     repoId: REPO_ID,
     repository: store,
-    terminal,
     ...overrides,
   });
 }
@@ -667,27 +719,4 @@ function statusOf(
   id: string,
 ): KnowledgeStatus | undefined {
   return snapshot.domain.knowledge.find((item) => item.id === id)?.status;
-}
-
-function setProcessTty(inputIsTTY: boolean, outputIsTTY: boolean): void {
-  Object.defineProperty(process.stdin, "isTTY", {
-    configurable: true,
-    value: inputIsTTY,
-  });
-  Object.defineProperty(process.stdout, "isTTY", {
-    configurable: true,
-    value: outputIsTTY,
-  });
-}
-
-function restoreProperty(
-  target: object,
-  property: PropertyKey,
-  descriptor: PropertyDescriptor | undefined,
-): void {
-  if (descriptor === undefined) {
-    Reflect.deleteProperty(target, property);
-    return;
-  }
-  Object.defineProperty(target, property, descriptor);
 }
