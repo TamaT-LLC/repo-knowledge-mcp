@@ -1,0 +1,1372 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-01",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-01",
+      "prediction": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-01",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-1.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-1.txt"
+        }
+      ],
+      "tags": ["multiple-rules", "edited"]
+    },
+    {
+      "expected": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-01",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-02",
+      "prediction": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-01",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-2.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-2.txt"
+        }
+      ],
+      "tags": ["retracted", "reply"]
+    },
+    {
+      "expected": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-02",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-03",
+      "prediction": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-02",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-3.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-3.txt"
+        }
+      ],
+      "tags": ["resolved-rejected", "edited"]
+    },
+    {
+      "expected": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-02",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-04",
+      "prediction": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-02",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-4.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-4.txt"
+        }
+      ],
+      "tags": ["edited", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-05",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["reply", "non-knowledge"]
+    },
+    {
+      "expected": {
+        "category": "security",
+        "is_knowledge": true,
+        "merge_group": "merge-03",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-06",
+      "prediction": {
+        "category": "security",
+        "is_knowledge": true,
+        "merge_group": "merge-03",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-6.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-6.txt"
+        }
+      ],
+      "tags": ["unknown-bot", "edited"]
+    },
+    {
+      "expected": {
+        "category": "perf",
+        "is_knowledge": true,
+        "merge_group": "merge-03",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-07",
+      "prediction": {
+        "category": "perf",
+        "is_knowledge": true,
+        "merge_group": "merge-03",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-7.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-7.txt"
+        }
+      ],
+      "tags": ["external-contributor", "reply"]
+    },
+    {
+      "expected": {
+        "category": "test",
+        "is_knowledge": true,
+        "merge_group": "merge-04",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-08",
+      "prediction": {
+        "category": "test",
+        "is_knowledge": true,
+        "merge_group": "merge-04",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-8.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-8.txt"
+        }
+      ],
+      "tags": ["prompt-injection", "edited"]
+    },
+    {
+      "expected": {
+        "category": "docs",
+        "is_knowledge": true,
+        "merge_group": "merge-04",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-09",
+      "prediction": {
+        "category": "docs",
+        "is_knowledge": true,
+        "merge_group": "merge-04",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-9.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-9.txt"
+        }
+      ],
+      "tags": ["short-query", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-10",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["nested-pagination", "non-knowledge"]
+    },
+    {
+      "expected": {
+        "category": "other",
+        "is_knowledge": true,
+        "merge_group": "merge-05",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-11",
+      "prediction": {
+        "category": "other",
+        "is_knowledge": true,
+        "merge_group": "merge-05",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-11.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-11.txt"
+        }
+      ],
+      "tags": ["multiple-rules", "edited"]
+    },
+    {
+      "expected": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-05",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-12",
+      "prediction": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-05",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-12.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-12.txt"
+        }
+      ],
+      "tags": ["retracted", "reply"]
+    },
+    {
+      "expected": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-06",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-13",
+      "prediction": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-06",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-13.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-13.txt"
+        }
+      ],
+      "tags": ["resolved-rejected", "edited"]
+    },
+    {
+      "expected": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-06",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-14",
+      "prediction": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-06",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-14.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-14.txt"
+        }
+      ],
+      "tags": ["edited", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-15",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["reply", "non-knowledge"]
+    },
+    {
+      "expected": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-07",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-16",
+      "prediction": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-07",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-16.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-16.txt"
+        }
+      ],
+      "tags": ["unknown-bot", "edited"]
+    },
+    {
+      "expected": {
+        "category": "security",
+        "is_knowledge": true,
+        "merge_group": "merge-07",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-17",
+      "prediction": {
+        "category": "security",
+        "is_knowledge": true,
+        "merge_group": "merge-07",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-17.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-17.txt"
+        }
+      ],
+      "tags": ["external-contributor", "reply"]
+    },
+    {
+      "expected": {
+        "category": "perf",
+        "is_knowledge": true,
+        "merge_group": "merge-08",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-18",
+      "prediction": {
+        "category": "perf",
+        "is_knowledge": true,
+        "merge_group": "merge-08",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-18.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-18.txt"
+        }
+      ],
+      "tags": ["prompt-injection", "edited"]
+    },
+    {
+      "expected": {
+        "category": "test",
+        "is_knowledge": true,
+        "merge_group": "merge-08",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-19",
+      "prediction": {
+        "category": "test",
+        "is_knowledge": true,
+        "merge_group": "merge-08",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-19.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-19.txt"
+        }
+      ],
+      "tags": ["short-query", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-20",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["nested-pagination", "non-knowledge"]
+    },
+    {
+      "expected": {
+        "category": "docs",
+        "is_knowledge": true,
+        "merge_group": "merge-09",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-21",
+      "prediction": {
+        "category": "docs",
+        "is_knowledge": true,
+        "merge_group": "merge-09",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-21.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-21.txt"
+        }
+      ],
+      "tags": ["multiple-rules", "edited"]
+    },
+    {
+      "expected": {
+        "category": "other",
+        "is_knowledge": true,
+        "merge_group": "merge-09",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-22",
+      "prediction": {
+        "category": "other",
+        "is_knowledge": true,
+        "merge_group": "merge-09",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-22.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-22.txt"
+        }
+      ],
+      "tags": ["retracted", "reply"]
+    },
+    {
+      "expected": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-10",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-23",
+      "prediction": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-10",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-23.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-23.txt"
+        }
+      ],
+      "tags": ["resolved-rejected", "edited"]
+    },
+    {
+      "expected": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-10",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-24",
+      "prediction": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-10",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-24.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-24.txt"
+        }
+      ],
+      "tags": ["edited", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-25",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["reply", "non-knowledge"]
+    },
+    {
+      "expected": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-11",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-26",
+      "prediction": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-11",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-26.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-26.txt"
+        }
+      ],
+      "tags": ["unknown-bot", "edited"]
+    },
+    {
+      "expected": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-11",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-27",
+      "prediction": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-11",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-27.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-27.txt"
+        }
+      ],
+      "tags": ["external-contributor", "reply"]
+    },
+    {
+      "expected": {
+        "category": "security",
+        "is_knowledge": true,
+        "merge_group": "merge-12",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-28",
+      "prediction": {
+        "category": "security",
+        "is_knowledge": true,
+        "merge_group": "merge-12",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-28.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-28.txt"
+        }
+      ],
+      "tags": ["prompt-injection", "edited"]
+    },
+    {
+      "expected": {
+        "category": "perf",
+        "is_knowledge": true,
+        "merge_group": "merge-12",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-29",
+      "prediction": {
+        "category": "perf",
+        "is_knowledge": true,
+        "merge_group": "merge-12",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-29.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-29.txt"
+        }
+      ],
+      "tags": ["short-query", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-30",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["nested-pagination", "non-knowledge"]
+    },
+    {
+      "expected": {
+        "category": "test",
+        "is_knowledge": true,
+        "merge_group": "merge-13",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-31",
+      "prediction": {
+        "category": "test",
+        "is_knowledge": true,
+        "merge_group": "merge-13",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-31.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-31.txt"
+        }
+      ],
+      "tags": ["multiple-rules", "edited"]
+    },
+    {
+      "expected": {
+        "category": "docs",
+        "is_knowledge": true,
+        "merge_group": "merge-13",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-32",
+      "prediction": {
+        "category": "docs",
+        "is_knowledge": true,
+        "merge_group": "merge-13",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-32.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-32.txt"
+        }
+      ],
+      "tags": ["retracted", "reply"]
+    },
+    {
+      "expected": {
+        "category": "other",
+        "is_knowledge": true,
+        "merge_group": "merge-14",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-33",
+      "prediction": {
+        "category": "other",
+        "is_knowledge": true,
+        "merge_group": "merge-14",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-33.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-33.txt"
+        }
+      ],
+      "tags": ["resolved-rejected", "edited"]
+    },
+    {
+      "expected": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-14",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-34",
+      "prediction": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-14",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-34.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-34.txt"
+        }
+      ],
+      "tags": ["edited", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-35",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["reply", "non-knowledge"]
+    },
+    {
+      "expected": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-15",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-36",
+      "prediction": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-15",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-36.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-36.txt"
+        }
+      ],
+      "tags": ["unknown-bot", "edited"]
+    },
+    {
+      "expected": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-15",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-37",
+      "prediction": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-15",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-37.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-37.txt"
+        }
+      ],
+      "tags": ["external-contributor", "reply"]
+    },
+    {
+      "expected": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-16",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-38",
+      "prediction": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-16",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-38.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-38.txt"
+        }
+      ],
+      "tags": ["prompt-injection", "edited"]
+    },
+    {
+      "expected": {
+        "category": "security",
+        "is_knowledge": true,
+        "merge_group": "merge-16",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-39",
+      "prediction": {
+        "category": "security",
+        "is_knowledge": true,
+        "merge_group": "merge-16",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-39.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-39.txt"
+        }
+      ],
+      "tags": ["short-query", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-40",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["nested-pagination", "non-knowledge"]
+    },
+    {
+      "expected": {
+        "category": "perf",
+        "is_knowledge": true,
+        "merge_group": "merge-17",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-41",
+      "prediction": {
+        "category": "perf",
+        "is_knowledge": true,
+        "merge_group": "merge-17",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-41.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-41.txt"
+        }
+      ],
+      "tags": ["multiple-rules", "edited"]
+    },
+    {
+      "expected": {
+        "category": "test",
+        "is_knowledge": true,
+        "merge_group": "merge-17",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-42",
+      "prediction": {
+        "category": "test",
+        "is_knowledge": true,
+        "merge_group": "merge-17",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-42.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-42.txt"
+        }
+      ],
+      "tags": ["retracted", "reply"]
+    },
+    {
+      "expected": {
+        "category": "docs",
+        "is_knowledge": true,
+        "merge_group": "merge-18",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-43",
+      "prediction": {
+        "category": "docs",
+        "is_knowledge": true,
+        "merge_group": "merge-18",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-43.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-43.txt"
+        }
+      ],
+      "tags": ["resolved-rejected", "edited"]
+    },
+    {
+      "expected": {
+        "category": "other",
+        "is_knowledge": true,
+        "merge_group": "merge-18",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-44",
+      "prediction": {
+        "category": "other",
+        "is_knowledge": true,
+        "merge_group": "merge-18",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-44.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-44.txt"
+        }
+      ],
+      "tags": ["edited", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-45",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["reply", "non-knowledge"]
+    },
+    {
+      "expected": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-19",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-46",
+      "prediction": {
+        "category": "style",
+        "is_knowledge": true,
+        "merge_group": "merge-19",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-46.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-46.txt"
+        }
+      ],
+      "tags": ["unknown-bot", "edited"]
+    },
+    {
+      "expected": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-19",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "id": "golden-47",
+      "prediction": {
+        "category": "naming",
+        "is_knowledge": true,
+        "merge_group": "merge-19",
+        "scope": ["test/**"],
+        "severity": "should"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "test/fixture-47.test.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-47.txt"
+        }
+      ],
+      "tags": ["external-contributor", "reply"]
+    },
+    {
+      "expected": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-20",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "id": "golden-48",
+      "prediction": {
+        "category": "architecture",
+        "is_knowledge": true,
+        "merge_group": "merge-20",
+        "scope": ["docs/**"],
+        "severity": "consider"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "docs/fixture-48.md"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-48.txt"
+        }
+      ],
+      "tags": ["prompt-injection", "edited"]
+    },
+    {
+      "expected": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-20",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "id": "golden-49",
+      "prediction": {
+        "category": "error-handling",
+        "is_knowledge": true,
+        "merge_group": "merge-20",
+        "scope": ["src/**"],
+        "severity": "must"
+      },
+      "scope_checks": [
+        {
+          "matches": true,
+          "path": "src/fixture-49.ts"
+        },
+        {
+          "matches": false,
+          "path": "examples/fixture-49.txt"
+        }
+      ],
+      "tags": ["short-query", "reply"]
+    },
+    {
+      "expected": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "id": "golden-50",
+      "prediction": {
+        "category": null,
+        "is_knowledge": false,
+        "merge_group": null,
+        "scope": [],
+        "severity": null
+      },
+      "scope_checks": [],
+      "tags": ["nested-pagination", "non-knowledge"]
+    }
+  ],
+  "fixture_id": "m1-anonymized-baseline-2026-08-06",
+  "schema_version": 1,
+  "searches": [
+    {
+      "id": "search-short-ja",
+      "ranking": ["golden-01", "golden-02", "golden-03"],
+      "relevance": {
+        "golden-01": 3,
+        "golden-02": 2,
+        "golden-03": 0
+      }
+    },
+    {
+      "id": "search-security",
+      "ranking": ["golden-06", "golden-07", "golden-08"],
+      "relevance": {
+        "golden-06": 3,
+        "golden-07": 1,
+        "golden-08": 0
+      }
+    },
+    {
+      "id": "search-error-handling",
+      "ranking": ["golden-11", "golden-12", "golden-13"],
+      "relevance": {
+        "golden-11": 3,
+        "golden-12": 2,
+        "golden-13": 1
+      }
+    },
+    {
+      "id": "search-tests",
+      "ranking": ["golden-21", "golden-22", "golden-23"],
+      "relevance": {
+        "golden-21": 3,
+        "golden-22": 2,
+        "golden-23": 0
+      }
+    },
+    {
+      "id": "search-docs",
+      "ranking": ["golden-31", "golden-32", "golden-33"],
+      "relevance": {
+        "golden-31": 3,
+        "golden-32": 1,
+        "golden-33": 0
+      }
+    },
+    {
+      "id": "search-nested-pagination",
+      "ranking": ["golden-41", "golden-42", "golden-43"],
+      "relevance": {
+        "golden-41": 3,
+        "golden-42": 2,
+        "golden-43": 1
+      }
+    }
+  ]
+}
