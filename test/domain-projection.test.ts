@@ -95,6 +95,7 @@ describe("domain SQLite projection", () => {
           "review_threads",
           "revision_proposals",
           "submission_receipts",
+          "thread_removals",
         ]),
       );
     } finally {

@@ -206,6 +206,19 @@ export const ThreadObservationSchema = z
   })
   .strict();
 
+export const ThreadRemovedObservationSchema = z
+  .object({
+    observation_id: ObservationIdSchema,
+    observation_type: z.literal("thread_removed"),
+    observed_at: IsoDateTimeSchema,
+    pr_number: z.number().int().positive(),
+    previous_snapshot_id: SnapshotIdSchema,
+    repo_id: RepositoryIdSchema,
+    snapshot_id: SnapshotIdSchema,
+    thread_id: NonEmptyStringSchema,
+  })
+  .strict();
+
 export const CommentObservationSchema = z
   .object({
     actor: ReviewerIdentitySchema,
@@ -226,6 +239,7 @@ export const CommentObservationSchema = z
 export const RawObservationSchema = z.discriminatedUnion("observation_type", [
   PullRequestObservationSchema,
   ThreadObservationSchema,
+  ThreadRemovedObservationSchema,
   CommentObservationSchema,
 ]);
 
@@ -586,6 +600,9 @@ export type PullRequestObservation = z.infer<
   typeof PullRequestObservationSchema
 >;
 export type ThreadObservation = z.infer<typeof ThreadObservationSchema>;
+export type ThreadRemovedObservation = z.infer<
+  typeof ThreadRemovedObservationSchema
+>;
 export type CommentObservation = z.infer<typeof CommentObservationSchema>;
 export type RawObservation = z.infer<typeof RawObservationSchema>;
 export type PullRequestSnapshot = z.infer<typeof PullRequestSnapshotSchema>;

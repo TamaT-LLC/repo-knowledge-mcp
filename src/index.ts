@@ -95,6 +95,23 @@ export {
   type UnknownBotWarning,
 } from "./github-snapshot-normalizer.js";
 export {
+  PULL_REQUEST_SNAPSHOT_RECORD_TYPE,
+  RAW_COMMENT_PATH,
+  RAW_PULL_REQUEST_PATH,
+  RAW_PULL_REQUEST_SNAPSHOT_PATH,
+  RAW_THREAD_OBSERVATION_PATH,
+  THREAD_REMOVED_RECORD_TYPE,
+  GitHubIngestError,
+  GitHubIngestService,
+  type CompleteSnapshotFetcher,
+  type GitHubIngestErrorCode,
+  type GitHubIngestServiceOptions,
+  type IngestPullRequestRequest,
+  type IngestPullRequestResult,
+  type IngestPullRequestSummary,
+  type IngestRepositoryResolver,
+} from "./github-ingest-service.js";
+export {
   ExecaGitRemoteReader,
   GitRemoteError,
   parseGitHubRemoteUrl,
@@ -156,6 +173,7 @@ export {
   SnapshotIdSchema,
   SourceProviderSchema,
   SubmissionReceiptSchema,
+  ThreadRemovedObservationSchema,
   ThreadObservationSchema,
   TransactionIdSchema,
   TrustConfigSchema,
@@ -189,6 +207,7 @@ export {
   type ReviewerIdentity,
   type Severity,
   type SubmissionReceipt,
+  type ThreadRemovedObservation,
   type ThreadObservation,
   type TrustConfig,
 } from "./domain-schemas.js";

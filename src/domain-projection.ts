@@ -16,6 +16,7 @@ import {
   ScopePatternSchema,
   SeveritySchema,
   SubmissionReceiptSchema,
+  ThreadRemovedObservationSchema,
   ThreadObservationSchema,
   type CommentObservation,
   type DistillJob,
@@ -25,6 +26,7 @@ import {
   type PullRequestObservation,
   type PullRequestSnapshot,
   type SubmissionReceipt,
+  type ThreadRemovedObservation,
   type ThreadObservation,
 } from "./domain-schemas.js";
 import {
@@ -96,6 +98,7 @@ export interface ReducedDomainProjection {
   readonly pullRequests: readonly PullRequestObservation[];
   readonly revisionProposals: readonly KnowledgeRevisionProposal[];
   readonly submissionReceipts: readonly SubmissionReceipt[];
+  readonly threadRemovals: readonly ThreadRemovedObservation[];
   readonly threads: readonly ThreadObservation[];
 }
 
@@ -141,6 +144,7 @@ export function reduceDomainRecords(
   const evidence = new Map<string, Sequenced<KnowledgeEvidence>>();
   const proposals = new Map<string, Sequenced<KnowledgeRevisionProposal>>();
   const receipts = new Map<string, Sequenced<SubmissionReceipt>>();
+  const threadRemovals = new Map<string, Sequenced<ThreadRemovedObservation>>();
   const outcomes = new Map<string, Sequenced<ProjectedKnowledgeOutcome>>();
 
   records.forEach((record, sequence) => {
@@ -189,6 +193,17 @@ export function reduceDomainRecords(
           value.comment_id,
           value,
           record.recorded_at,
+          sequence,
+        );
+        return;
+      }
+      case "ThreadRemoved": {
+        const value = parsePayload(record, ThreadRemovedObservationSchema);
+        upsertLatest(
+          threadRemovals,
+          record.record_id,
+          value,
+          value.observed_at,
           sequence,
         );
         return;
@@ -270,6 +285,7 @@ export function reduceDomainRecords(
     pullRequests: sortedValues(pullRequests),
     revisionProposals: sortedValues(proposals),
     submissionReceipts: sortedValues(receipts),
+    threadRemovals: sortedValues(threadRemovals),
     threads: sortedValues(threads),
   };
 }

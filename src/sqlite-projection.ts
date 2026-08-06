@@ -328,6 +328,16 @@ function createSchema(database: Database.Database): void {
       observed_at TEXT NOT NULL,
       payload_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS thread_removals (
+      repo_id TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      pr_number INTEGER NOT NULL,
+      previous_snapshot_id TEXT NOT NULL,
+      snapshot_id TEXT NOT NULL,
+      observation_id TEXT PRIMARY KEY,
+      observed_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS distill_jobs (
       job_id TEXT PRIMARY KEY,
       repo_id TEXT NOT NULL,
@@ -543,6 +553,7 @@ function replaceDomainProjection(
     DELETE FROM pull_request_snapshots;
     DELETE FROM review_threads;
     DELETE FROM review_comments;
+    DELETE FROM thread_removals;
     DELETE FROM distill_jobs;
     DELETE FROM knowledge;
     DELETE FROM evidence;
@@ -640,6 +651,25 @@ function replaceDomainProjection(
       value.actor.trust,
       value.created_at,
       value.updated_at,
+      value.observation_id,
+      value.observed_at,
+      JSON.stringify(value),
+    );
+  }
+
+  const insertThreadRemoval = database.prepare(`
+    INSERT INTO thread_removals (
+      repo_id, thread_id, pr_number, previous_snapshot_id, snapshot_id,
+      observation_id, observed_at, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const value of domain.threadRemovals) {
+    insertThreadRemoval.run(
+      value.repo_id,
+      value.thread_id,
+      value.pr_number,
+      value.previous_snapshot_id,
+      value.snapshot_id,
       value.observation_id,
       value.observed_at,
       JSON.stringify(value),
@@ -886,6 +916,10 @@ function readDomainProjection(
     submissionReceipts: readPayloads(
       database,
       "SELECT payload_json FROM submission_receipts ORDER BY receipt_id",
+    ),
+    threadRemovals: readPayloads(
+      database,
+      "SELECT payload_json FROM thread_removals ORDER BY observation_id",
     ),
     threads: readPayloads(
       database,
