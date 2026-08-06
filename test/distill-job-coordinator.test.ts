@@ -31,6 +31,17 @@ afterEach(async () => {
 });
 
 describe("DistillJobCoordinator", () => {
+  it("rejects event paths excluded from canonical projection discovery", async () => {
+    const repository = await createRepository();
+
+    expect(
+      () =>
+        new DistillJobCoordinator(new CanonicalTransactionStore(repository), {
+          eventPath: "knowledge/jobs.jsonl",
+        }),
+    ).toThrow(expect.objectContaining({ code: "INVALID_ARGUMENT" }));
+  });
+
   it("rejects asynchronous work inside the short repo-lock planner", async () => {
     const repository = await createRepository();
     const store = new CanonicalTransactionStore(repository);

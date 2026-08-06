@@ -130,7 +130,9 @@ export class DistillJobCoordinator {
     private readonly store: CanonicalTransactionStore,
     options: DistillJobCoordinatorOptions = {},
   ) {
-    this.eventPath = options.eventPath ?? DISTILL_JOB_EVENT_PATH;
+    this.eventPath = distillJobEventPath(
+      options.eventPath ?? DISTILL_JOB_EVENT_PATH,
+    );
     this.leaseDurationMs = positiveDuration(
       options.leaseDurationMs ?? DEFAULT_DISTILL_JOB_LEASE_DURATION_MS,
       "leaseDurationMs",
@@ -551,6 +553,25 @@ function positiveDuration(value: number, field: string): number {
     throw coordinatorError(
       "INVALID_ARGUMENT",
       `${field} must be a positive safe integer`,
+    );
+  }
+  return value;
+}
+
+function distillJobEventPath(value: string): string {
+  const segments = value.split("/");
+  if (
+    !value.startsWith("events/") ||
+    !value.endsWith(".jsonl") ||
+    value.includes("\\") ||
+    value.includes("\0") ||
+    segments.some(
+      (segment) => segment.length === 0 || segment === "." || segment === "..",
+    )
+  ) {
+    throw coordinatorError(
+      "INVALID_ARGUMENT",
+      "eventPath must be a safe events/**/*.jsonl path included in canonical projection",
     );
   }
   return value;
