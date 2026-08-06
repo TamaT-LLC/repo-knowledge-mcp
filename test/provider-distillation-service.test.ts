@@ -21,6 +21,7 @@ import {
   parseDistillationOutput,
   parseDistillationPrompt,
   parseRepoKnowledgeConfig,
+  startProviderLeaseHeartbeat,
   type LlmProviderAdapter,
   type DistillJobCoordinatorOptions,
   type ProviderDistillationDiagnostic,
@@ -492,6 +493,49 @@ describe("ProviderDistillationService", () => {
     expect(independentResult.created).toBe(true);
     releaseProvider();
     await expect(running).resolves.toMatchObject({ state: "extracted" });
+  });
+});
+
+describe("provider lease heartbeat", () => {
+  it("surfaces an in-flight renewal failure even when stop wins the race", async () => {
+    let renewalStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      renewalStarted = resolve;
+    });
+    let releaseRenewal!: () => void;
+    const blockedRenewal = new Promise<void>((resolve) => {
+      releaseRenewal = resolve;
+    });
+    const providerAbort = new AbortController();
+    const heartbeat = startProviderLeaseHeartbeat(
+      {
+        renewLease: async () => {
+          renewalStarted();
+          await blockedRenewal;
+          throw new Error("renewal failed after provider response");
+        },
+      },
+      {
+        job_id: "job_01KZBKZY01NW2A5SEWQG4S1G5M",
+        lease_generation: 1,
+        lease_token: "ephemeral-token",
+      },
+      1,
+      providerAbort,
+    );
+    const heartbeatFailure = heartbeat.failure.catch((error: unknown) => error);
+
+    await started;
+    const stopping = heartbeat.stop();
+    releaseRenewal();
+
+    await expect(stopping).rejects.toMatchObject({
+      code: "PROVIDER_LEASE_HEARTBEAT_FAILED",
+    });
+    await expect(heartbeatFailure).resolves.toMatchObject({
+      code: "PROVIDER_LEASE_HEARTBEAT_FAILED",
+    });
+    expect(providerAbort.signal.aborted).toBe(true);
   });
 });
 

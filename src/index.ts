@@ -306,6 +306,7 @@ export {
   ProviderDistillationServiceError,
   evaluateProviderTransmission,
   parseDistillationOutput,
+  startProviderLeaseHeartbeat,
   writeProviderDistillationDiagnostic,
   type DistillationProvenance,
   type ProviderDistillationDiagnostic,
@@ -319,6 +320,7 @@ export {
   type ProviderDistillationServiceErrorCode,
   type ProviderDistillationServiceOptions,
   type ProviderDistillationThread,
+  type ProviderLeaseHeartbeat,
   type ProviderTransmissionDecision,
   type ProviderTransmissionDeniedReason,
 } from "./provider-distillation-service.js";

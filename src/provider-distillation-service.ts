@@ -311,7 +311,7 @@ export class ProviderDistillationService {
       request.signal === undefined
         ? providerAbort.signal
         : AbortSignal.any([request.signal, providerAbort.signal]);
-    const heartbeat = startLeaseHeartbeat(
+    const heartbeat = startProviderLeaseHeartbeat(
       this.coordinator,
       lease,
       this.leaseHeartbeatIntervalMs,
@@ -571,18 +571,20 @@ export class ProviderLeaseHeartbeatError extends Error {
   }
 }
 
-interface LeaseHeartbeat {
+export interface ProviderLeaseHeartbeat {
   readonly failure: Promise<never>;
   stop(): Promise<void>;
 }
 
-function startLeaseHeartbeat(
-  coordinator: DistillJobCoordinator,
+/** Maintains a lease without hiding a renewal that fails during shutdown. */
+export function startProviderLeaseHeartbeat(
+  coordinator: Pick<DistillJobCoordinator, "renewLease">,
   lease: DistillJobLeaseCredentials,
   intervalMs: number,
   providerAbort: AbortController,
-): LeaseHeartbeat {
+): ProviderLeaseHeartbeat {
   let stopped = false;
+  let renewalFailure: ProviderLeaseHeartbeatError | null = null;
   let timer: NodeJS.Timeout | undefined;
   let inFlight = Promise.resolve();
   let rejectFailure!: (reason: ProviderLeaseHeartbeatError) => void;
@@ -598,11 +600,11 @@ function startLeaseHeartbeat(
           if (!stopped) schedule();
         })
         .catch((error: unknown) => {
-          if (stopped) return;
           stopped = true;
           const failureError = new ProviderLeaseHeartbeatError({
             cause: error,
           });
+          renewalFailure = failureError;
           providerAbort.abort(failureError);
           rejectFailure(failureError);
         });
@@ -613,10 +615,12 @@ function startLeaseHeartbeat(
   return {
     failure,
     stop: async () => {
-      if (stopped) return inFlight;
-      stopped = true;
-      if (timer !== undefined) clearTimeout(timer);
+      if (!stopped) {
+        stopped = true;
+        if (timer !== undefined) clearTimeout(timer);
+      }
       await inFlight;
+      if (renewalFailure !== null) throw renewalFailure;
     },
   };
 }
