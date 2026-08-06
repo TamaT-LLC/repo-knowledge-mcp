@@ -242,6 +242,7 @@ export {
   validateKnowledgeSearchCandidateLimit,
   violationBoost,
   type KnowledgeSearchErrorCode,
+  type ExhaustiveKnowledgeSearchRequest,
   type KnowledgeSearchHit,
   type KnowledgeSearchMode,
   type KnowledgeSearchRequest,

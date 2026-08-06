@@ -19,6 +19,7 @@ import {
   DEFAULT_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
   MAX_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
   normalizeKnowledgeSearchQuery,
+  type ExhaustiveKnowledgeSearchRequest,
   type KnowledgeSearchRequest,
   type KnowledgeSearchResult as ProjectionSearchResult,
 } from "./knowledge-search.js";
@@ -56,7 +57,7 @@ export class KnowledgeReadError extends Error {
 
 export interface KnowledgeReadRepository {
   readKnowledgeView(
-    searchRequest?: KnowledgeSearchRequest,
+    searchRequest?: ExhaustiveKnowledgeSearchRequest,
   ): Promise<CanonicalKnowledgeReadView>;
   searchKnowledge(
     request: KnowledgeSearchRequest,
@@ -197,14 +198,10 @@ export class KnowledgeReadService {
       normalizeKnowledgeSearchQuery(request.task);
     }
 
-    const taskSearchRequest: KnowledgeSearchRequest | undefined =
+    const taskSearchRequest: ExhaustiveKnowledgeSearchRequest | undefined =
       request.task === undefined
         ? undefined
         : {
-            candidateLimit: Math.min(
-              MAX_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
-              Math.max(DEFAULT_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT, limit),
-            ),
             query: request.task,
             repoId: this.repoId,
             statuses: ["active"],

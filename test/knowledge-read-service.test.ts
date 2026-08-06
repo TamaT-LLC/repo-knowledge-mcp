@@ -141,6 +141,36 @@ describe("KnowledgeReadService.getRules", () => {
     expect(pathConstrained.rules.map((rule) => rule.id)).toEqual([globalId]);
   });
 
+  it("keeps task reasons beyond the bounded search candidate window", async () => {
+    const repository = await createRepository();
+    for (let index = 0; index < 60; index += 1) {
+      await writeKnowledge(repository, {
+        rule: `Retry failure ${index}`,
+        scope: ["src/**"],
+        severity: "should",
+      });
+    }
+    const mustId = await writeKnowledge(repository, {
+      rule: `Retry failure ${"with additional context ".repeat(200)}`,
+      scope: ["src/**"],
+      severity: "must",
+    });
+
+    const result = await service(repository).getRules({
+      filePaths: ["src/index.ts"],
+      limit: 20,
+      task: "retry failure",
+    });
+
+    expect(result).toMatchObject({ matched_count: 61, truncated: true });
+    expect(
+      result.rules.find((rule) => rule.id === mustId)?.match_reasons,
+    ).toEqual([
+      { file_path: "src/index.ts", pattern: "src/**", type: "scope" },
+      expect.objectContaining({ type: "task" }),
+    ]);
+  });
+
   it("prioritizes must rules before applying limit and reports truncation", async () => {
     const repository = await createRepository();
     await writeKnowledge(repository, {

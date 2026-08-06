@@ -34,6 +34,7 @@ import {
   type CanonicalProjectionSnapshot,
 } from "./sqlite-projection.js";
 import type {
+  ExhaustiveKnowledgeSearchRequest,
   KnowledgeSearchRequest,
   KnowledgeSearchResult,
 } from "./knowledge-search.js";
@@ -231,7 +232,7 @@ export class CanonicalTransactionStore {
   }
 
   async readKnowledgeView(
-    searchRequest?: KnowledgeSearchRequest,
+    searchRequest?: ExhaustiveKnowledgeSearchRequest,
   ): Promise<CanonicalKnowledgeReadView> {
     return this.withRepoLock(async () => {
       await this.recoverLocked();

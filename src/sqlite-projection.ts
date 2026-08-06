@@ -27,6 +27,7 @@ import {
   KnowledgeSearchError,
   normalizeKnowledgeSearchQuery,
   validateKnowledgeSearchCandidateLimit,
+  type ExhaustiveKnowledgeSearchRequest,
   type KnowledgeSearchHit,
   type KnowledgeSearchRequest,
   type KnowledgeSearchResult,
@@ -171,7 +172,7 @@ export class SqliteCanonicalProjection {
   }
 
   async readKnowledgeView(
-    searchRequest?: KnowledgeSearchRequest,
+    searchRequest?: ExhaustiveKnowledgeSearchRequest,
   ): Promise<CanonicalKnowledgeReadView> {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
@@ -183,7 +184,7 @@ export class SqliteCanonicalProjection {
           searchResult:
             searchRequest === undefined
               ? null
-              : searchKnowledgeDatabase(database, searchRequest),
+              : searchKnowledgeDatabase(database, searchRequest, true),
           snapshot: readSnapshot(database),
         };
         database.exec("COMMIT");
@@ -925,6 +926,7 @@ function projectedKnowledgeFromRow(
 function searchKnowledgeDatabase(
   database: Database.Database,
   request: KnowledgeSearchRequest,
+  exhaustive = false,
 ): KnowledgeSearchResult {
   const repoId = RepositoryIdSchema.parse(request.repoId);
   const category =
@@ -943,9 +945,10 @@ function searchKnowledgeDatabase(
     );
   }
   const orderedStatuses = [...statuses].sort(compareCodeUnits);
-  const candidateLimit = validateKnowledgeSearchCandidateLimit(
-    request.candidateLimit,
-  );
+  const candidateLimit = exhaustive
+    ? null
+    : validateKnowledgeSearchCandidateLimit(request.candidateLimit);
+  const limitClause = candidateLimit === null ? "" : "LIMIT ?";
   const query = normalizeKnowledgeSearchQuery(request.query);
   const statusPlaceholders = orderedStatuses.map(() => "?").join(", ");
   const categoryClause = category === undefined ? "" : "AND k.category = ?";
@@ -960,16 +963,16 @@ function searchKnowledgeDatabase(
          WHERE knowledge_fts MATCH ?
            AND k.repo_id = ?
            AND k.status IN (${statusPlaceholders})
-           ${categoryClause}
+         ${categoryClause}
          ORDER BY bm25_score ASC, k.id ASC
-         LIMIT ?`,
+         ${limitClause}`,
       )
       .all(
         query.ftsLiteral,
         repoId,
         ...orderedStatuses,
         ...(category === undefined ? [] : [category]),
-        candidateLimit,
+        ...(candidateLimit === null ? [] : [candidateLimit]),
       ) as unknown as SearchKnowledgeRow[];
   } else {
     rows = database
@@ -987,7 +990,7 @@ function searchKnowledgeDatabase(
            WHEN k.search_rule = ? OR k.search_detail = ? THEN 0
            ELSE 1
          END ASC, k.id ASC
-         LIMIT ?`,
+         ${limitClause}`,
       )
       .all(
         query.likePattern,
@@ -997,7 +1000,7 @@ function searchKnowledgeDatabase(
         ...(category === undefined ? [] : [category]),
         query.folded,
         query.folded,
-        candidateLimit,
+        ...(candidateLimit === null ? [] : [candidateLimit]),
       ) as unknown as SearchKnowledgeRow[];
   }
 
