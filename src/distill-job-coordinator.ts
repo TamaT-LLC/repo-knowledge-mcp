@@ -394,7 +394,7 @@ export class DistillJobCoordinator {
         );
       }
       const operation = this.operationTime(job);
-      assertCurrentLease(job, request, operation.timestamp);
+      assertCurrentDistillJobLease(job, request, operation.timestamp);
       const mutation = plan(job, operation);
       const built = this.buildTransaction(operation, [mutation.event]);
       const next = foldJobEvents(job, built.records);
@@ -488,11 +488,18 @@ function compareLeaseCandidates(first: DistillJob, second: DistillJob): number {
     : timeOrder;
 }
 
-function assertCurrentLease(
+/** Verifies the persisted lease generation, expiry, and token binding. */
+export function assertCurrentDistillJobLease(
   job: DistillJob,
   request: DistillJobLeaseCredentials,
   timestamp: number,
 ): void {
+  if (request.job_id !== job.job_id) {
+    throw coordinatorError(
+      "DISTILL_JOB_NOT_FOUND",
+      `job ${request.job_id} does not match ${job.job_id}`,
+    );
+  }
   if (
     (job.state !== "processing" && job.state !== "awaiting_finalize") ||
     request.lease_generation !== job.lease_generation ||

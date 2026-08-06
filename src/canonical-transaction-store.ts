@@ -90,6 +90,10 @@ export type CanonicalLockedMutationPlanner<T> = (
   snapshot: CanonicalProjectionSnapshot,
 ) => CanonicalLockedMutation<T>;
 
+export type CanonicalLockedSearchMutationPlanner<T> = (
+  view: CanonicalKnowledgeSearchView,
+) => CanonicalLockedMutation<T>;
+
 export interface KnowledgeUpdateRequest {
   readonly expectedEtag: string;
   readonly expectedRevision: number;
@@ -231,6 +235,36 @@ export class CanonicalTransactionStore {
         throw new CanonicalStoreError(
           "INVALID_TRANSACTION",
           "Locked mutation planners must be synchronous",
+        );
+      }
+      const mutation = planned as CanonicalLockedMutation<T>;
+      if (mutation.transaction !== null) {
+        await this.commitLocked(mutation.transaction);
+      }
+      return mutation.value;
+    });
+  }
+
+  /**
+   * Runs exhaustive FTS searches and a conditional canonical commit under one
+   * repository lock. This is the finalize-time counterpart to
+   * readKnowledgeSearchView: the match set cannot change between search and
+   * commit. Planners must remain synchronous and bounded.
+   */
+  async runLockedKnowledgeSearchMutation<T>(
+    searchRequests: readonly ExhaustiveKnowledgeSearchRequest[],
+    planner: CanonicalLockedSearchMutationPlanner<T>,
+  ): Promise<T> {
+    return this.withRepoLock(async () => {
+      await this.recoverLocked();
+      const view =
+        await this.projection.readKnowledgeSearchView(searchRequests);
+      const planned: unknown = planner(view);
+      if (isPromiseLike(planned)) {
+        void Promise.resolve(planned).catch(() => undefined);
+        throw new CanonicalStoreError(
+          "INVALID_TRANSACTION",
+          "Locked search mutation planners must be synchronous",
         );
       }
       const mutation = planned as CanonicalLockedMutation<T>;
