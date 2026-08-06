@@ -9,13 +9,16 @@ import {
   type CanonicalAppendRecordRequest,
   type CanonicalFileWriteRequest,
 } from "./canonical-transaction-store.js";
+import { computeTrustPolicyDigest } from "./config.js";
 import {
   DistillationOutputSchema,
   ExtractStableResponseSchema,
   ExtractSubmissionReceiptSchema,
+  FinalizeSubmissionReceiptSchema,
   JobIdSchema,
   KnowledgeEvidenceSchema,
   NonEmptyStringSchema,
+  RepoKnowledgeConfigSchema,
   RepositoryIdSchema,
   Sha256DigestSchema,
   type CommentObservation,
@@ -23,7 +26,9 @@ import {
   type DistilledCandidate,
   type ExtractCandidate,
   type ExtractStableResponse,
+  type FinalizeStableResponse,
   type KnowledgeEvidence,
+  type RepoKnowledgeConfig,
   type SkipReason,
   type SubmissionReceipt,
   type ThreadObservation,
@@ -39,10 +44,23 @@ import {
   DistillJobCoordinatorError,
   assertCurrentDistillJobLease,
 } from "./distill-job-coordinator.js";
-import { EVIDENCE_EVENT_PATH } from "./canonical-finalize-service.js";
+import {
+  CanonicalFinalizeError,
+  CanonicalFinalizeService,
+  EVIDENCE_EVENT_PATH,
+} from "./canonical-finalize-service.js";
+import {
+  DISTILLATION_OUTPUT_SCHEMA_DIGEST,
+  DISTILLATION_OUTPUT_SCHEMA_VERSION,
+} from "./distillation-prompt.js";
 import { isDefinitiveNonKnowledge } from "./evidence-policy.js";
+import type { FinalizeContext } from "./finalize-guard.js";
 import { reviewSummaryThreadId } from "./github-pull-request-client.js";
-import { computeCandidateSetSha256 } from "./host-assisted-distillation-service.js";
+import {
+  HostAssistedDistillationError,
+  computeCandidateSetSha256,
+  resolveHostAssistedDistillationSource,
+} from "./host-assisted-distillation-service.js";
 import { createDomainId } from "./ids.js";
 import {
   applyKnowledgeDocumentPatch,
@@ -52,18 +70,23 @@ import {
   createMergeCandidateSearchPlan,
   resolveMergeCandidateSearch,
 } from "./merge-candidate-service.js";
+import { MergeClassifierError } from "./merge-classifier.js";
 import type {
   PossibleKnowledgeMatch,
   PossibleMatchSet,
 } from "./possible-match.js";
+import type { DistillationProvenance } from "./provider-distillation-service.js";
 import {
   RequestIntegrityError,
   computeRequestSha256,
   type ExtractRequest,
+  type FinalizeRequest,
+  type PhaseRequest,
 } from "./request-integrity.js";
 import {
   RuntimeFinalizeContextStore,
   RuntimeFinalizeContextStoreError,
+  hashFinalizeToken,
   type RuntimeFinalizeHandle,
 } from "./runtime-finalize-context-store.js";
 import type { CanonicalProjectionSnapshot } from "./sqlite-projection.js";
@@ -88,6 +111,27 @@ export type SubmitExtractResponse =
   | SubmitExtractMergeResponse
   | Extract<ExtractStableResponse, { readonly state: "skipped" }>;
 
+export type SubmitFinalizeRequest = FinalizeRequest;
+
+export interface SubmitFinalizeRetryResponse {
+  readonly candidate_set_sha256: string;
+  readonly finalize_handle: RuntimeFinalizeHandle;
+  readonly match_set_digest: string;
+  readonly possible_matches: readonly PossibleMatchSet<PossibleKnowledgeMatch>[];
+  readonly state: "merge_decision_required";
+}
+
+export interface SubmitDistillationContextOptions {
+  readonly config: RepoKnowledgeConfig;
+  readonly model?: string;
+  readonly outputSchemaDigest?: string;
+  readonly outputSchemaVersion?: string;
+  readonly promptDigest: string;
+  readonly promptVersion: string;
+  readonly provider?: string;
+  readonly repositoryContext: unknown;
+}
+
 export interface SubmitDistillationServiceOptions {
   readonly candidateLimit?: number;
   readonly evidenceEventPath?: string;
@@ -100,28 +144,40 @@ export interface SubmitDistillationServiceOptions {
   readonly now?: () => Date;
   readonly repoId: string;
   readonly repository: CanonicalTransactionStore;
+  readonly distillationContext?: SubmitDistillationContextOptions;
   readonly submissionEventPath?: string;
 }
 
 export type SubmitDistillationErrorCode =
   | "CURRENT_SNAPSHOT_INCOMPLETE"
+  | "DISTILLATION_CONTEXT_CHANGED"
   | "DISTILLATION_SOURCE_CHANGED"
   | "EVIDENCE_COMMENTS_INVALID"
   | "EXTRACT_REQUEST_INVALID"
+  | "FINALIZE_REQUEST_INVALID"
   | "JOB_ALREADY_FINALIZED"
   | "JOB_CONTEXT_MISMATCH"
+  | "MERGE_CANDIDATES_CHANGED"
   | "PHASE_ALREADY_COMMITTED"
-  | "RESUME_REQUIRED";
+  | "RESUME_REQUIRED"
+  | "UNKNOWN_FINALIZE_TOKEN";
+
+interface SubmitDistillationErrorOptions extends ErrorOptions {
+  readonly retry?: SubmitFinalizeRetryResponse;
+}
 
 export class SubmitDistillationError extends Error {
   constructor(
     readonly code: SubmitDistillationErrorCode,
     message: string,
-    options?: ErrorOptions,
+    options?: SubmitDistillationErrorOptions,
   ) {
     super(`${code}: ${message}`, options);
     this.name = "SubmitDistillationError";
+    this.retry = options?.retry;
   }
+
+  readonly retry: SubmitFinalizeRetryResponse | undefined;
 }
 
 interface OperationTime {
@@ -142,6 +198,55 @@ interface ExtractCommitResult {
   readonly stableResponse: ExtractStableResponse;
 }
 
+interface FinalizeReceiptMiss {
+  readonly extractReceipt: Extract<
+    SubmissionReceipt,
+    { readonly phase: "extract" }
+  > & {
+    readonly stable_response: Extract<
+      ExtractStableResponse,
+      { readonly state: "merge_decision_required" }
+    >;
+  };
+  readonly kind: "miss";
+  readonly threadId: string;
+}
+
+interface FinalizeReceiptReplay {
+  readonly kind: "replay";
+  readonly stableResponse: FinalizeStableResponse;
+}
+
+type FinalizeReceiptLookup = FinalizeReceiptMiss | FinalizeReceiptReplay;
+
+interface FinalizeMatchChanged {
+  readonly contentFingerprint: string;
+  readonly distillationKey: string;
+  readonly expiresAt: string;
+  readonly kind: "match_changed";
+  readonly sourceSnapshotId: string;
+  readonly search: NonNullable<CanonicalFinalizeError["currentSearch"]>;
+}
+
+interface FinalizeCommitted {
+  readonly kind: "committed" | "replay";
+  readonly stableResponse: FinalizeStableResponse;
+}
+
+type FinalizeLockedResult = FinalizeCommitted | FinalizeMatchChanged;
+
+interface ValidatedSubmitDistillationContext {
+  readonly config: RepoKnowledgeConfig;
+  readonly model: string;
+  readonly outputSchemaDigest: string;
+  readonly outputSchemaVersion: string;
+  readonly promptDigest: string;
+  readonly promptVersion: string;
+  readonly provider: string;
+  readonly repositoryContext: unknown;
+  readonly trustPolicyDigest: string;
+}
+
 interface SkipLifecyclePlan {
   readonly fileWrites: readonly CanonicalFileWriteRequest[];
   readonly records: readonly CanonicalAppendRecordRequest[];
@@ -157,7 +262,10 @@ interface SkipLifecyclePlan {
 export class SubmitDistillationService {
   readonly finalizeContexts: RuntimeFinalizeContextStore;
 
+  private readonly canonicalFinalizer: CanonicalFinalizeService;
   private readonly candidateLimit: number | undefined;
+  private readonly distillationContext:
+    ValidatedSubmitDistillationContext | undefined;
   private readonly evidenceEventPath: string;
   private readonly jobEventPath: string;
   private readonly nextCandidateId: (timestamp: number) => string;
@@ -195,9 +303,23 @@ export class SubmitDistillationService {
     this.nextTransactionId =
       options.nextTransactionId ??
       ((timestamp) => createDomainId("transaction", timestamp));
+    this.distillationContext =
+      options.distillationContext === undefined
+        ? undefined
+        : validateDistillationContext(options.distillationContext);
     this.finalizeContexts =
       options.finalizeContexts ??
       new RuntimeFinalizeContextStore({ now: this.now });
+    this.canonicalFinalizer = new CanonicalFinalizeService({
+      ...(this.candidateLimit === undefined
+        ? {}
+        : { candidateLimit: this.candidateLimit }),
+      evidenceEventPath: this.evidenceEventPath,
+      jobEventPath: this.jobEventPath,
+      now: this.now,
+      repoId: this.repoId,
+      repository: this.repository,
+    });
   }
 
   async submitExtract(
@@ -369,6 +491,343 @@ export class SubmitDistillationService {
       return committed.stableResponse;
     }
     return this.rehydrateExtract(committed.receipt, request);
+  }
+
+  async submitFinalize(
+    request: SubmitFinalizeRequest,
+  ): Promise<FinalizeStableResponse> {
+    const submissionId = NonEmptyStringSchema.parse(request.submission_id);
+    const requestSha256 = canonicalRequestDigest(request);
+    const lookup =
+      await this.repository.runLockedMutation<FinalizeReceiptLookup>(
+        (snapshot) => {
+          // This lookup intentionally precedes request token, lease, job-state,
+          // and source validation. A durable success must replay after every
+          // ephemeral authorization has expired or disappeared.
+          const replay = findFinalizeReceiptReplay(
+            snapshot,
+            submissionId,
+            request.job_id,
+            requestSha256,
+          );
+          if (replay !== undefined) {
+            return {
+              transaction: null,
+              value: { kind: "replay", stableResponse: replay },
+            };
+          }
+
+          const jobId = JobIdSchema.parse(request.job_id);
+          const extractReceipt = requiredExtractCandidateReceipt(
+            snapshot,
+            jobId,
+          );
+          const job = snapshot.domain.distillJobs.find(
+            (candidate) => candidate.job_id === jobId,
+          );
+          if (job === undefined || job.repo_id !== this.repoId) {
+            throw submitError(
+              "JOB_CONTEXT_MISMATCH",
+              `job ${jobId} was not found in repository ${this.repoId}`,
+            );
+          }
+          if (job.state === "done") {
+            throw submitError(
+              "JOB_ALREADY_FINALIZED",
+              `job ${jobId} is finalized without a replayable receipt`,
+            );
+          }
+          return {
+            transaction: null,
+            value: {
+              extractReceipt,
+              kind: "miss",
+              threadId: job.thread_id,
+            },
+          };
+        },
+      );
+    if (lookup.kind === "replay") return lookup.stableResponse;
+
+    const parsed = parseFinalizeRequest(request);
+    const runtimeContext = this.finalizeContexts.find(request.finalize_token);
+    if (runtimeContext === undefined) {
+      const lateReplay = await this.repository.runLockedMutation(
+        (snapshot) => ({
+          transaction: null,
+          value: findFinalizeReceiptReplay(
+            snapshot,
+            submissionId,
+            parsed.jobId,
+            requestSha256,
+          ),
+        }),
+      );
+      if (lateReplay !== undefined) return lateReplay;
+      throw submitError(
+        "UNKNOWN_FINALIZE_TOKEN",
+        "the finalize token is unknown, expired, or belongs to an earlier process",
+      );
+    }
+    validateFinalizeRuntimeBinding(
+      parsed,
+      runtimeContext,
+      lookup.extractReceipt,
+      request.finalize_token,
+    );
+    const candidates = lookup.extractReceipt.stable_response.candidates;
+    const searchPlan = createMergeCandidateSearchPlan({
+      ...(this.candidateLimit === undefined
+        ? {}
+        : { candidateLimit: this.candidateLimit }),
+      candidates,
+      repoId: this.repoId,
+      threadId: lookup.threadId,
+    });
+    const distillationContext = this.requireDistillationContext();
+
+    let result: FinalizeLockedResult;
+    try {
+      result =
+        await this.repository.runLockedKnowledgeSearchMutation<FinalizeLockedResult>(
+          searchPlan.searchable.map((entry) => entry.request),
+          (view) => {
+            // Close the miss-to-commit race under the same lock. A concurrent
+            // successful finalize wins and is replayed without another write.
+            const replay = findFinalizeReceiptReplay(
+              view.snapshot,
+              submissionId,
+              parsed.jobId,
+              requestSha256,
+            );
+            if (replay !== undefined) {
+              return {
+                transaction: null,
+                value: {
+                  kind: "replay" as const,
+                  stableResponse: replay,
+                },
+              };
+            }
+
+            const job = view.snapshot.domain.distillJobs.find(
+              (candidate) => candidate.job_id === parsed.jobId,
+            );
+            if (
+              job === undefined ||
+              job.repo_id !== this.repoId ||
+              job.thread_id !== lookup.threadId
+            ) {
+              throw submitError(
+                "JOB_CONTEXT_MISMATCH",
+                "the finalize job is not bound to the extracted repository and thread",
+              );
+            }
+            if (job.state !== "awaiting_finalize") {
+              throw submitError(
+                job.state === "done"
+                  ? "JOB_ALREADY_FINALIZED"
+                  : "JOB_CONTEXT_MISMATCH",
+                `job ${job.job_id} is not awaiting finalize`,
+              );
+            }
+            const operation = operationTime(this.now, job);
+            assertCurrentDistillJobLease(
+              job,
+              {
+                job_id: parsed.jobId,
+                lease_generation: parsed.leaseGeneration,
+                lease_token: request.lease_token,
+              },
+              operation.timestamp,
+            );
+            if (Date.parse(runtimeContext.expires_at) <= operation.timestamp) {
+              throw submitError(
+                "UNKNOWN_FINALIZE_TOKEN",
+                "the finalize token expired before canonical commit",
+              );
+            }
+            const currentThread = view.snapshot.domain.threads.find(
+              (candidate) =>
+                candidate.repo_id === this.repoId &&
+                candidate.thread_id === job.thread_id,
+            );
+            if (
+              currentThread === undefined ||
+              currentThread.content_fingerprint !==
+                runtimeContext.content_fingerprint
+            ) {
+              throw submitError(
+                "DISTILLATION_SOURCE_CHANGED",
+                "the review source changed after the finalize token was issued",
+              );
+            }
+            const source = resolveHostAssistedDistillationSource(
+              view.snapshot,
+              job,
+              {
+                outputSchemaDigest: distillationContext.outputSchemaDigest,
+                promptDigest: distillationContext.promptDigest,
+                repoId: this.repoId,
+                repositoryContext: distillationContext.repositoryContext,
+                trustPolicyDigest: distillationContext.trustPolicyDigest,
+              },
+            );
+            if (
+              source.contentFingerprint !== runtimeContext.content_fingerprint
+            ) {
+              throw submitError(
+                "DISTILLATION_SOURCE_CHANGED",
+                "the review source changed after the finalize token was issued",
+              );
+            }
+            if (source.distillationKey !== runtimeContext.distillation_key) {
+              throw submitError(
+                "DISTILLATION_CONTEXT_CHANGED",
+                "the prompt, schema, trust policy, or repository context changed",
+              );
+            }
+
+            try {
+              const planned = this.canonicalFinalizer.planFinalizeMutation(
+                {
+                  candidates,
+                  content_fingerprint: source.contentFingerprint,
+                  decisions: request.decisions,
+                  distillation_key: source.distillationKey,
+                  expected_match_set_digest: runtimeContext.match_set_digest,
+                  lease: {
+                    job_id: parsed.jobId,
+                    lease_generation: parsed.leaseGeneration,
+                    lease_token: request.lease_token,
+                  },
+                  provenance: finalizeProvenance(
+                    distillationContext,
+                    source.distillationKey,
+                  ),
+                  thread_id: job.thread_id,
+                },
+                view,
+              );
+              const receipt = FinalizeSubmissionReceiptSchema.parse({
+                committed_at: planned.transaction.createdAt,
+                job_id: parsed.jobId,
+                phase: "finalize",
+                receipt_id: this.nextReceiptId(
+                  Date.parse(planned.transaction.createdAt),
+                ),
+                request_sha256: requestSha256,
+                stable_response: planned.value,
+                submission_id: submissionId,
+              });
+              const receiptRecord: CanonicalJsonlRecord<typeof receipt> = {
+                payload: receipt,
+                record_id: receipt.receipt_id,
+                record_type: "SubmissionReceipt",
+                recorded_at: planned.transaction.createdAt,
+                schema_version: 1,
+                transaction_id: planned.transaction.transactionId,
+              };
+              return {
+                transaction: {
+                  ...planned.transaction,
+                  appendRecords: [
+                    ...planned.transaction.appendRecords,
+                    {
+                      record: receiptRecord,
+                      targetPath: this.submissionEventPath,
+                    },
+                  ],
+                },
+                value: {
+                  kind: "committed" as const,
+                  stableResponse: planned.value,
+                },
+              };
+            } catch (error) {
+              if (
+                error instanceof CanonicalFinalizeError &&
+                error.code === "MERGE_CANDIDATES_CHANGED" &&
+                error.currentSearch !== undefined
+              ) {
+                return {
+                  transaction: null,
+                  value: {
+                    contentFingerprint: source.contentFingerprint,
+                    distillationKey: source.distillationKey,
+                    expiresAt: job.lease_expires_at!,
+                    kind: "match_changed" as const,
+                    search: error.currentSearch,
+                    sourceSnapshotId: source.snapshotId,
+                  },
+                };
+              }
+              throw error;
+            }
+          },
+        );
+    } catch (error) {
+      throw translateFinalizeError(error);
+    }
+
+    if (result.kind === "match_changed") {
+      let issued: ReturnType<RuntimeFinalizeContextStore["issue"]>;
+      try {
+        issued = this.finalizeContexts.issue({
+          candidate_set_sha256: parsed.candidateSetSha256,
+          content_fingerprint: result.contentFingerprint,
+          distillation_key: result.distillationKey,
+          expires_at: result.expiresAt,
+          job_id: parsed.jobId,
+          lease_generation: parsed.leaseGeneration,
+          match_set_digest: result.search.match_set_digest,
+          possible_matches: result.search.possible_matches,
+          request_sha256: lookup.extractReceipt.request_sha256,
+          source_snapshot_id: result.sourceSnapshotId,
+        });
+      } catch (error) {
+        if (
+          error instanceof RuntimeFinalizeContextStoreError &&
+          error.code === "FINALIZE_CONTEXT_EXPIRED"
+        ) {
+          throw submitError(
+            "RESUME_REQUIRED",
+            "the lease expired while refreshing changed merge candidates",
+            error,
+          );
+        }
+        throw error;
+      }
+      this.finalizeContexts.remove(request.finalize_token);
+      throw new SubmitDistillationError(
+        "MERGE_CANDIDATES_CHANGED",
+        "the possible match set changed; classify the latest matches and retry with a new submission_id",
+        {
+          retry: {
+            candidate_set_sha256: parsed.candidateSetSha256,
+            finalize_handle: issued.handle,
+            match_set_digest: result.search.match_set_digest,
+            possible_matches: result.search.possible_matches,
+            state: "merge_decision_required",
+          },
+        },
+      );
+    }
+
+    if (result.kind === "committed") {
+      this.finalizeContexts.remove(request.finalize_token);
+    }
+    return result.stableResponse;
+  }
+
+  private requireDistillationContext(): ValidatedSubmitDistillationContext {
+    if (this.distillationContext === undefined) {
+      throw submitError(
+        "FINALIZE_REQUEST_INVALID",
+        "submit finalize requires host-assisted distillation context configuration",
+      );
+    }
+    return this.distillationContext;
   }
 
   private async rehydrateExtract(
@@ -628,6 +1087,218 @@ export class SubmitDistillationService {
   }
 }
 
+interface ParsedFinalizeRequest {
+  readonly candidateSetSha256: string;
+  readonly jobId: string;
+  readonly leaseGeneration: number;
+}
+
+function parseFinalizeRequest(
+  request: SubmitFinalizeRequest,
+): ParsedFinalizeRequest {
+  try {
+    if (request.phase !== "finalize" || request.request_schema_version !== 1) {
+      throw new TypeError(
+        "phase must be finalize and request_schema_version must be 1",
+      );
+    }
+    NonEmptyStringSchema.parse(request.submission_id);
+    NonEmptyStringSchema.parse(request.lease_token);
+    NonEmptyStringSchema.parse(request.finalize_token);
+    if (
+      !Number.isSafeInteger(request.lease_generation) ||
+      request.lease_generation < 1
+    ) {
+      throw new TypeError("lease_generation must be a positive safe integer");
+    }
+    if (!Array.isArray(request.decisions)) {
+      throw new TypeError("decisions must be an array");
+    }
+    return {
+      candidateSetSha256: rawSha256(
+        request.candidate_set_sha256,
+        "candidate_set_sha256",
+      ),
+      jobId: JobIdSchema.parse(request.job_id),
+      leaseGeneration: request.lease_generation,
+    };
+  } catch (error) {
+    throw submitError(
+      "FINALIZE_REQUEST_INVALID",
+      "the finalize request envelope is invalid",
+      error,
+    );
+  }
+}
+
+function findFinalizeReceiptReplay(
+  snapshot: CanonicalProjectionSnapshot,
+  submissionId: string,
+  jobId: string,
+  requestSha256: string,
+): FinalizeStableResponse | undefined {
+  const bySubmission = snapshot.domain.submissionReceipts.find(
+    (receipt) => receipt.submission_id === submissionId,
+  );
+  if (bySubmission !== undefined) {
+    if (
+      bySubmission.phase !== "finalize" ||
+      bySubmission.request_sha256 !== requestSha256
+    ) {
+      throw new RequestIntegrityError(
+        "IDEMPOTENCY_KEY_REUSED",
+        "submission_id was already committed for a different request",
+      );
+    }
+    return bySubmission.stable_response;
+  }
+
+  const phaseReceipt = snapshot.domain.submissionReceipts.find(
+    (
+      receipt,
+    ): receipt is Extract<SubmissionReceipt, { readonly phase: "finalize" }> =>
+      receipt.job_id === jobId && receipt.phase === "finalize",
+  );
+  if (phaseReceipt === undefined) return undefined;
+  if (phaseReceipt.request_sha256 !== requestSha256) {
+    throw submitError(
+      "PHASE_ALREADY_COMMITTED",
+      `finalize was already committed for job ${jobId}`,
+    );
+  }
+  return phaseReceipt.stable_response;
+}
+
+function requiredExtractCandidateReceipt(
+  snapshot: CanonicalProjectionSnapshot,
+  jobId: string,
+): FinalizeReceiptMiss["extractReceipt"] {
+  const receipts = snapshot.domain.submissionReceipts.filter(
+    (
+      receipt,
+    ): receipt is Extract<SubmissionReceipt, { readonly phase: "extract" }> =>
+      receipt.job_id === jobId && receipt.phase === "extract",
+  );
+  if (receipts.length !== 1) {
+    throw submitError(
+      "FINALIZE_REQUEST_INVALID",
+      `job ${jobId} does not have exactly one canonical extract receipt`,
+    );
+  }
+  const receipt = receipts[0]!;
+  if (receipt.stable_response.state !== "merge_decision_required") {
+    throw submitError(
+      "FINALIZE_REQUEST_INVALID",
+      `job ${jobId} has a terminal extract receipt and cannot be finalized`,
+    );
+  }
+  return receipt as FinalizeReceiptMiss["extractReceipt"];
+}
+
+function validateFinalizeRuntimeBinding(
+  parsed: ParsedFinalizeRequest,
+  context: FinalizeContext,
+  extractReceipt: FinalizeReceiptMiss["extractReceipt"],
+  finalizeToken: string,
+): void {
+  if (context.token_hash !== hashFinalizeToken(finalizeToken)) {
+    throw submitError(
+      "UNKNOWN_FINALIZE_TOKEN",
+      "the runtime finalize context has an inconsistent token binding",
+    );
+  }
+  const candidateSetSha256 = computeCandidateSetSha256(
+    extractReceipt.stable_response.candidates,
+  );
+  if (
+    parsed.jobId !== context.job_id ||
+    parsed.jobId !== extractReceipt.job_id ||
+    parsed.leaseGeneration !== context.lease_generation ||
+    parsed.candidateSetSha256 !== context.candidate_set_sha256 ||
+    parsed.candidateSetSha256 !== candidateSetSha256 ||
+    context.request_sha256 !== extractReceipt.request_sha256
+  ) {
+    throw submitError(
+      "FINALIZE_REQUEST_INVALID",
+      "the finalize request is not bound to its extract receipt, lease generation, and candidate set",
+    );
+  }
+}
+
+function validateDistillationContext(
+  input: SubmitDistillationContextOptions,
+): ValidatedSubmitDistillationContext {
+  const config = RepoKnowledgeConfigSchema.parse(input.config);
+  return {
+    config,
+    model: NonEmptyStringSchema.parse(input.model ?? "mcp-host"),
+    outputSchemaDigest: Sha256DigestSchema.parse(
+      input.outputSchemaDigest ?? DISTILLATION_OUTPUT_SCHEMA_DIGEST,
+    ),
+    outputSchemaVersion: NonEmptyStringSchema.parse(
+      input.outputSchemaVersion ?? DISTILLATION_OUTPUT_SCHEMA_VERSION,
+    ),
+    promptDigest: Sha256DigestSchema.parse(input.promptDigest),
+    promptVersion: NonEmptyStringSchema.parse(input.promptVersion),
+    provider: NonEmptyStringSchema.parse(input.provider ?? "host-assisted"),
+    repositoryContext: JSON.parse(
+      canonicalizeJson(input.repositoryContext),
+    ) as unknown,
+    trustPolicyDigest: computeTrustPolicyDigest(config.trust),
+  };
+}
+
+function finalizeProvenance(
+  context: ValidatedSubmitDistillationContext,
+  distillationKey: string,
+): DistillationProvenance {
+  return {
+    distillation_key: distillationKey,
+    model: context.model,
+    output_schema_digest: context.outputSchemaDigest,
+    output_schema_version: context.outputSchemaVersion,
+    prompt_digest: context.promptDigest,
+    prompt_version: context.promptVersion,
+    provider: context.provider,
+    trust_policy_digest: context.trustPolicyDigest,
+  };
+}
+
+function translateFinalizeError(error: unknown): Error {
+  if (error instanceof SubmitDistillationError) return error;
+  if (error instanceof HostAssistedDistillationError) {
+    return submitError(
+      error.code === "DISTILLATION_CONTEXT_CHANGED"
+        ? "DISTILLATION_CONTEXT_CHANGED"
+        : "DISTILLATION_SOURCE_CHANGED",
+      error.message,
+      error,
+    );
+  }
+  if (error instanceof MergeClassifierError) {
+    return submitError(
+      "FINALIZE_REQUEST_INVALID",
+      "the finalize decisions are incomplete, duplicated, or target an invalid match",
+      error,
+    );
+  }
+  if (error instanceof CanonicalFinalizeError) {
+    if (error.code === "FINALIZE_REQUEST_INVALID") {
+      return submitError("FINALIZE_REQUEST_INVALID", error.message, error);
+    }
+    if (
+      error.code === "CURRENT_SNAPSHOT_INCOMPLETE" ||
+      error.code === "DISTILLATION_CONTEXT_CHANGED" ||
+      error.code === "DISTILLATION_SOURCE_CHANGED" ||
+      error.code === "EVIDENCE_COMMENTS_INVALID" ||
+      error.code === "JOB_CONTEXT_MISMATCH"
+    ) {
+      return submitError(error.code, error.message, error);
+    }
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 function parseExtractOutput(request: SubmitExtractRequest) {
   try {
     if (request.phase !== "extract" || request.request_schema_version !== 1) {
@@ -648,8 +1319,15 @@ function parseExtractOutput(request: SubmitExtractRequest) {
   }
 }
 
-function canonicalRequestDigest(request: SubmitExtractRequest): string {
+function canonicalRequestDigest(request: PhaseRequest): string {
   return Sha256DigestSchema.parse(`sha256:${computeRequestSha256(request)}`);
+}
+
+function rawSha256(value: string, field: string): string {
+  if (!/^[a-f0-9]{64}$/u.test(value)) {
+    throw new TypeError(`${field} must be a lowercase hexadecimal SHA-256`);
+  }
+  return value;
 }
 
 function sortCandidates(
