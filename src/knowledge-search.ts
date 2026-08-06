@@ -19,6 +19,11 @@ export interface KnowledgeSearchRequest {
   readonly statuses?: readonly KnowledgeStatus[];
 }
 
+export type ExhaustiveKnowledgeSearchRequest = Omit<
+  KnowledgeSearchRequest,
+  "candidateLimit"
+>;
+
 export interface KnowledgeSearchHit extends ProjectedKnowledge {
   readonly bm25Score: number | null;
   readonly score: number;

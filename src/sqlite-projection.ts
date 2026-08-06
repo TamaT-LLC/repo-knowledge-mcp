@@ -27,6 +27,7 @@ import {
   KnowledgeSearchError,
   normalizeKnowledgeSearchQuery,
   validateKnowledgeSearchCandidateLimit,
+  type ExhaustiveKnowledgeSearchRequest,
   type KnowledgeSearchHit,
   type KnowledgeSearchRequest,
   type KnowledgeSearchResult,
@@ -50,6 +51,11 @@ export interface CanonicalProjectionSnapshot {
   readonly domain: DomainProjectionSnapshot;
   readonly knowledge: readonly KnowledgeDocument[];
   readonly records: readonly ProjectedCanonicalRecord[];
+}
+
+export interface CanonicalKnowledgeReadView {
+  readonly searchResult: KnowledgeSearchResult | null;
+  readonly snapshot: CanonicalProjectionSnapshot;
 }
 
 interface CapturedKnowledge {
@@ -128,18 +134,7 @@ export class SqliteCanonicalProjection {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
     try {
-      const currentDigest = getProjectionMeta(database, "canonical_digest");
-      if (
-        currentDigest === capture.canonicalDigest &&
-        getProjectionMeta(database, "schema_version") === "2"
-      ) {
-        return readSnapshot(database);
-      }
-      const checkpoint = getProjectionMeta(
-        database,
-        "last_committed_transaction_id",
-      );
-      rebuildDatabase(database, capture, checkpoint);
+      ensureCaptureProjected(database, capture);
       return readSnapshot(database);
     } finally {
       database.close();
@@ -169,18 +164,35 @@ export class SqliteCanonicalProjection {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
     try {
-      const currentDigest = getProjectionMeta(database, "canonical_digest");
-      if (
-        currentDigest !== capture.canonicalDigest ||
-        getProjectionMeta(database, "schema_version") !== "2"
-      ) {
-        rebuildDatabase(
-          database,
-          capture,
-          getProjectionMeta(database, "last_committed_transaction_id"),
-        );
-      }
+      ensureCaptureProjected(database, capture);
       return searchKnowledgeDatabase(database, request);
+    } finally {
+      database.close();
+    }
+  }
+
+  async readKnowledgeView(
+    searchRequest?: ExhaustiveKnowledgeSearchRequest,
+  ): Promise<CanonicalKnowledgeReadView> {
+    const capture = await captureCanonicalState(this.repositoryRoot);
+    const database = this.openDatabase();
+    try {
+      ensureCaptureProjected(database, capture);
+      database.exec("BEGIN");
+      try {
+        const view = {
+          searchResult:
+            searchRequest === undefined
+              ? null
+              : searchKnowledgeDatabase(database, searchRequest, true),
+          snapshot: readSnapshot(database),
+        };
+        database.exec("COMMIT");
+        return view;
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
     } finally {
       database.close();
     }
@@ -203,6 +215,24 @@ export class SqliteCanonicalProjection {
     createSchema(database);
     return database;
   }
+}
+
+function ensureCaptureProjected(
+  database: Database.Database,
+  capture: CanonicalCapture,
+): void {
+  if (
+    getProjectionMeta(database, "canonical_digest") ===
+      capture.canonicalDigest &&
+    getProjectionMeta(database, "schema_version") === "2"
+  ) {
+    return;
+  }
+  rebuildDatabase(
+    database,
+    capture,
+    getProjectionMeta(database, "last_committed_transaction_id"),
+  );
 }
 
 function createSchema(database: Database.Database): void {
@@ -896,6 +926,7 @@ function projectedKnowledgeFromRow(
 function searchKnowledgeDatabase(
   database: Database.Database,
   request: KnowledgeSearchRequest,
+  exhaustive = false,
 ): KnowledgeSearchResult {
   const repoId = RepositoryIdSchema.parse(request.repoId);
   const category =
@@ -914,9 +945,10 @@ function searchKnowledgeDatabase(
     );
   }
   const orderedStatuses = [...statuses].sort(compareCodeUnits);
-  const candidateLimit = validateKnowledgeSearchCandidateLimit(
-    request.candidateLimit,
-  );
+  const candidateLimit = exhaustive
+    ? null
+    : validateKnowledgeSearchCandidateLimit(request.candidateLimit);
+  const limitClause = candidateLimit === null ? "" : "LIMIT ?";
   const query = normalizeKnowledgeSearchQuery(request.query);
   const statusPlaceholders = orderedStatuses.map(() => "?").join(", ");
   const categoryClause = category === undefined ? "" : "AND k.category = ?";
@@ -931,16 +963,16 @@ function searchKnowledgeDatabase(
          WHERE knowledge_fts MATCH ?
            AND k.repo_id = ?
            AND k.status IN (${statusPlaceholders})
-           ${categoryClause}
+         ${categoryClause}
          ORDER BY bm25_score ASC, k.id ASC
-         LIMIT ?`,
+         ${limitClause}`,
       )
       .all(
         query.ftsLiteral,
         repoId,
         ...orderedStatuses,
         ...(category === undefined ? [] : [category]),
-        candidateLimit,
+        ...(candidateLimit === null ? [] : [candidateLimit]),
       ) as unknown as SearchKnowledgeRow[];
   } else {
     rows = database
@@ -958,7 +990,7 @@ function searchKnowledgeDatabase(
            WHEN k.search_rule = ? OR k.search_detail = ? THEN 0
            ELSE 1
          END ASC, k.id ASC
-         LIMIT ?`,
+         ${limitClause}`,
       )
       .all(
         query.likePattern,
@@ -968,7 +1000,7 @@ function searchKnowledgeDatabase(
         ...(category === undefined ? [] : [category]),
         query.folded,
         query.folded,
-        candidateLimit,
+        ...(candidateLimit === null ? [] : [candidateLimit]),
       ) as unknown as SearchKnowledgeRow[];
   }
 

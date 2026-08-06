@@ -21,6 +21,7 @@
     "better-sqlite3": "^13.0.3",
     "execa": "^10.0.1",
     "gray-matter": "^4.0.3",
+    "picomatch": "^4.0.5",
     "ulid": "^3.0.2",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
@@ -39,6 +40,7 @@
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.1",
+    "@types/picomatch": "^4.0.3",
     "eslint": "^10.8.0",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",

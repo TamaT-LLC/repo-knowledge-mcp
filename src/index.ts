@@ -242,12 +242,37 @@ export {
   validateKnowledgeSearchCandidateLimit,
   violationBoost,
   type KnowledgeSearchErrorCode,
+  type ExhaustiveKnowledgeSearchRequest,
   type KnowledgeSearchHit,
   type KnowledgeSearchMode,
   type KnowledgeSearchRequest,
   type KnowledgeSearchResult,
   type NormalizedKnowledgeSearchQuery,
 } from "./knowledge-search.js";
+export {
+  DEFAULT_EVIDENCE_LIMIT,
+  DEFAULT_GET_RULES_LIMIT,
+  DEFAULT_SEARCH_KNOWLEDGE_LIMIT,
+  MAX_EVIDENCE_LIMIT,
+  MAX_READ_RESULT_LIMIT,
+  KnowledgeReadError,
+  KnowledgeReadService,
+  encodeEvidenceCursor,
+  normalizeRepositoryFilePath,
+  type GetKnowledgeRequest,
+  type GetKnowledgeResult,
+  type GetRulesRequest,
+  type GetRulesResult,
+  type GetRulesRule,
+  type KnowledgeDetail,
+  type KnowledgeReadErrorCode,
+  type KnowledgeReadRepository,
+  type KnowledgeReadServiceOptions,
+  type RuleMatchReason,
+  type SearchKnowledgeItem,
+  type SearchKnowledgeRequest,
+  type SearchKnowledgeResult,
+} from "./knowledge-read-service.js";
 export { FileLockTimeoutError, withPosixFileLock } from "./posix-file-lock.js";
 export {
   RequestIntegrityError,
@@ -319,6 +344,7 @@ export {
 } from "./repository-resolver.js";
 export {
   SqliteCanonicalProjection,
+  type CanonicalKnowledgeReadView,
   type CanonicalProjectionSnapshot,
   type ProjectedCanonicalRecord,
 } from "./sqlite-projection.js";
