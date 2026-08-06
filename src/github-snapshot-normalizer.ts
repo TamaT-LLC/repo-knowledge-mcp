@@ -428,6 +428,39 @@ export function buildReviewerIdentity(
   });
 }
 
+/** Re-evaluates stored actor metadata after a local trust-policy change. */
+export function reclassifyReviewerIdentity(
+  identity: ReviewerIdentity,
+  trustConfig: TrustConfig,
+): ReviewerIdentity {
+  const current = ReviewerIdentitySchema.parse(identity);
+  const trust = TrustConfigSchema.parse(trustConfig);
+  const isExplicitlyTrusted =
+    (current.actor_id !== undefined &&
+      trust.trustedActorIds.includes(current.actor_id)) ||
+    (current.login !== null && trust.trustedLogins.includes(current.login));
+  const isConfiguredAi =
+    current.actor_kind === "bot" &&
+    current.login !== null &&
+    Object.hasOwn(trust.aiReviewers, current.login);
+  return ReviewerIdentitySchema.parse({
+    ...(current.actor_id === undefined ? {} : { actor_id: current.actor_id }),
+    actor_kind: current.actor_kind,
+    ...(current.author_association === undefined
+      ? {}
+      : { author_association: current.author_association }),
+    login: current.login,
+    provider: reviewerProvider(current.actor_kind, current.login, trust),
+    trust:
+      isExplicitlyTrusted || isConfiguredAi
+        ? "trusted"
+        : current.actor_kind === "user" &&
+            isExternalAssociation(current.author_association ?? "")
+          ? "untrusted"
+          : "unknown",
+  });
+}
+
 /** Returns why a comment is omitted from fingerprint and prompt input. */
 export function classifyCommentExclusion(
   normalizedBody: string,

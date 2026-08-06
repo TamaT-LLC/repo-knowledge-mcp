@@ -95,6 +95,7 @@ export {
   isEmojiOnly,
   normalizeGitHubPullRequestSnapshot,
   normalizeLf,
+  reclassifyReviewerIdentity,
   type CommentExclusionReason,
   type DistillationInputDigestRequest,
   type DistillationKeyRequest,
@@ -261,6 +262,7 @@ export {
   DISTILLATION_JOB_LEASE_RENEWED,
   DISTILLATION_JOB_LEASE_REVOKED,
   DISTILLATION_JOB_RECORD_TYPES,
+  DISTILLATION_JOB_REDISTILL_REQUESTED,
   DISTILLATION_JOB_SKIPPED,
   DISTILLATION_JOB_SUCCEEDED,
   DistillationFailureKindSchema,
@@ -495,6 +497,13 @@ export {
   type ProviderPostIngestRepository,
 } from "./provider-post-ingest-runner.js";
 export {
+  DefaultRepositoryApplicationFactory,
+  RepositoryApplicationError,
+  type RepositoryApplicationErrorCode,
+  type RepositoryApplicationFactoryOptions,
+  type RepositoryApplicationOperations,
+} from "./repository-application.js";
+export {
   MERGE_CLASSIFIER_OUTPUT_JSON_SCHEMA,
   MERGE_CLASSIFIER_OUTPUT_SCHEMA_VERSION,
   MERGE_CLASSIFIER_SYSTEM_PROMPT,
@@ -586,6 +595,7 @@ export {
   GetRulesInputSchema,
   GetRulesOutputSchema,
   READ_TOOL_ANNOTATIONS,
+  REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION,
   REPO_KNOWLEDGE_SERVER_INSTRUCTIONS,
   REPO_KNOWLEDGE_SERVER_NAME,
   REPO_KNOWLEDGE_SERVER_VERSION,
@@ -602,6 +612,47 @@ export {
   type RepoKnowledgeLogger,
   type ServeRepoKnowledgeStdioOptions,
 } from "./mcp-server.js";
+export {
+  REPO_KNOWLEDGE_CLI_EXIT,
+  REPO_KNOWLEDGE_CLI_HELP,
+  RepoKnowledgeCliError,
+  parseRepoKnowledgeCliArguments,
+  runRepoKnowledgeCli,
+  type CliAdminOperations,
+  type CliDistillResult,
+  type CliKnowledgeSummary,
+  type CliListKnowledgeRequest,
+  type CliListKnowledgeResult,
+  type CliReconcileResult,
+  type CliRedistillRequest,
+  type CliRedistillResult,
+  type CliReindexResult,
+  type CliRepositoryOperations,
+  type CliRepositoryOperationsResolver,
+  type CliRepositorySelection,
+  type ParsedCliCommand,
+  type RepoKnowledgeCliErrorCode,
+  type RepoKnowledgeCliIo,
+  type RepoKnowledgeServeRequest,
+  type RunRepoKnowledgeCliOptions,
+} from "./cli.js";
+export {
+  CanonicalCliRepositoryOperationsResolver,
+  CanonicalCliRepositoryService,
+  CliMaintenanceError,
+  type CanonicalCliRepositoryOperationsResolverOptions,
+  type CanonicalCliRepositoryServiceOptions,
+  type CliMaintenanceErrorCode,
+  type CliRepositoryOperationsFactory,
+  type CliRepositoryOperationsFactoryContext,
+} from "./cli-maintenance-service.js";
+export {
+  createDefaultCliRuntime,
+  runDefaultRepoKnowledgeCli,
+  type CreateDefaultCliRuntimeOptions,
+  type DefaultCliRuntime,
+  type RunDefaultRepoKnowledgeCliOptions,
+} from "./cli-runtime.js";
 export {
   AddKnowledgeInputSchema,
   AddKnowledgeOutputSchema,

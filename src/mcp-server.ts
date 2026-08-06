@@ -49,8 +49,10 @@ import {
 
 export const REPO_KNOWLEDGE_SERVER_NAME = "repo-knowledge";
 export const REPO_KNOWLEDGE_SERVER_VERSION = "0.1.0";
+export const REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION =
+  "Before modifying code, call the repo-knowledge MCP `get_rules` tool with the files you expect to change.";
 export const REPO_KNOWLEDGE_SERVER_INSTRUCTIONS = [
-  "Before modifying code, call the repo-knowledge MCP `get_rules` tool with the files you expect to change.",
+  REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION,
   "Use host-assisted distillation only when it is explicitly enabled; otherwise do not transmit review content or diffs through the host model.",
 ].join("\n\n");
 
