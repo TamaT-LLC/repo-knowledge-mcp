@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CanonicalTransactionStore,
+  serializeCanonicalJsonlRecord,
   type CanonicalCommitPoint,
   type CanonicalJsonlRecord,
   type CanonicalTransactionRequest,
@@ -179,22 +180,13 @@ describe("acceptance tests 44-46", () => {
       join(repository, "events", "evidence.jsonl"),
       `${JSON.stringify(conflictingRecord)}\n`,
     );
-    let crashed = false;
-    const store = new CanonicalTransactionStore(repository, {
-      faultInjector(point) {
-        if (!crashed && point === "after_prepared") {
-          crashed = true;
-          throw new Error("simulated crash");
-        }
-      },
-    });
-    await expect(store.commit(transactionRequest())).rejects.toThrow(
-      "simulated crash",
-    );
-
     await expect(
-      new CanonicalTransactionStore(repository).recover(),
-    ).rejects.toMatchObject({ code: "RECORD_ID_CONFLICT" });
+      new CanonicalTransactionStore(repository).commit(transactionRequest()),
+    ).rejects.toMatchObject({
+      code: "RECORD_ID_CONFLICT",
+      transactionId: "txn_acceptance_25",
+    });
+    expect(await transactionEntries(repository)).toEqual([]);
   });
 
   it("does not apply a staged append whose bytes fail line_sha256", async () => {
@@ -261,6 +253,49 @@ describe("acceptance tests 44-46", () => {
 
     expect(await readCanonicalLines(repository)).toHaveLength(1);
     expect(await transactionEntries(repository)).toEqual([]);
+  });
+
+  it("rejects a record ID already present in a different canonical log", async () => {
+    const repository = await createRepository();
+    await mkdir(join(repository, "raw"), { recursive: true });
+    const existing = {
+      ...evidenceRecord(),
+      transaction_id: "txn_existing_record",
+    };
+    await writeFile(
+      join(repository, "raw", "comments.jsonl"),
+      serializeCanonicalJsonlRecord(existing),
+    );
+    const request = transactionRequest();
+
+    await expect(
+      new CanonicalTransactionStore(repository).commit({
+        ...request,
+        fileWrites: [],
+      }),
+    ).rejects.toMatchObject({
+      code: "RECORD_ID_CONFLICT",
+      transactionId: "txn_acceptance_25",
+    });
+    expect(await transactionEntries(repository)).toEqual([]);
+    await expect(
+      readFile(join(repository, "events", "evidence.jsonl")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+describe("POSIX repo lock recovery", () => {
+  it("reclaims a stable incomplete lock file instead of timing out", async () => {
+    const repository = await createRepository();
+    const lockPath = join(repository, ".write.lock");
+    await writeFile(lockPath, '{"pid":');
+
+    await expect(
+      new CanonicalTransactionStore(repository, {
+        lockTimeoutMs: 500,
+      }).readSnapshot(),
+    ).resolves.toMatchObject({ records: [], knowledge: [] });
+    await expect(readFile(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

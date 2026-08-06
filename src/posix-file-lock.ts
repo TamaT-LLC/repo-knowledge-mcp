@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { open, readFile, unlink } from "node:fs/promises";
+import { link, open, readFile, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -45,28 +45,36 @@ async function acquireLock(
     token: randomUUID(),
   };
   const bytes = Buffer.from(`${canonicalizeJson(contents)}\n`, "utf8");
+  const candidatePath = `${lockPath}.${process.pid}.${contents.token}.tmp`;
+  await writeLockFile(candidatePath, bytes);
 
-  for (;;) {
-    try {
-      await writeLockFile(lockPath, bytes);
-      await syncDirectory(dirname(lockPath));
-      return contents;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-
-    if (await lockOwnerIsDead(lockPath)) {
+  try {
+    for (;;) {
       try {
-        await unlink(lockPath);
+        await link(candidatePath, lockPath);
         await syncDirectory(dirname(lockPath));
-        continue;
+        await unlink(candidatePath);
+        await syncDirectory(dirname(lockPath));
+        return contents;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw error;
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       }
+
+      if (await lockOwnerIsDead(lockPath)) {
+        try {
+          await unlink(lockPath);
+          await syncDirectory(dirname(lockPath));
+          continue;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+          throw error;
+        }
+      }
+      if (Date.now() >= deadline) throw new FileLockTimeoutError(lockPath);
+      await delay(10);
     }
-    if (Date.now() >= deadline) throw new FileLockTimeoutError(lockPath);
-    await delay(10);
+  } finally {
+    await unlinkIfPresent(candidatePath);
   }
 }
 
@@ -88,18 +96,26 @@ async function releaseLock(
 }
 
 async function lockOwnerIsDead(lockPath: string): Promise<boolean> {
-  let value: unknown;
+  let first: Buffer;
   try {
-    value = JSON.parse(
-      decodeUtf8(lockPath, await readFile(lockPath)),
-    ) as unknown;
-  } catch {
-    return false;
+    first = await readFile(lockPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
-  if (!isRecord(value)) return false;
-  const pid = value.pid;
-  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
-    return false;
+  let pid = parseLockPid(lockPath, first);
+  if (pid === null) {
+    await delay(20);
+    let second: Buffer;
+    try {
+      second = await readFile(lockPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+    if (!first.equals(second)) return false;
+    pid = parseLockPid(lockPath, second);
+    if (pid === null) return true;
   }
   try {
     process.kill(pid, 0);
@@ -107,6 +123,20 @@ async function lockOwnerIsDead(lockPath: string): Promise<boolean> {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "ESRCH";
   }
+}
+
+function parseLockPid(lockPath: string, bytes: Uint8Array): number | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(decodeUtf8(lockPath, bytes)) as unknown;
+  } catch {
+    return null;
+  }
+  if (!isRecord(value)) return null;
+  const pid = value.pid;
+  return typeof pid === "number" && Number.isInteger(pid) && pid > 0
+    ? pid
+    : null;
 }
 
 async function writeLockFile(path: string, bytes: Uint8Array): Promise<void> {
@@ -135,6 +165,15 @@ async function syncDirectory(path: string): Promise<void> {
     await handle.sync();
   } finally {
     await handle.close();
+  }
+}
+
+async function unlinkIfPresent(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
   }
 }
 

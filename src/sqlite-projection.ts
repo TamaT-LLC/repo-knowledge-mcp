@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import Database from "better-sqlite3";
 
@@ -8,6 +8,7 @@ import {
   parseCanonicalJsonlLine,
   type CanonicalJsonlRecord,
 } from "./canonical-jsonl.js";
+import { findCanonicalJsonlPaths } from "./canonical-files.js";
 import { compareCodeUnits, sha256Jcs } from "./canonical.js";
 import {
   computeByteSha256,
@@ -62,15 +63,6 @@ interface KnowledgeRow {
   readonly path: string;
   readonly revision: number;
 }
-
-const SKIPPED_DIRECTORY_NAMES = new Set([
-  ".git",
-  "coverage",
-  "dist",
-  "knowledge",
-  "node_modules",
-  "transactions",
-]);
 
 /** Full-rebuild SQLite projection used by the M1 local canonical store. */
 export class SqliteCanonicalProjection {
@@ -308,7 +300,7 @@ async function captureCanonicalState(
   repositoryRoot: string,
 ): Promise<CanonicalCapture> {
   const knowledge = await captureKnowledge(repositoryRoot);
-  const jsonlPaths = await findJsonlPaths(repositoryRoot, repositoryRoot);
+  const jsonlPaths = await findCanonicalJsonlPaths(repositoryRoot);
   const records: CapturedRecord[] = [];
   const fileHashes: Array<{ path: string; sha256: string }> = knowledge.map(
     ({ document }) => ({ path: document.path, sha256: document.etag }),
@@ -393,47 +385,6 @@ async function captureKnowledge(
   return result;
 }
 
-async function findJsonlPaths(
-  repositoryRoot: string,
-  directory: string,
-): Promise<string[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const result: string[] = [];
-
-  for (const entry of entries.sort((a, b) =>
-    compareCodeUnits(a.name, b.name),
-  )) {
-    if (
-      directory === repositoryRoot &&
-      SKIPPED_DIRECTORY_NAMES.has(entry.name)
-    ) {
-      continue;
-    }
-    if (
-      entry.name === "index.sqlite" ||
-      entry.name.startsWith("index.sqlite-")
-    ) {
-      continue;
-    }
-    const absolutePath = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      result.push(...(await findJsonlPaths(repositoryRoot, absolutePath)));
-      continue;
-    }
-    if (entry.name.endsWith(".jsonl")) {
-      if (!entry.isFile()) {
-        throw new KnowledgeStoreInvalidError(
-          toPosixRelative(repositoryRoot, absolutePath),
-          "canonical JSONL entries must be regular files",
-        );
-      }
-      result.push(toPosixRelative(repositoryRoot, absolutePath));
-    }
-  }
-
-  return result.sort(compareCodeUnits);
-}
-
 function parseCompleteJsonl(
   targetPath: string,
   bytes: Buffer,
@@ -482,8 +433,4 @@ function parseCompleteJsonl(
     start = index + 1;
   }
   return result;
-}
-
-function toPosixRelative(root: string, path: string): string {
-  return relative(root, path).split("\\").join("/");
 }

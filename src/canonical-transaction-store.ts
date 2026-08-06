@@ -18,6 +18,7 @@ import {
   serializeCanonicalJsonlRecord,
   type CanonicalJsonlRecord,
 } from "./canonical-jsonl.js";
+import { findCanonicalJsonlPaths } from "./canonical-files.js";
 import { canonicalizeJson, compareCodeUnits } from "./canonical.js";
 import {
   applyKnowledgeDocumentPatch,
@@ -120,6 +121,10 @@ interface CommittedMarker {
 
 interface ExistingRecord {
   readonly lineSha256: string;
+}
+
+interface ExistingRecordLocation extends ExistingRecord {
+  readonly targetPath: string;
 }
 
 export type CanonicalStoreErrorCode =
@@ -263,6 +268,21 @@ export class CanonicalTransactionStore {
     request: CanonicalTransactionRequest,
   ): Promise<void> {
     validateRequest(request);
+    for (const item of request.appendRecords) {
+      const line = serializeCanonicalJsonlRecord(item.record);
+      const existing = await this.findCanonicalRecord(item.record.record_id);
+      if (
+        existing &&
+        (existing.targetPath !== item.targetPath ||
+          existing.lineSha256 !== canonicalJsonlLineSha256(line))
+      ) {
+        throw new CanonicalStoreError(
+          "RECORD_ID_CONFLICT",
+          `Record ${item.record.record_id} already exists at ${existing.targetPath}`,
+          request.transactionId,
+        );
+      }
+    }
     const transactionDirectory = join(
       this.repositoryRoot,
       "transactions",
@@ -533,17 +553,18 @@ export class CanonicalTransactionStore {
     const targetPath = await this.resolveCanonicalPath(item.target_path, true);
     await mkdir(dirnameOf(targetPath), { mode: 0o700, recursive: true });
     await this.assertNoSymlinkComponents(item.target_path, true);
-    const existing = await inspectJsonlTarget(
-      item.target_path,
-      targetPath,
+    const existing = await this.findCanonicalRecord(
       item.record_id,
-      recovery,
+      recovery ? item.target_path : undefined,
     );
     if (existing) {
-      if (existing.lineSha256 !== item.line_sha256) {
+      if (
+        existing.targetPath !== item.target_path ||
+        existing.lineSha256 !== item.line_sha256
+      ) {
         throw new CanonicalStoreError(
           "RECORD_ID_CONFLICT",
-          `Record ${item.record_id} already exists with different bytes`,
+          `Record ${item.record_id} already exists at ${existing.targetPath} with incompatible bytes or path`,
           transactionId,
         );
       }
@@ -607,6 +628,32 @@ export class CanonicalTransactionStore {
         targetPath: item.target_path,
       });
     }
+  }
+
+  private async findCanonicalRecord(
+    recordId: string,
+    repairIncompleteTargetPath?: string,
+  ): Promise<ExistingRecordLocation | null> {
+    let found: ExistingRecordLocation | null = null;
+    for (const targetPath of await findCanonicalJsonlPaths(
+      this.repositoryRoot,
+    )) {
+      const existing = await inspectJsonlTarget(
+        targetPath,
+        join(this.repositoryRoot, targetPath),
+        recordId,
+        targetPath === repairIncompleteTargetPath,
+      );
+      if (!existing) continue;
+      if (found) {
+        throw new CanonicalStoreError(
+          "RECORD_ID_CONFLICT",
+          `Record ${recordId} appears in both ${found.targetPath} and ${targetPath}`,
+        );
+      }
+      found = { ...existing, targetPath };
+    }
+    return found;
   }
 
   private async writeCommittedMarker(
@@ -796,6 +843,13 @@ function validateRequest(request: CanonicalTransactionRequest): void {
   const recordIds = new Set<string>();
   for (const item of request.appendRecords) {
     validateCanonicalTargetPath(item.targetPath);
+    if (item.record.transaction_id !== request.transactionId) {
+      throw new CanonicalStoreError(
+        "INVALID_TRANSACTION",
+        `Record ${item.record.record_id} is bound to a different transaction`,
+        request.transactionId,
+      );
+    }
     if (!item.targetPath.endsWith(".jsonl")) {
       throw new CanonicalStoreError(
         "INVALID_TRANSACTION",
