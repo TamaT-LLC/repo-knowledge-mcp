@@ -15,6 +15,7 @@ import {
   compareCodeUnits,
   sortAndDedupeStrings,
 } from "./canonical.js";
+import { RepositoryNameSchema } from "./domain-schemas.js";
 import { computeByteSha256 } from "./knowledge-document.js";
 import { withPosixFileLock } from "./posix-file-lock.js";
 
@@ -30,6 +31,7 @@ export interface ResolvedRepository extends RepositoryRegistryEntry {
 }
 
 export interface RegisterRepositoryRequest {
+  readonly aliases?: readonly string[];
   readonly currentName: string;
   readonly repoId: string;
 }
@@ -78,6 +80,7 @@ export class RepositoryRegistry {
     request: RegisterRepositoryRequest,
   ): Promise<ResolvedRepository> {
     validateRepositoryIdentity(request.repoId, request.currentName);
+    validateRepositoryAliases(request.aliases ?? []);
     await this.ensureLayout();
     return withPosixFileLock(
       join(this.registryRoot, ".registry.lock"),
@@ -87,6 +90,7 @@ export class RepositoryRegistry {
         const previous = snapshot.document.repositories[request.repoId];
         const aliases = sortAndDedupeStrings([
           ...(previous?.aliases ?? []),
+          ...(request.aliases ?? []),
           ...(previous && previous.currentName !== request.currentName
             ? [previous.currentName]
             : []),
@@ -116,7 +120,7 @@ export class RepositoryRegistry {
   }
 
   async resolveById(repoId: string): Promise<ResolvedRepository | null> {
-    validateRepositoryIdentity(repoId, "<lookup>");
+    validateRepositoryId(repoId);
     await this.ensureLayout();
     return withPosixFileLock(
       join(this.registryRoot, ".registry.lock"),
@@ -131,10 +135,10 @@ export class RepositoryRegistry {
   }
 
   async resolveByName(name: string): Promise<ResolvedRepository | null> {
-    if (name.length === 0) {
+    if (!RepositoryNameSchema.safeParse(name).success) {
       throw new RepositoryRegistryError(
         "INVALID_REPOSITORY_REGISTRY",
-        "Repository name must not be empty",
+        "Repository name must use owner/name form",
       );
     }
     await this.ensureLayout();
@@ -271,6 +275,7 @@ function parseRegistryDocument(bytes: Buffer): RepositoryRegistryDocument {
       );
     }
     validateRepositoryIdentity(repoId, rawEntry.currentName);
+    validateRepositoryAliases(rawEntry.aliases);
     repositories[repoId] = {
       aliases: sortAndDedupeStrings(rawEntry.aliases).filter(
         (alias) => alias !== rawEntry.currentName,
@@ -283,10 +288,29 @@ function parseRegistryDocument(bytes: Buffer): RepositoryRegistryDocument {
 }
 
 function validateRepositoryIdentity(repoId: string, currentName: string): void {
-  if (repoId.length === 0 || currentName.length === 0) {
+  validateRepositoryId(repoId);
+  if (!RepositoryNameSchema.safeParse(currentName).success) {
     throw new RepositoryRegistryError(
       "INVALID_REPOSITORY_REGISTRY",
-      "Repository ID and current name must not be empty",
+      "Repository current name must use owner/name form",
+    );
+  }
+}
+
+function validateRepositoryId(repoId: string): void {
+  if (repoId.length === 0) {
+    throw new RepositoryRegistryError(
+      "INVALID_REPOSITORY_REGISTRY",
+      "Repository ID must not be empty",
+    );
+  }
+}
+
+function validateRepositoryAliases(aliases: readonly string[]): void {
+  if (aliases.some((alias) => !RepositoryNameSchema.safeParse(alias).success)) {
+    throw new RepositoryRegistryError(
+      "INVALID_REPOSITORY_REGISTRY",
+      "Repository aliases must use owner/name form",
     );
   }
 }

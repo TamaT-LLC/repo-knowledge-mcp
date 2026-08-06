@@ -24,6 +24,31 @@ export {
   type InitializedStorage,
 } from "./config.js";
 export {
+  executeBufferedCommand,
+  type BufferedCommandExecutor,
+  type BufferedCommandRequest,
+  type BufferedCommandResult,
+} from "./buffered-command.js";
+export {
+  DEFAULT_GH_MAX_BUFFER_BYTES,
+  DEFAULT_GH_TIMEOUT_MS,
+  GhCommandError,
+  GhRunner,
+  type GhCommandErrorCode,
+  type GhCommandErrorDetails,
+  type GhCommandResult,
+  type GhRunnerLike,
+  type GhRunnerOptions,
+} from "./gh-runner.js";
+export {
+  ExecaGitRemoteReader,
+  GitRemoteError,
+  parseGitHubRemoteUrl,
+  type ExecaGitRemoteReaderOptions,
+  type GitRemoteErrorCode,
+  type GitRemoteReader,
+} from "./git-remote.js";
+export {
   ActorKindSchema,
   AiProviderSchema,
   CandidateIdSchema,
@@ -238,6 +263,20 @@ export {
   type RepositoryRegistryOptions,
   type ResolvedRepository,
 } from "./repository-registry.js";
+export {
+  RESOLVE_REPOSITORY_GRAPHQL,
+  RepositoryResolutionError,
+  RepositoryResolver,
+  parseRepositoryName,
+  resolveAllowedWorkspacePath,
+  type RepositoryRegistryWriter,
+  type RepositoryResolution,
+  type RepositoryResolutionErrorCode,
+  type RepositoryResolutionErrorDetails,
+  type RepositoryResolutionInput,
+  type RepositoryResolutionSource,
+  type RepositoryResolverOptions,
+} from "./repository-resolver.js";
 export {
   SqliteCanonicalProjection,
   type CanonicalProjectionSnapshot,
