@@ -58,7 +58,10 @@ import {
 } from "./merge-candidate-service.js";
 import { validateMergeDecisions } from "./merge-classifier.js";
 import type { DistillationProvenance } from "./provider-distillation-service.js";
-import type { CanonicalProjectionSnapshot } from "./sqlite-projection.js";
+import type {
+  CanonicalKnowledgeSearchView,
+  CanonicalProjectionSnapshot,
+} from "./sqlite-projection.js";
 
 export const EVIDENCE_EVENT_PATH = "events/evidence.jsonl";
 export const REVISION_PROPOSAL_EVENT_PATH = "events/revisions.jsonl";
@@ -92,7 +95,7 @@ export interface CanonicalFinalizeSourceBinding {
 
 export interface CanonicalFinalizeRequest extends CanonicalFinalizeSourceBinding {
   readonly candidates: readonly ExtractCandidate[];
-  readonly decisions: readonly MergeDecision[];
+  readonly decisions: readonly unknown[];
   readonly expected_match_set_digest: string;
   readonly lease: DistillJobLeaseCredentials;
   readonly provenance: DistillationProvenance;
@@ -108,6 +111,11 @@ export interface CanonicalSkipFinalizeResult {
   readonly manual_review: ManualReviewMarker | null;
   readonly reassociated_evidence_ids: readonly string[];
   readonly stable_response: SkippedStableResponse;
+}
+
+export interface CanonicalFinalizeMutationPlan {
+  readonly transaction: CanonicalTransactionRequest;
+  readonly value: FinalizeStableResponse;
 }
 
 export interface CanonicalFinalizeServiceOptions {
@@ -218,6 +226,29 @@ export class CanonicalFinalizeService {
   async finalize(
     request: CanonicalFinalizeRequest,
   ): Promise<FinalizeStableResponse> {
+    const searchPlan = this.createFinalizeSearchPlan(request);
+
+    return this.repository.runLockedKnowledgeSearchMutation(
+      searchPlan.searchable.map((entry) => entry.request),
+      (view) => {
+        const transaction = this.planFinalizeMutation(request, view);
+        return {
+          transaction: transaction.transaction,
+          value: transaction.value,
+        };
+      },
+    );
+  }
+
+  /**
+   * Plans a finalize transaction against an already locked search view.
+   * Callers must invoke this only from CanonicalTransactionStore's synchronous
+   * locked-search planner; this method deliberately performs no I/O or commit.
+   */
+  planFinalizeMutation(
+    request: CanonicalFinalizeRequest,
+    view: CanonicalKnowledgeSearchView,
+  ): CanonicalFinalizeMutationPlan {
     const source = parseSourceBinding(request);
     const provenance = parseProvenance(request.provenance);
     if (provenance.distillation_key !== source.distillation_key) {
@@ -229,10 +260,45 @@ export class CanonicalFinalizeService {
     const expectedDigest = parseMatchSetDigest(
       request.expected_match_set_digest,
     );
+    const searchPlan = this.createFinalizeSearchPlan(request);
+    const context = this.currentContext(view.snapshot, request.lease, source);
+    validateCandidateEvidenceComments(
+      searchPlan.candidates,
+      context.thread,
+      context.comments,
+    );
+    const currentSearch = resolveMergeCandidateSearch(searchPlan, view);
+    if (currentSearch.match_set_digest !== expectedDigest) {
+      throw new CanonicalFinalizeError(
+        "MERGE_CANDIDATES_CHANGED",
+        "the merge candidate set changed before finalize",
+        currentSearch,
+      );
+    }
+    const decisions = validateMergeDecisions(
+      request.decisions,
+      currentSearch.candidates,
+      currentSearch.possible_matches,
+    );
+    const transactionId = this.nextTransactionId(context.operation.timestamp);
+    const ids = this.identifierFactory(context.operation.timestamp);
+    return this.planFinalizeTransaction({
+      candidates: currentSearch.candidates,
+      context,
+      decisions,
+      ids,
+      provenance,
+      snapshot: view.snapshot,
+      transactionId,
+    });
+  }
+
+  private createFinalizeSearchPlan(request: CanonicalFinalizeRequest) {
+    const source = parseSourceBinding(request);
     const candidates = request.candidates.map((candidate) =>
       ExtractCandidateSchema.parse(candidate),
     );
-    const searchPlan = createMergeCandidateSearchPlan({
+    return createMergeCandidateSearchPlan({
       ...(this.candidateLimit === undefined
         ? {}
         : { candidateLimit: this.candidateLimit }),
@@ -240,52 +306,6 @@ export class CanonicalFinalizeService {
       repoId: this.repoId,
       threadId: source.thread_id,
     });
-
-    return this.repository.runLockedKnowledgeSearchMutation(
-      searchPlan.searchable.map((entry) => entry.request),
-      (view) => {
-        const context = this.currentContext(
-          view.snapshot,
-          request.lease,
-          source,
-        );
-        validateCandidateEvidenceComments(
-          searchPlan.candidates,
-          context.thread,
-          context.comments,
-        );
-        const currentSearch = resolveMergeCandidateSearch(searchPlan, view);
-        if (currentSearch.match_set_digest !== expectedDigest) {
-          throw new CanonicalFinalizeError(
-            "MERGE_CANDIDATES_CHANGED",
-            "the merge candidate set changed before finalize",
-            currentSearch,
-          );
-        }
-        const decisions = validateMergeDecisions(
-          request.decisions,
-          currentSearch.candidates,
-          currentSearch.possible_matches,
-        );
-        const transactionId = this.nextTransactionId(
-          context.operation.timestamp,
-        );
-        const ids = this.identifierFactory(context.operation.timestamp);
-        const transaction = this.planFinalizeTransaction({
-          candidates: currentSearch.candidates,
-          context,
-          decisions,
-          ids,
-          provenance,
-          snapshot: view.snapshot,
-          transactionId,
-        });
-        return {
-          transaction: transaction.transaction,
-          value: transaction.value,
-        };
-      },
-    );
   }
 
   async skip(

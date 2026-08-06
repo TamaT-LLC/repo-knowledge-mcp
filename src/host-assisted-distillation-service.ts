@@ -192,12 +192,21 @@ export class HostAssistedDistillationError extends Error {
   }
 }
 
-interface CurrentDistillationSource {
+export interface CurrentHostAssistedDistillationSource {
   readonly contentFingerprint: string;
+  readonly distillationKey: string;
   readonly normalizedActors: readonly NormalizedDistillationActor[];
   readonly normalizedComments: readonly NormalizedDistillationComment[];
   readonly path: string | null;
   readonly snapshotId: string;
+}
+
+export interface ResolveHostAssistedDistillationSourceInput {
+  readonly outputSchemaDigest: string;
+  readonly promptDigest: string;
+  readonly repoId: string;
+  readonly repositoryContext: unknown;
+  readonly trustPolicyDigest: string;
 }
 
 interface PreparedReviewContent {
@@ -310,7 +319,7 @@ export class HostAssistedDistillationService {
   ):
     | { readonly blocked: HostAssistedBlockedJob }
     | { readonly blocked?: undefined } {
-    let source: CurrentDistillationSource;
+    let source: CurrentHostAssistedDistillationSource;
     try {
       source = this.currentSource(snapshot, job);
       if (job.state === "awaiting_finalize") {
@@ -394,7 +403,7 @@ export class HostAssistedDistillationService {
 
   private async prepareFinalizeJob(
     lease: DistillJobLease,
-    source: CurrentDistillationSource,
+    source: CurrentHostAssistedDistillationSource,
     snapshot: CanonicalProjectionSnapshot,
   ): Promise<HostAssistedFinalizeJob> {
     const receipt = extractReceipt(snapshot, lease.job_id);
@@ -484,131 +493,14 @@ export class HostAssistedDistillationService {
   private currentSource(
     snapshot: CanonicalProjectionSnapshot,
     job: DistillJob,
-  ): CurrentDistillationSource {
-    const thread = snapshot.domain.threads.find(
-      (candidate) =>
-        candidate.repo_id === this.repoId &&
-        candidate.thread_id === job.thread_id,
-    );
-    if (thread === undefined) {
-      throw hostError(
-        "DISTILLATION_SOURCE_UNAVAILABLE",
-        "the canonical review thread is unavailable",
-      );
-    }
-
-    const sourceSnapshot = snapshot.domain.pullRequestSnapshots.find(
-      (candidate) => candidate.snapshot_id === thread.snapshot_id,
-    );
-    if (
-      sourceSnapshot === undefined ||
-      sourceSnapshot.repo_id !== this.repoId ||
-      sourceSnapshot.pr_number !== thread.pr_number ||
-      !snapshotContainsThread(sourceSnapshot, thread.thread_id)
-    ) {
-      throw hostError(
-        "DISTILLATION_SOURCE_UNAVAILABLE",
-        "the complete source snapshot is unavailable",
-      );
-    }
-    const latestSnapshotId = currentPullRequestSnapshotId(
-      snapshot,
-      this.repoId,
-      thread.pr_number,
-    );
-    if (
-      latestSnapshotId !== null &&
-      latestSnapshotId !== sourceSnapshot.snapshot_id
-    ) {
-      throw hostError(
-        "DISTILLATION_SOURCE_UNAVAILABLE",
-        "the review thread is no longer part of the current snapshot",
-      );
-    }
-
-    const commentsById = new Map(
-      snapshot.domain.comments.map((comment) => [comment.comment_id, comment]),
-    );
-    const working = thread.comment_ids.map((commentId) => {
-      const comment = commentsById.get(commentId);
-      if (
-        comment === undefined ||
-        comment.thread_id !== thread.thread_id ||
-        comment.snapshot_id !== sourceSnapshot.snapshot_id
-      ) {
-        throw hostError(
-          "DISTILLATION_SOURCE_UNAVAILABLE",
-          "the complete canonical comment set is unavailable",
-        );
-      }
-      const normalized: NormalizedDistillationComment = {
-        body: comment.body,
-        createdAt: comment.created_at,
-        ...(comment.diff_hunk === undefined
-          ? {}
-          : { diffHunk: comment.diff_hunk }),
-        id: comment.comment_id,
-        updatedAt: comment.updated_at,
-      };
-      return {
-        actor: normalizeActor(comment.actor),
-        createdAt: normalized.createdAt,
-        excluded:
-          classifyCommentExclusion(comment.body, comment.actor) !== null,
-        id: normalized.id,
-        normalized,
-      };
-    });
-    const included = normalizeComments(working).filter(
-      (comment) => !comment.excluded,
-    );
-    if (included.length === 0) {
-      throw hostError(
-        "DISTILLATION_SOURCE_UNAVAILABLE",
-        "the review thread has no distillable comments",
-      );
-    }
-    const normalizedComments = included.map((comment) => comment.normalized);
-    const normalizedActors = included.map((comment) => comment.actor);
-    const path = thread.path ?? null;
-    const contentFingerprint = computeThreadContentFingerprint(
-      thread.thread_id,
-      path,
-      normalizedComments,
-    );
-    if (contentFingerprint !== thread.content_fingerprint) {
-      throw hostError(
-        "DISTILLATION_SOURCE_UNAVAILABLE",
-        "the canonical review fingerprint is inconsistent",
-      );
-    }
-    const distillationInputDigest = computeDistillationInputDigest({
-      normalizedActors,
-      normalizedComments,
-      path,
-      repositoryContext: this.repositoryContext,
-      threadId: thread.thread_id,
-    });
-    const distillationKey = computeThreadDistillationKey({
-      distillationInputDigest,
+  ): CurrentHostAssistedDistillationSource {
+    return resolveHostAssistedDistillationSource(snapshot, job, {
       outputSchemaDigest: DISTILLATION_OUTPUT_SCHEMA_DIGEST,
       promptDigest: this.promptDigest,
+      repoId: this.repoId,
+      repositoryContext: this.repositoryContext,
       trustPolicyDigest: this.trustPolicyDigest,
     });
-    if (distillationKey !== job.distillation_key) {
-      throw hostError(
-        "DISTILLATION_CONTEXT_CHANGED",
-        "the review source, prompt, schema, or trust policy changed",
-      );
-    }
-
-    return {
-      contentFingerprint,
-      normalizedActors,
-      normalizedComments,
-      path,
-      snapshotId: sourceSnapshot.snapshot_id,
-    };
   }
 
   private async failOwnedLease(
@@ -632,6 +524,145 @@ export class HostAssistedDistillationService {
       throw error;
     }
   }
+}
+
+/**
+ * Reconstructs the current canonical source and distillation key without I/O.
+ * It is shared by prepare and the submit-finalize locked mutation so both
+ * enforce identical source, prompt, schema, and trust-policy bindings.
+ */
+export function resolveHostAssistedDistillationSource(
+  snapshot: CanonicalProjectionSnapshot,
+  job: DistillJob,
+  input: ResolveHostAssistedDistillationSourceInput,
+): CurrentHostAssistedDistillationSource {
+  const repoId = RepositoryIdSchema.parse(input.repoId);
+  const promptDigest = Sha256DigestSchema.parse(input.promptDigest);
+  const outputSchemaDigest = Sha256DigestSchema.parse(input.outputSchemaDigest);
+  const trustPolicyDigest = Sha256DigestSchema.parse(input.trustPolicyDigest);
+  const thread = snapshot.domain.threads.find(
+    (candidate) =>
+      candidate.repo_id === repoId && candidate.thread_id === job.thread_id,
+  );
+  if (thread === undefined) {
+    throw hostError(
+      "DISTILLATION_SOURCE_UNAVAILABLE",
+      "the canonical review thread is unavailable",
+    );
+  }
+
+  const sourceSnapshot = snapshot.domain.pullRequestSnapshots.find(
+    (candidate) => candidate.snapshot_id === thread.snapshot_id,
+  );
+  if (
+    sourceSnapshot === undefined ||
+    sourceSnapshot.repo_id !== repoId ||
+    sourceSnapshot.pr_number !== thread.pr_number ||
+    !snapshotContainsThread(sourceSnapshot, thread.thread_id)
+  ) {
+    throw hostError(
+      "DISTILLATION_SOURCE_UNAVAILABLE",
+      "the complete source snapshot is unavailable",
+    );
+  }
+  const latestSnapshotId = currentPullRequestSnapshotId(
+    snapshot,
+    repoId,
+    thread.pr_number,
+  );
+  if (
+    latestSnapshotId !== null &&
+    latestSnapshotId !== sourceSnapshot.snapshot_id
+  ) {
+    throw hostError(
+      "DISTILLATION_SOURCE_UNAVAILABLE",
+      "the review thread is no longer part of the current snapshot",
+    );
+  }
+
+  const commentsById = new Map(
+    snapshot.domain.comments.map((comment) => [comment.comment_id, comment]),
+  );
+  const working = thread.comment_ids.map((commentId) => {
+    const comment = commentsById.get(commentId);
+    if (
+      comment === undefined ||
+      comment.thread_id !== thread.thread_id ||
+      comment.snapshot_id !== sourceSnapshot.snapshot_id
+    ) {
+      throw hostError(
+        "DISTILLATION_SOURCE_UNAVAILABLE",
+        "the complete canonical comment set is unavailable",
+      );
+    }
+    const normalized: NormalizedDistillationComment = {
+      body: comment.body,
+      createdAt: comment.created_at,
+      ...(comment.diff_hunk === undefined
+        ? {}
+        : { diffHunk: comment.diff_hunk }),
+      id: comment.comment_id,
+      updatedAt: comment.updated_at,
+    };
+    return {
+      actor: normalizeActor(comment.actor),
+      createdAt: normalized.createdAt,
+      excluded: classifyCommentExclusion(comment.body, comment.actor) !== null,
+      id: normalized.id,
+      normalized,
+    };
+  });
+  const included = normalizeComments(working).filter(
+    (comment) => !comment.excluded,
+  );
+  if (included.length === 0) {
+    throw hostError(
+      "DISTILLATION_SOURCE_UNAVAILABLE",
+      "the review thread has no distillable comments",
+    );
+  }
+  const normalizedComments = included.map((comment) => comment.normalized);
+  const normalizedActors = included.map((comment) => comment.actor);
+  const path = thread.path ?? null;
+  const contentFingerprint = computeThreadContentFingerprint(
+    thread.thread_id,
+    path,
+    normalizedComments,
+  );
+  if (contentFingerprint !== thread.content_fingerprint) {
+    throw hostError(
+      "DISTILLATION_SOURCE_UNAVAILABLE",
+      "the canonical review fingerprint is inconsistent",
+    );
+  }
+  const distillationInputDigest = computeDistillationInputDigest({
+    normalizedActors,
+    normalizedComments,
+    path,
+    repositoryContext: input.repositoryContext,
+    threadId: thread.thread_id,
+  });
+  const distillationKey = computeThreadDistillationKey({
+    distillationInputDigest,
+    outputSchemaDigest,
+    promptDigest,
+    trustPolicyDigest,
+  });
+  if (distillationKey !== job.distillation_key) {
+    throw hostError(
+      "DISTILLATION_CONTEXT_CHANGED",
+      "the review source, prompt, schema, or trust policy changed",
+    );
+  }
+
+  return {
+    contentFingerprint,
+    distillationKey,
+    normalizedActors,
+    normalizedComments,
+    path,
+    snapshotId: sourceSnapshot.snapshot_id,
+  };
 }
 
 function disabledResult(
@@ -673,7 +704,7 @@ function disabledResult(
 }
 
 function prepareReviewContent(
-  source: CurrentDistillationSource,
+  source: CurrentHostAssistedDistillationSource,
   includeDiffHunk: boolean,
 ): PreparedReviewContent {
   const comments = source.normalizedComments.map((comment, index) => ({

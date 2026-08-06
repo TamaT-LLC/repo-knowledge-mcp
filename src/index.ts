@@ -304,6 +304,8 @@ export {
   HostAssistedDistillationError,
   HostAssistedDistillationService,
   computeCandidateSetSha256,
+  resolveHostAssistedDistillationSource,
+  type CurrentHostAssistedDistillationSource,
   type HostAssistedBlockedJob,
   type HostAssistedBlockedJobReason,
   type HostAssistedDistillationActor,
@@ -319,6 +321,7 @@ export {
   type HostAssistedPreparedJob,
   type PrepareDistillationRequest,
   type PrepareDistillationResult,
+  type ResolveHostAssistedDistillationSourceInput,
 } from "./host-assisted-distillation-service.js";
 export {
   ANTHROPIC_API_VERSION,
@@ -405,6 +408,7 @@ export {
   CanonicalFinalizeError,
   CanonicalFinalizeService,
   type CanonicalFinalizeErrorCode,
+  type CanonicalFinalizeMutationPlan,
   type CanonicalFinalizeRequest,
   type CanonicalFinalizeServiceOptions,
   type CanonicalFinalizeSourceBinding,
@@ -608,10 +612,13 @@ export {
   SubmitDistillationError,
   SubmitDistillationService,
   type SubmitDistillationErrorCode,
+  type SubmitDistillationContextOptions,
   type SubmitDistillationServiceOptions,
   type SubmitExtractMergeResponse,
   type SubmitExtractRequest,
   type SubmitExtractResponse,
+  type SubmitFinalizeRequest,
+  type SubmitFinalizeRetryResponse,
 } from "./submit-distillation-service.js";
 export {
   RepositoryRegistry,
