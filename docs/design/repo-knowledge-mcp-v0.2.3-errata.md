@@ -174,3 +174,34 @@ M1 では、**read 前に knowledge/*.md 全ファイルの SHA-256 を計算**�
 新規レビューループは行わない。
 以降は、実装とテストで得た事実のみを errata として本文書へ追記する。
 M1-A 完了時に、v0.2 本体、補遺 3 本、本 errata を v0.3 統合仕様書へ再編する。
+
+## M1-A 完了時の実装 Errata
+
+次の項目は設計変更ではなく、M1-A の実装と kill-point テストで確認した事実である。
+
+### F-01：prepared を境界とする kill 後の収束
+
+実プロセスを SIGKILL するテストにより、staged payload 完了後、manifest.tmp 完了後、prepared 完了後、file rename 後、append 後、COMMITTED.tmp 完了後、COMMITTED 完了後、projection 完了後を検証した。
+prepared より前の kill は旧 canonical state に収束する。
+prepared 以後の kill は recovery によって新 canonical state に収束する。
+
+### F-02：append 済み record と staged payload の関係
+
+同じ record_id と同じ line_sha256 の完全行が target JSONL に存在する場合は、append 適用済みとして収束する。
+この場合は、append 後の kill で staged payload が失われていても再適用を必要としない。
+target に record がなく staged payload もない場合は、UNRECOVERABLE_TRANSACTION で fail-closed になる。
+
+### F-03：projection と直接編集の検知
+
+reindex は knowledge Markdown と canonical JSONL を変更せず、index.sqlite だけを再構築する。
+read 前に knowledge/*.md の全実バイト SHA-256 を計算するため、同一 byte size かつ同一 mtime の直接編集も検知する。
+
+### F-04：repository registry の並行初回登録
+
+異なる二つの repo を並行して初回登録しても、global .registry.lock と exact-byte CAS により repositories.json の両 entry が保持される。
+repo rename 後も同じ 32 桁 storage-id を使用し、旧 owner/name は aliases に保持される。
+
+### F-05：確定技術スタックの実装
+
+SQLite 派生投影は better-sqlite3 と WAL を使用する。
+knowledge Markdown は gray-matter に strict YAML engine を組み合わせ、duplicate key と無効 schema を fail-closed で拒否する。

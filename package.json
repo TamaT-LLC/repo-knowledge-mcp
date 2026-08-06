@@ -7,15 +7,25 @@
   "engines": {
     "node": "^22.13.0 || >=24.0.0"
   },
+  "os": [
+    "darwin",
+    "linux"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
   },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "gray-matter": "^4.0.3",
+    "yaml": "^2.9.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "check": "npm run format:check && npm run docs:check && npm run lint && npm run typecheck && npm test",
+    "docs:check": "node check-markdown-links.mjs",
     "format": "prettier --write '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' '*.json' '*.mjs'",
     "format:check": "prettier --check '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' '*.json' '*.mjs'",
     "lint": "eslint src test --max-warnings=0",
@@ -24,6 +34,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.1",
     "eslint": "^10.8.0",
     "prettier": "^3.9.6",
