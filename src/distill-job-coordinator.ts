@@ -21,6 +21,7 @@ import {
   DISTILLATION_JOB_LEASED,
   DISTILLATION_JOB_LEASE_EXPIRED,
   DISTILLATION_JOB_LEASE_RENEWED,
+  DISTILLATION_JOB_LEASE_REVOKED,
   DISTILLATION_JOB_SKIPPED,
   DISTILLATION_JOB_SUCCEEDED,
   applyDistillationJobRecord,
@@ -63,6 +64,8 @@ export interface AcquireDistillJobLeaseRequest {
   readonly job_id?: string;
   readonly lease_duration_ms?: number;
   readonly repo_id: string;
+  /** Explicit prepare resume; fences even an unexpired awaiting-finalize lease. */
+  readonly resume_awaiting_finalize?: boolean;
 }
 
 export interface DistillJobLeaseCredentials {
@@ -206,6 +209,15 @@ export class DistillJobCoordinator {
       request.job_id === undefined
         ? undefined
         : JobIdSchema.parse(request.job_id);
+    if (
+      request.resume_awaiting_finalize === true &&
+      requestedJobId === undefined
+    ) {
+      throw coordinatorError(
+        "INVALID_ARGUMENT",
+        "resume_awaiting_finalize requires an explicit job_id",
+      );
+    }
     const duration =
       request.lease_duration_ms === undefined
         ? this.leaseDurationMs
@@ -231,7 +243,9 @@ export class DistillJobCoordinator {
             candidate.repo_id === repoId &&
             (requestedJobId === undefined ||
               candidate.job_id === requestedJobId) &&
-            isLeaseEligible(candidate, operation.timestamp),
+            (isLeaseEligible(candidate, operation.timestamp) ||
+              (request.resume_awaiting_finalize === true &&
+                candidate.state === "awaiting_finalize")),
         )
         .sort(compareLeaseCandidates)[0];
       if (job === undefined) {
@@ -242,7 +256,22 @@ export class DistillJobCoordinator {
       const leaseToken = this.nextLeaseToken();
       const leaseTokenHash = hashLeaseToken(leaseToken);
       const events: DistillationJobEvent[] = [];
-      if (job.state === "processing" || job.state === "awaiting_finalize") {
+      const explicitlyResumed =
+        request.resume_awaiting_finalize === true &&
+        job.state === "awaiting_finalize" &&
+        Date.parse(job.lease_expires_at!) > mutationOperation.timestamp;
+      if (explicitlyResumed) {
+        events.push({
+          payload: {
+            job_id: job.job_id,
+            lease_generation: job.lease_generation,
+          },
+          type: DISTILLATION_JOB_LEASE_REVOKED,
+        });
+      } else if (
+        job.state === "processing" ||
+        job.state === "awaiting_finalize"
+      ) {
         events.push({
           payload: {
             job_id: job.job_id,

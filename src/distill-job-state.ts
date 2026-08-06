@@ -19,6 +19,7 @@ export const DISTILLATION_JOB_CREATED = "DistillationJobCreated";
 export const DISTILLATION_JOB_LEASED = "DistillationJobLeased";
 export const DISTILLATION_JOB_LEASE_RENEWED = "DistillationJobLeaseRenewed";
 export const DISTILLATION_JOB_LEASE_EXPIRED = "DistillationJobLeaseExpired";
+export const DISTILLATION_JOB_LEASE_REVOKED = "DistillationJobLeaseRevoked";
 export const DISTILLATION_JOB_AWAITING_FINALIZE =
   "DistillationJobAwaitingFinalize";
 export const DISTILLATION_JOB_SUCCEEDED = "DistillationJobSucceeded";
@@ -31,6 +32,7 @@ export const DISTILLATION_JOB_RECORD_TYPES = new Set<string>([
   DISTILLATION_JOB_LEASED,
   DISTILLATION_JOB_LEASE_RENEWED,
   DISTILLATION_JOB_LEASE_EXPIRED,
+  DISTILLATION_JOB_LEASE_REVOKED,
   DISTILLATION_JOB_AWAITING_FINALIZE,
   DISTILLATION_JOB_SUCCEEDED,
   DISTILLATION_JOB_SKIPPED,
@@ -93,6 +95,7 @@ export interface DistillationJobEventPayloadByType {
   readonly DistillationJobCreated: z.infer<typeof CreatedPayloadSchema>;
   readonly DistillationJobFailed: z.infer<typeof FailedPayloadSchema>;
   readonly DistillationJobLeaseExpired: z.infer<typeof GenerationPayloadSchema>;
+  readonly DistillationJobLeaseRevoked: z.infer<typeof GenerationPayloadSchema>;
   readonly DistillationJobLeaseRenewed: z.infer<
     typeof LeaseRenewedPayloadSchema
   >;
@@ -262,6 +265,8 @@ function transitionRank(record: CanonicalJsonlRecord): number {
       return 3;
     case DISTILLATION_JOB_LEASE_EXPIRED:
       return 4;
+    case DISTILLATION_JOB_LEASE_REVOKED:
+      return 4;
     default:
       return 0;
   }
@@ -360,6 +365,11 @@ export function applyDistillationJobRecord(
         const payload = GenerationPayloadSchema.parse(record.payload);
         assertMatchingJob(current, payload.job_id, record);
         return applyLeaseExpired(current, payload, recordedAt, record);
+      }
+      case DISTILLATION_JOB_LEASE_REVOKED: {
+        const payload = GenerationPayloadSchema.parse(record.payload);
+        assertMatchingJob(current, payload.job_id, record);
+        return applyLeaseRevoked(current, payload, recordedAt, record);
       }
       case DISTILLATION_JOB_AWAITING_FINALIZE: {
         const payload = GenerationPayloadSchema.parse(record.payload);
@@ -510,6 +520,26 @@ function applyLeaseExpired(
     state: "pending",
     updated_at: recordedAt,
     validation_failures: current.validation_failures,
+  });
+}
+
+function applyLeaseRevoked(
+  current: DistillJob,
+  payload: z.infer<typeof GenerationPayloadSchema>,
+  recordedAt: string,
+  record: CanonicalJsonlRecord,
+): DistillJob {
+  assertActiveGeneration(current, payload.lease_generation, record);
+  if (current.state !== "awaiting_finalize") {
+    throw transition(
+      record,
+      "only an awaiting_finalize lease can be explicitly revoked",
+    );
+  }
+  return DistillJobSchema.parse({
+    ...current,
+    lease_expires_at: recordedAt,
+    updated_at: recordedAt,
   });
 }
 
@@ -665,6 +695,7 @@ function parseEventPayload<TType extends DistillationJobEventType>(
         payload,
       ) as DistillationJobEventPayloadByType[TType];
     case DISTILLATION_JOB_LEASE_EXPIRED:
+    case DISTILLATION_JOB_LEASE_REVOKED:
     case DISTILLATION_JOB_AWAITING_FINALIZE:
     case DISTILLATION_JOB_SUCCEEDED:
       return GenerationPayloadSchema.parse(
