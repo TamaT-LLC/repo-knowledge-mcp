@@ -7,6 +7,7 @@ import {
   FETCH_REVIEW_THREADS_PAGE_QUERY,
   GhCommandError,
   GitHubPullRequestSnapshotClient,
+  VALIDATE_PULL_REQUEST_SNAPSHOT_QUERY,
   type GhRunnerLike,
 } from "../src/index.js";
 
@@ -77,6 +78,17 @@ describe("GitHubPullRequestSnapshotClient", () => {
               reviews: connection([review("review-2")], false, null),
             }),
           );
+        case "validation":
+          expect(variables.threadIds).toEqual(["thread-1", "thread-2"]);
+          return envelope(
+            validationData({
+              reviewCount: 2,
+              threadCommentCounts: [
+                ["thread-1", 31],
+                ["thread-2", 1],
+              ],
+            }),
+          );
       }
     });
     const nextSnapshotId = vi.fn(() => SNAPSHOT_ID);
@@ -141,10 +153,11 @@ describe("GitHubPullRequestSnapshotClient", () => {
       "threads",
       "comments",
       "reviews",
+      "validation",
     ]);
   });
 
-  it.each(["initial", "comments"] as const)(
+  it.each(["initial", "comments", "validation"] as const)(
     "discards data when GraphQL returns errors during the %s request",
     async (partialOperation) => {
       const runner = new FixtureGhRunner(({ operation }) => {
@@ -157,22 +170,26 @@ describe("GitHubPullRequestSnapshotClient", () => {
                   id: "thread-1",
                 },
               }
-            : initialData({
-                threads: connection(
-                  [
-                    thread(
-                      "thread-1",
-                      connection(
-                        [comment(1)],
-                        partialOperation === "comments",
-                        partialOperation === "comments" ? "next-comment" : null,
+            : operation === "validation"
+              ? validationData()
+              : initialData({
+                  threads: connection(
+                    [
+                      thread(
+                        "thread-1",
+                        connection(
+                          [comment(1)],
+                          partialOperation === "comments",
+                          partialOperation === "comments"
+                            ? "next-comment"
+                            : null,
+                        ),
                       ),
-                    ),
-                  ],
-                  false,
-                  null,
-                ),
-              });
+                    ],
+                    false,
+                    null,
+                  ),
+                });
         if (operation === partialOperation) {
           return { data, errors: [{ message: "partial failure" }] };
         }
@@ -218,6 +235,97 @@ describe("GitHubPullRequestSnapshotClient", () => {
       operation: "reviewThreads page",
     });
     expect(nextSnapshotId).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "thread",
+      {
+        reviewCount: 1,
+        threadCommentCounts: [["thread-1", 1]] as const,
+        threadCount: 2,
+      },
+    ],
+    [
+      "comment",
+      {
+        reviewCount: 1,
+        threadCommentCounts: [["thread-1", 2]] as const,
+        threadCount: 1,
+      },
+    ],
+    [
+      "review",
+      {
+        reviewCount: 2,
+        threadCommentCounts: [["thread-1", 1]] as const,
+        threadCount: 1,
+      },
+    ],
+    [
+      "pull request metadata",
+      {
+        reviewCount: 1,
+        threadCommentCounts: [["thread-1", 1]] as const,
+        threadCount: 1,
+        updatedAt: "2026-08-06T00:00:01.000Z",
+      },
+    ],
+  ])(
+    "fails closed when %s changes before final validation",
+    async (_change, validationOptions) => {
+      const runner = new FixtureGhRunner(({ operation }) =>
+        envelope(
+          operation === "validation"
+            ? validationData(validationOptions)
+            : initialData({
+                reviews: connection([review("review-1")], false, null),
+                threads: connection(
+                  [thread("thread-1", connection([comment(1)], false, null))],
+                  false,
+                  null,
+                ),
+              }),
+        ),
+      );
+      const nextSnapshotId = vi.fn(() => SNAPSHOT_ID);
+
+      await expect(
+        new GitHubPullRequestSnapshotClient({
+          ghRunner: runner,
+          nextSnapshotId,
+        }).fetchCompleteSnapshot({
+          prNumber: 7,
+          repo: "owner/repository",
+        }),
+      ).rejects.toMatchObject({
+        code: "PULL_REQUEST_CHANGED",
+        operation: "snapshot validation",
+      });
+      expect(nextSnapshotId).not.toHaveBeenCalled();
+    },
+  );
+
+  it("validates an empty snapshot with an explicit empty node ID list", async () => {
+    const runner = new FixtureGhRunner(({ operation, variables }) => {
+      if (operation === "validation") {
+        expect(variables.threadIds).toEqual([]);
+        return envelope(validationData());
+      }
+      return envelope(initialData());
+    });
+
+    const result = await new GitHubPullRequestSnapshotClient({
+      ghRunner: runner,
+      nextSnapshotId: () => SNAPSHOT_ID,
+      now: () => new Date(NOW),
+    }).fetchCompleteSnapshot({ prNumber: 7, repo: "owner/repository" });
+
+    expect(result.snapshot).toMatchObject({
+      complete: true,
+      review_summary_ids: [],
+      thread_ids: [],
+    });
   });
 
   it("wraps gh timeout without returning an incomplete snapshot", async () => {
@@ -304,12 +412,15 @@ describe("GitHubPullRequestSnapshotClient", () => {
   });
 });
 
-type FixtureOperation = "comments" | "initial" | "reviews" | "threads";
+type FixtureOperation =
+  "comments" | "initial" | "reviews" | "threads" | "validation";
+
+type FixtureVariable = number | string | readonly string[];
 
 interface FixtureRequest {
   readonly operation: FixtureOperation;
   readonly query: string;
-  readonly variables: Readonly<Record<string, number | string>>;
+  readonly variables: Readonly<Record<string, FixtureVariable>>;
 }
 
 class FixtureGhRunner implements GhRunnerLike {
@@ -343,6 +454,7 @@ function operationFromQuery(query: string): FixtureOperation {
   if (query === FETCH_REVIEW_THREADS_PAGE_QUERY) return "threads";
   if (query === FETCH_REVIEW_THREAD_COMMENTS_PAGE_QUERY) return "comments";
   if (query === FETCH_PULL_REQUEST_REVIEWS_PAGE_QUERY) return "reviews";
+  if (query === VALIDATE_PULL_REQUEST_SNAPSHOT_QUERY) return "validation";
   throw new Error("Unexpected fixture GraphQL query");
 }
 
@@ -357,16 +469,27 @@ function field(args: readonly string[], name: string): string {
 
 function variables(
   args: readonly string[],
-): Readonly<Record<string, number | string>> {
-  const result: Record<string, number | string> = {};
+): Readonly<Record<string, FixtureVariable>> {
+  const result: Record<string, FixtureVariable> = {};
   for (let index = 0; index < args.length - 1; index += 1) {
     const flag = args[index];
     if (flag !== "-f" && flag !== "-F") continue;
     const value = args[index + 1]!;
     const equals = value.indexOf("=");
+    if (equals === -1) {
+      if (!value.endsWith("[]")) throw new Error(`Invalid gh field ${value}`);
+      result[value.slice(0, -2)] = [];
+      continue;
+    }
     const key = value.slice(0, equals);
     if (key === "query") continue;
     const raw = value.slice(equals + 1);
+    if (key.endsWith("[]")) {
+      const listKey = key.slice(0, -2);
+      const existing = result[listKey];
+      result[listKey] = [...(Array.isArray(existing) ? existing : []), raw];
+      continue;
+    }
     result[key] = flag === "-F" ? Number(raw) : raw;
   }
   return result;
@@ -395,6 +518,44 @@ function initialData(
         reviewThreads: options.threads ?? connection([], false, null),
         reviews: options.reviews ?? connection([], false, null),
         title: "Complete snapshot",
+        updatedAt: NOW,
+      },
+    },
+  };
+}
+
+function validationData(
+  options: {
+    readonly reviewCount?: number;
+    readonly threadCommentCounts?: readonly (readonly [string, number])[];
+    readonly threadCount?: number;
+    readonly updatedAt?: string;
+  } = {},
+): unknown {
+  const threadCommentCounts = options.threadCommentCounts ?? [];
+  return {
+    nodes: threadCommentCounts.map(([id, totalCount]) => ({
+      __typename: "PullRequestReviewThread",
+      comments: { totalCount },
+      id,
+      isOutdated: false,
+      isResolved: true,
+      path: "src/index.ts",
+    })),
+    repository: {
+      id: REPO_ID,
+      pullRequest: {
+        baseRefOid: "base-oid",
+        headRefOid: "head-oid",
+        id: PR_ID,
+        mergedAt: NOW,
+        number: 7,
+        reviewThreads: {
+          totalCount: options.threadCount ?? threadCommentCounts.length,
+        },
+        reviews: { totalCount: options.reviewCount ?? 0 },
+        title: "Complete snapshot",
+        updatedAt: options.updatedAt ?? NOW,
       },
     },
   };

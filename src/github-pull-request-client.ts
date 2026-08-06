@@ -67,6 +67,7 @@ query FetchPullRequestSnapshot(
       mergedAt
       baseRefOid
       headRefOid
+      updatedAt
       reviewThreads(first: $threadPageSize) {
         pageInfo { ${PAGE_INFO_FIELDS} }
         nodes {
@@ -154,6 +155,39 @@ query FetchPullRequestReviewsPage(
         pageInfo { ${PAGE_INFO_FIELDS} }
         nodes { ${REVIEW_FIELDS} }
       }
+    }
+  }
+}`;
+
+export const VALIDATE_PULL_REQUEST_SNAPSHOT_QUERY = `
+query ValidatePullRequestSnapshot(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $threadIds: [ID!]!
+) {
+  repository(owner: $owner, name: $name) {
+    id
+    pullRequest(number: $number) {
+      id
+      number
+      title
+      mergedAt
+      baseRefOid
+      headRefOid
+      updatedAt
+      reviewThreads(first: 1) { totalCount }
+      reviews(first: 1) { totalCount }
+    }
+  }
+  nodes(ids: $threadIds) {
+    __typename
+    ... on PullRequestReviewThread {
+      id
+      path
+      isResolved
+      isOutdated
+      comments(first: 1) { totalCount }
     }
   }
 }`;
@@ -247,6 +281,7 @@ const InitialResponseDataSchema = z
             reviewThreads: ReviewThreadsConnectionSchema,
             reviews: ReviewsConnectionSchema.nullable(),
             title: z.string().min(1),
+            updatedAt: IsoDateTimeSchema,
           })
           .strict()
           .nullable(),
@@ -298,6 +333,48 @@ const ReviewPageResponseDataSchema = z
             id: GitHubNodeIdSchema,
             number: z.number().int().positive(),
             reviews: ReviewsConnectionSchema.nullable(),
+          })
+          .strict()
+          .nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+const ConnectionCountSchema = z
+  .object({ totalCount: z.number().int().min(0) })
+  .strict();
+
+const SnapshotValidationResponseDataSchema = z
+  .object({
+    nodes: z.array(
+      z
+        .object({
+          __typename: z.literal("PullRequestReviewThread"),
+          comments: ConnectionCountSchema,
+          id: GitHubNodeIdSchema,
+          isOutdated: z.boolean(),
+          isResolved: z.boolean(),
+          path: z.string(),
+        })
+        .strict()
+        .nullable(),
+    ),
+    repository: z
+      .object({
+        id: GitHubNodeIdSchema,
+        pullRequest: z
+          .object({
+            baseRefOid: z.string().min(1),
+            headRefOid: z.string().min(1),
+            id: GitHubNodeIdSchema,
+            mergedAt: IsoDateTimeSchema.nullable(),
+            number: z.number().int().positive(),
+            reviewThreads: ConnectionCountSchema,
+            reviews: ConnectionCountSchema.nullable(),
+            title: z.string().min(1),
+            updatedAt: IsoDateTimeSchema,
           })
           .strict()
           .nullable(),
@@ -404,9 +481,14 @@ interface MutableReviewThread extends GitHubReviewThread {
 }
 
 interface PullRequestIdentity {
+  readonly baseRefOid: string;
+  readonly headRefOid: string;
+  readonly mergedAt: string | null;
   readonly prId: string;
   readonly prNumber: number;
   readonly repoId: string;
+  readonly title: string;
+  readonly updatedAt: string;
 }
 
 /** Fetches only complete PR snapshots; every partial state fails by throwing. */
@@ -472,9 +554,14 @@ export class GitHubPullRequestSnapshotClient {
       throw responseInvalid("initial snapshot", "reviews connection was null");
     }
     const identity: PullRequestIdentity = {
+      baseRefOid: pullRequest.baseRefOid,
+      headRefOid: pullRequest.headRefOid,
+      mergedAt: pullRequest.mergedAt,
       prId: pullRequest.id,
       prNumber: pullRequest.number,
       repoId: repository.id,
+      title: pullRequest.title,
+      updatedAt: pullRequest.updatedAt,
     };
     if (identity.prNumber !== request.prNumber) {
       throw changedError("initial snapshot");
@@ -507,6 +594,14 @@ export class GitHubPullRequestSnapshotClient {
       pullRequest.reviews.pageInfo,
       reviews,
       seenReviewIds,
+    );
+
+    await this.validateSnapshotStability(
+      owner,
+      name,
+      identity,
+      threads,
+      reviews.length,
     );
 
     const observedAt = this.now().toISOString();
@@ -683,17 +778,90 @@ export class GitHubPullRequestSnapshotClient {
     }
   }
 
+  private async validateSnapshotStability(
+    owner: string,
+    name: string,
+    identity: PullRequestIdentity,
+    threads: ReadonlyMap<string, MutableReviewThread>,
+    reviewCount: number,
+  ): Promise<void> {
+    const threadIds = [...threads.keys()];
+    const validation = await this.execute(
+      "snapshot validation",
+      VALIDATE_PULL_REQUEST_SNAPSHOT_QUERY,
+      { name, owner },
+      { number: identity.prNumber },
+      SnapshotValidationResponseDataSchema,
+      { threadIds },
+    );
+    const repository = requireRepository(
+      validation.repository,
+      "snapshot validation",
+    );
+    const pullRequest = requirePullRequest(
+      repository.pullRequest,
+      "snapshot validation",
+    );
+    assertIdentity(repository.id, pullRequest, identity, "snapshot validation");
+    if (pullRequest.reviews === null) {
+      throw responseInvalid(
+        "snapshot validation",
+        "reviews connection was null",
+      );
+    }
+    if (
+      pullRequest.baseRefOid !== identity.baseRefOid ||
+      pullRequest.headRefOid !== identity.headRefOid ||
+      pullRequest.mergedAt !== identity.mergedAt ||
+      pullRequest.title !== identity.title ||
+      pullRequest.updatedAt !== identity.updatedAt ||
+      pullRequest.reviewThreads.totalCount !== threads.size ||
+      pullRequest.reviews.totalCount !== reviewCount ||
+      validation.nodes.length !== threadIds.length
+    ) {
+      throw changedError("snapshot validation");
+    }
+
+    const validatedThreads = new Map(
+      validation.nodes.map((node) => {
+        if (node === null) throw changedError("snapshot validation");
+        return [node.id, node] as const;
+      }),
+    );
+    if (validatedThreads.size !== validation.nodes.length) {
+      throw changedError("snapshot validation");
+    }
+    for (const thread of threads.values()) {
+      const validated = validatedThreads.get(thread.id);
+      if (
+        validated === undefined ||
+        validated.path !== thread.path ||
+        validated.isResolved !== thread.isResolved ||
+        validated.isOutdated !== thread.isOutdated ||
+        validated.comments.totalCount !== thread.comments.length
+      ) {
+        throw changedError("snapshot validation");
+      }
+    }
+  }
+
   private async execute<T>(
     operation: string,
     query: string,
     stringVariables: Readonly<Record<string, string>>,
     integerVariables: Readonly<Record<string, number>>,
     schema: z.ZodType<T>,
+    stringListVariables: Readonly<Record<string, readonly string[]>> = {},
   ): Promise<T> {
     let result;
     try {
       result = await this.ghRunner.run(
-        graphqlArgs(query, stringVariables, integerVariables),
+        graphqlArgs(
+          query,
+          stringVariables,
+          integerVariables,
+          stringListVariables,
+        ),
       );
     } catch (error) {
       throw new GitHubSnapshotError(
@@ -740,6 +908,7 @@ function graphqlArgs(
   query: string,
   stringVariables: Readonly<Record<string, string>>,
   integerVariables: Readonly<Record<string, number>>,
+  stringListVariables: Readonly<Record<string, readonly string[]>>,
 ): string[] {
   const args = ["api", "graphql", "-f", `query=${query}`];
   for (const [key, value] of Object.entries(stringVariables)) {
@@ -747,6 +916,13 @@ function graphqlArgs(
   }
   for (const [key, value] of Object.entries(integerVariables)) {
     args.push("-F", `${key}=${String(value)}`);
+  }
+  for (const [key, values] of Object.entries(stringListVariables)) {
+    if (values.length === 0) {
+      args.push("-F", `${key}[]`);
+      continue;
+    }
+    for (const value of values) args.push("-F", `${key}[]=${value}`);
   }
   return args;
 }
@@ -885,7 +1061,7 @@ function changedError(operation: string): GitHubSnapshotError {
   return new GitHubSnapshotError(
     "PULL_REQUEST_CHANGED",
     operation,
-    "repository, pull request, or review thread identity changed during pagination",
+    "repository, pull request, or review data changed during snapshot capture",
   );
 }
 

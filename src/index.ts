@@ -50,6 +50,7 @@ export {
   FETCH_REVIEW_THREADS_PAGE_QUERY,
   MAX_GRAPHQL_CONNECTION_PAGES,
   MAX_GRAPHQL_PAGE_SIZE,
+  VALIDATE_PULL_REQUEST_SNAPSHOT_QUERY,
   GitHubPullRequestSnapshotClient,
   GitHubSnapshotError,
   reviewSummaryThreadId,
