@@ -306,8 +306,10 @@ describe("GitHubPullRequestSnapshotClient", () => {
     },
   );
 
-  it("validates an empty snapshot with an explicit empty node ID list", async () => {
+  it("anchors observed_at before validating an empty snapshot", async () => {
+    const lifecycle: string[] = [];
     const runner = new FixtureGhRunner(({ operation, variables }) => {
+      lifecycle.push(operation);
       if (operation === "validation") {
         expect(variables.threadIds).toEqual([]);
         return envelope(validationData());
@@ -317,8 +319,14 @@ describe("GitHubPullRequestSnapshotClient", () => {
 
     const result = await new GitHubPullRequestSnapshotClient({
       ghRunner: runner,
-      nextSnapshotId: () => SNAPSHOT_ID,
-      now: () => new Date(NOW),
+      nextSnapshotId: () => {
+        lifecycle.push("snapshot id");
+        return SNAPSHOT_ID;
+      },
+      now: () => {
+        lifecycle.push("observed_at");
+        return new Date(NOW);
+      },
     }).fetchCompleteSnapshot({ prNumber: 7, repo: "owner/repository" });
 
     expect(result.snapshot).toMatchObject({
@@ -326,6 +334,12 @@ describe("GitHubPullRequestSnapshotClient", () => {
       review_summary_ids: [],
       thread_ids: [],
     });
+    expect(lifecycle).toEqual([
+      "initial",
+      "observed_at",
+      "validation",
+      "snapshot id",
+    ]);
   });
 
   it("wraps gh timeout without returning an incomplete snapshot", async () => {

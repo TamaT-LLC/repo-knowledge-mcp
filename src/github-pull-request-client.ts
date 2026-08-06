@@ -596,6 +596,7 @@ export class GitHubPullRequestSnapshotClient {
       seenReviewIds,
     );
 
+    const observedAt = this.now().toISOString();
     await this.validateSnapshotStability(
       owner,
       name,
@@ -604,7 +605,6 @@ export class GitHubPullRequestSnapshotClient {
       reviews.length,
     );
 
-    const observedAt = this.now().toISOString();
     const snapshotId = this.nextSnapshotId();
     const parsedSnapshot = PullRequestSnapshotSchema.safeParse({
       complete: true,
