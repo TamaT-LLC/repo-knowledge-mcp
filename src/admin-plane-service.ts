@@ -70,24 +70,14 @@ export class AdminPlaneError extends Error {
   }
 }
 
-/** Minimal terminal boundary used by the admin plane; there is no bypass flag. */
+/** Minimal prompt/output adapter; TTY trust is checked directly on process I/O. */
 export interface AdminTerminal {
-  readonly inputIsTTY: boolean;
-  readonly outputIsTTY: boolean;
   readLine(prompt: string): Promise<string>;
   write(value: string): Promise<void> | void;
 }
 
 /** Production terminal adapter backed by the process's real stdin/stdout. */
 export class NodeAdminTerminal implements AdminTerminal {
-  get inputIsTTY(): boolean {
-    return process.stdin.isTTY === true;
-  }
-
-  get outputIsTTY(): boolean {
-    return process.stdout.isTTY === true;
-  }
-
   async readLine(prompt: string): Promise<string> {
     const input = createInterface({
       input: process.stdin,
@@ -205,6 +195,13 @@ interface MutationBinding {
   readonly etag: string;
   readonly id: string;
   readonly revision: number;
+}
+
+interface AdminSearchSubject {
+  readonly category: KnowledgeCategory;
+  readonly detail: string;
+  readonly rule: string;
+  readonly scope: readonly string[];
 }
 
 /**
@@ -420,10 +417,30 @@ export class AdminPlaneService {
   ): Promise<AdminInteractionResult<KnowledgeDocument>> {
     this.assertInteractiveTerminal();
     const parsed = parseAddActiveInput(input);
-    if (!(await this.confirm("add --active", renderAddActiveAction(parsed)))) {
+    const possibleMatches = await this.findPossibleMatches(parsed);
+    if (
+      !(await this.confirm(
+        "add --active",
+        renderAddActiveAction(parsed, possibleMatches),
+      ))
+    ) {
       return { confirmed: false };
     }
     return { confirmed: true, value: await this.createActiveKnowledge(parsed) };
+  }
+
+  private async findPossibleMatches(
+    subject: AdminSearchSubject,
+  ): Promise<readonly AdminPossibleMatch[]> {
+    const view = await this.repository.readKnowledgeView(
+      adminSearchRequest(subject, this.repoId),
+    );
+    return possibleMatchesForReview(
+      view,
+      this.repoId,
+      subject.scope,
+      this.possibleMatchLimit,
+    );
   }
 
   private async confirm(expected: string, screen: string): Promise<boolean> {
@@ -435,7 +452,7 @@ export class AdminPlaneService {
   }
 
   private assertInteractiveTerminal(): void {
-    if (!this.terminal.inputIsTTY || !this.terminal.outputIsTTY) {
+    if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
       throw new AdminPlaneError(
         "TTY_REQUIRED",
         "admin mutations require both stdin and stdout to be real TTYs",
@@ -657,23 +674,13 @@ function knowledgeReview(
   possibleMatchLimit: number,
 ): AdminKnowledgeReview {
   const frontmatter = current.document.frontmatter;
-  const possibleMatches = (view.searchResult?.hits ?? [])
-    .filter(
-      (match) =>
-        match.id !== current.projected.id &&
-        match.repoId === repoId &&
-        scopesMayOverlap(current.projected.scope, match.scope),
-    )
-    .slice(0, possibleMatchLimit)
-    .map((match) => ({
-      etag: match.etag,
-      id: match.id,
-      revision: match.revision,
-      rule: match.rule,
-      scope: match.scope,
-      severity: match.severity,
-      status: match.status,
-    }));
+  const possibleMatches = possibleMatchesForReview(
+    view,
+    repoId,
+    current.projected.scope,
+    possibleMatchLimit,
+    current.projected.id,
+  );
   return {
     category: current.projected.category,
     detail: current.projected.detail,
@@ -784,13 +791,13 @@ function findProposal(
 }
 
 function adminSearchRequest(
-  knowledge: ProjectedKnowledge,
+  subject: AdminSearchSubject,
   repoId: string,
 ): ExhaustiveKnowledgeSearchRequest | undefined {
-  for (const value of [knowledge.rule, knowledge.detail]) {
+  for (const value of [subject.rule, subject.detail]) {
     try {
       return {
-        category: knowledge.category,
+        category: subject.category,
         query: normalizeKnowledgeSearchQuery(value).normalized,
         repoId,
         statuses: ["active", "proposed", "stale"],
@@ -800,6 +807,32 @@ function adminSearchRequest(
     }
   }
   return undefined;
+}
+
+function possibleMatchesForReview(
+  view: CanonicalKnowledgeReadView,
+  repoId: string,
+  scope: readonly string[],
+  possibleMatchLimit: number,
+  excludedId?: string,
+): AdminPossibleMatch[] {
+  return (view.searchResult?.hits ?? [])
+    .filter(
+      (match) =>
+        match.id !== excludedId &&
+        match.repoId === repoId &&
+        scopesMayOverlap(scope, match.scope),
+    )
+    .slice(0, possibleMatchLimit)
+    .map((match) => ({
+      etag: match.etag,
+      id: match.id,
+      revision: match.revision,
+      rule: match.rule,
+      scope: match.scope,
+      severity: match.severity,
+      status: match.status,
+    }));
 }
 
 function binding(review: AdminKnowledgeReview): MutationBinding {
@@ -975,7 +1008,10 @@ function renderRevisionAction(review: AdminRevisionProposalReview): string {
   ].join("\n");
 }
 
-function renderAddActiveAction(input: Required<AdminAddActiveInput>): string {
+function renderAddActiveAction(
+  input: Required<AdminAddActiveInput>,
+  possibleMatches: readonly AdminPossibleMatch[],
+): string {
   return [
     "ADMIN ACTION: ADD ACTIVE",
     `Rule: ${safeTerminalValue(input.rule)}`,
@@ -984,6 +1020,7 @@ function renderAddActiveAction(input: Required<AdminAddActiveInput>): string {
     `Severity: ${safeTerminalValue(input.severity)}`,
     `Scope: ${safeTerminalValue(input.scope)}`,
     `Related IDs: ${safeTerminalValue(input.related_ids)}`,
+    `Possible matches: ${safeTerminalValue(possibleMatches)}`,
     'Origin: {"type":"manual"}',
   ].join("\n");
 }

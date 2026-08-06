@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   AdminPlaneService,
@@ -32,8 +32,22 @@ const SEED_TRANSACTION_ID = "txn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const HASH_A = `sha256:${"a".repeat(64)}`;
 const HASH_B = `sha256:${"b".repeat(64)}`;
 const temporaryRepositories: string[] = [];
+const originalStdinTty = Object.getOwnPropertyDescriptor(
+  process.stdin,
+  "isTTY",
+);
+const originalStdoutTty = Object.getOwnPropertyDescriptor(
+  process.stdout,
+  "isTTY",
+);
+
+beforeEach(() => {
+  setProcessTty(true, true);
+});
 
 afterEach(async () => {
+  restoreProperty(process.stdin, "isTTY", originalStdinTty);
+  restoreProperty(process.stdout, "isTTY", originalStdoutTty);
   await Promise.all(
     temporaryRepositories
       .splice(0)
@@ -110,10 +124,8 @@ describe("AdminPlaneService TTY boundary", () => {
     { inputIsTTY: false, outputIsTTY: false },
   ])("rejects non-interactive input/output %#", async (terminalState) => {
     const fixture = await createFixture();
-    const terminal = new FakeTerminal({
-      answers: [`approve ${PROPOSED_ID}`],
-      ...terminalState,
-    });
+    const terminal = new FakeTerminal({ answers: [`approve ${PROPOSED_ID}`] });
+    setProcessTty(terminalState.inputIsTTY, terminalState.outputIsTTY);
 
     await expect(
       service(fixture.store, terminal).approve(PROPOSED_ID),
@@ -140,7 +152,8 @@ describe("AdminPlaneService TTY boundary", () => {
 
   it("guards every admin mutation before reading confirmation input", async () => {
     const fixture = await createFixture();
-    const terminal = new FakeTerminal({ inputIsTTY: false, outputIsTTY: true });
+    const terminal = new FakeTerminal();
+    setProcessTty(false, true);
     const admin = service(fixture.store, terminal);
     const mutations = [
       () => admin.approve(PROPOSED_ID),
@@ -279,10 +292,10 @@ describe("AdminPlaneService knowledge mutations", () => {
     });
 
     const result = await admin.addActive({
-      category: "architecture",
+      category: "security",
       detail: "A manually curated rule",
       related_ids: [ACTIVE_ID],
-      rule: "Keep admin mutations explicit",
+      rule: "Approve secure updates",
       scope: ["src/admin/**"],
       severity: "must",
     });
@@ -305,6 +318,8 @@ describe("AdminPlaneService knowledge mutations", () => {
     ).resolves.toMatchObject({
       knowledge: { id: ADDED_ID },
     });
+    expect(terminal.output.join("")).toContain("Possible matches:");
+    expect(terminal.output.join("")).toContain(ACTIVE_ID);
   });
 });
 
@@ -401,23 +416,19 @@ describe("AdminPlaneService revision proposals", () => {
 });
 
 class FakeTerminal implements AdminTerminal {
-  readonly inputIsTTY: boolean;
   readonly output: string[] = [];
-  readonly outputIsTTY: boolean;
 
   private readonly answers: string[];
   private readonly beforeRead: (() => Promise<void>) | undefined;
 
-  constructor(options: {
-    readonly answers?: readonly string[];
-    readonly beforeRead?: () => Promise<void>;
-    readonly inputIsTTY?: boolean;
-    readonly outputIsTTY?: boolean;
-  }) {
+  constructor(
+    options: {
+      readonly answers?: readonly string[];
+      readonly beforeRead?: () => Promise<void>;
+    } = {},
+  ) {
     this.answers = [...(options.answers ?? [])];
     this.beforeRead = options.beforeRead;
-    this.inputIsTTY = options.inputIsTTY ?? true;
-    this.outputIsTTY = options.outputIsTTY ?? true;
   }
 
   async readLine(): Promise<string> {
@@ -656,4 +667,27 @@ function statusOf(
   id: string,
 ): KnowledgeStatus | undefined {
   return snapshot.domain.knowledge.find((item) => item.id === id)?.status;
+}
+
+function setProcessTty(inputIsTTY: boolean, outputIsTTY: boolean): void {
+  Object.defineProperty(process.stdin, "isTTY", {
+    configurable: true,
+    value: inputIsTTY,
+  });
+  Object.defineProperty(process.stdout, "isTTY", {
+    configurable: true,
+    value: outputIsTTY,
+  });
+}
+
+function restoreProperty(
+  target: object,
+  property: PropertyKey,
+  descriptor: PropertyDescriptor | undefined,
+): void {
+  if (descriptor === undefined) {
+    Reflect.deleteProperty(target, property);
+    return;
+  }
+  Object.defineProperty(target, property, descriptor);
 }
