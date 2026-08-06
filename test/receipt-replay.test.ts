@@ -1,19 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  computeMatchSetDigest,
   computeRequestSha256,
   verifyRequestBoundToken,
   type ExtractRequest,
   type FinalizeRequest,
+  type PossibleKnowledgeMatch,
+  type PossibleMatchSet,
 } from "../src/index.js";
 import {
   InMemoryReceiptStore,
   ReceiptReplayEngine,
   type ExtractReceipt,
   type FinalizeReceipt,
-  type PossibleMatchBinding,
   type ReplayJob,
 } from "../src/receipt-replay.js";
+
+const CANDIDATE_ID = "cand_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const KNOWLEDGE_LATEST = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const KNOWLEDGE_NEWER = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAW";
+type RuntimeMatchSet = PossibleMatchSet<PossibleKnowledgeMatch>;
 
 const NOW = new Date("2026-08-06T09:00:00.000Z");
 const TOKEN_SECRET = Buffer.from(
@@ -25,20 +32,13 @@ describe("acceptance test 55", () => {
   it("rehydrates extract replay with current matches and a fresh finalize token", async () => {
     const request = extractRequest();
     const receiptStore = new InMemoryReceiptStore();
-    const candidates = [
-      { candidate_id: "candidate-1", candidate: { rule: "Prefer facts" } },
-    ];
+    const candidates = [extractCandidate()];
     const receipt = extractReceipt(request, {
       candidates,
       state: "merge_decision_required",
     });
     receiptStore.add(receipt);
-    let currentMatches: PossibleMatchBinding[] = [
-      {
-        candidate_id: "candidate-1",
-        possible_match_ids: ["knowledge-latest"],
-      },
-    ];
+    let currentMatches: RuntimeMatchSet[] = possibleMatches(KNOWLEDGE_LATEST);
     let tokenSequence = 0;
     const engine = new ReceiptReplayEngine({
       loadJob: () => activeJob(),
@@ -57,6 +57,7 @@ describe("acceptance test 55", () => {
     }
     expect(first.response).toMatchObject({
       candidates,
+      match_set_digest: computeMatchSetDigest(currentMatches),
       possible_matches: currentMatches,
       state: "merge_decision_required",
     });
@@ -73,18 +74,16 @@ describe("acceptance test 55", () => {
       ).token_id,
     ).toBe("replay-token-1");
 
-    currentMatches = [
-      {
-        candidate_id: "candidate-1",
-        possible_match_ids: ["knowledge-newer"],
-      },
-    ];
+    currentMatches = possibleMatches(KNOWLEDGE_NEWER);
     const second = await engine.replay(request);
     expect(second.kind).toBe("extract_replay");
     if (second.kind !== "extract_replay") {
       throw new Error("Expected extract replay");
     }
-    expect(second.response).toMatchObject({ possible_matches: currentMatches });
+    expect(second.response).toMatchObject({
+      match_set_digest: computeMatchSetDigest(currentMatches),
+      possible_matches: currentMatches,
+    });
     expect("finalize_token" in second.response).toBe(true);
     if (!("finalize_token" in second.response)) {
       throw new Error("Expected finalize token");
@@ -106,7 +105,7 @@ describe("acceptance test 56", () => {
       }),
     );
     const loadJob = vi.fn<() => ReplayJob>();
-    const searchPossibleMatches = vi.fn<() => PossibleMatchBinding[]>();
+    const searchPossibleMatches = vi.fn<() => RuntimeMatchSet[]>();
     const nextTokenId = vi.fn<() => string>();
     const engine = new ReceiptReplayEngine({
       loadJob,
@@ -172,7 +171,7 @@ describe("phase-specific replay", () => {
       nextTokenId: vi.fn<() => string>(),
       now: () => NOW,
       receiptStore,
-      searchPossibleMatches: vi.fn<() => PossibleMatchBinding[]>(),
+      searchPossibleMatches: vi.fn<() => RuntimeMatchSet[]>(),
       tokenSecret: TOKEN_SECRET,
       validateAuthorization,
     });
@@ -196,7 +195,7 @@ describe("phase-specific replay", () => {
       nextTokenId: vi.fn<() => string>(),
       now: () => NOW,
       receiptStore,
-      searchPossibleMatches: vi.fn<() => PossibleMatchBinding[]>(),
+      searchPossibleMatches: vi.fn<() => RuntimeMatchSet[]>(),
       tokenSecret: TOKEN_SECRET,
       validateAuthorization,
     });
@@ -218,7 +217,7 @@ describe("extract job and lease branches", () => {
     const receiptStore = new InMemoryReceiptStore();
     receiptStore.add(
       extractReceipt(extract, {
-        candidates: [{ candidate_id: "candidate-1", candidate: {} }],
+        candidates: [extractCandidate()],
         state: "merge_decision_required",
       }),
     );
@@ -233,7 +232,7 @@ describe("extract job and lease branches", () => {
       nextTokenId: vi.fn<() => string>(),
       now: () => NOW,
       receiptStore,
-      searchPossibleMatches: vi.fn<() => PossibleMatchBinding[]>(),
+      searchPossibleMatches: vi.fn<() => RuntimeMatchSet[]>(),
       tokenSecret: TOKEN_SECRET,
       validateAuthorization: vi.fn(),
     });
@@ -255,7 +254,7 @@ describe("extract job and lease branches", () => {
       nextTokenId: vi.fn<() => string>(),
       now: () => NOW,
       receiptStore,
-      searchPossibleMatches: vi.fn<() => PossibleMatchBinding[]>(),
+      searchPossibleMatches: vi.fn<() => RuntimeMatchSet[]>(),
       tokenSecret: TOKEN_SECRET,
       validateAuthorization: vi.fn(),
     });
@@ -268,7 +267,7 @@ describe("extract job and lease branches", () => {
   it("returns RESUME_REQUIRED without searching when the lease is expired", async () => {
     const request = extractRequest();
     const receiptStore = storeWithMergeReceipt(request);
-    const searchPossibleMatches = vi.fn<() => PossibleMatchBinding[]>();
+    const searchPossibleMatches = vi.fn<() => RuntimeMatchSet[]>();
     const nextTokenId = vi.fn<() => string>();
     const engine = new ReceiptReplayEngine({
       loadJob: () => activeJob({ leaseExpiresAt: "2026-08-06T08:59:59.999Z" }),
@@ -298,7 +297,7 @@ describe("receipt request hash", () => {
       nextTokenId: vi.fn<() => string>(),
       now: () => NOW,
       receiptStore,
-      searchPossibleMatches: vi.fn<() => PossibleMatchBinding[]>(),
+      searchPossibleMatches: vi.fn<() => RuntimeMatchSet[]>(),
       tokenSecret: TOKEN_SECRET,
       validateAuthorization: vi.fn(),
     });
@@ -316,7 +315,7 @@ function storeWithMergeReceipt(request: ExtractRequest): InMemoryReceiptStore {
   const receiptStore = new InMemoryReceiptStore();
   receiptStore.add(
     extractReceipt(request, {
-      candidates: [{ candidate_id: "candidate-1", candidate: {} }],
+      candidates: [extractCandidate()],
       state: "merge_decision_required",
     }),
   );
@@ -363,7 +362,7 @@ function extractRequest(
   overrides: Partial<ExtractRequest> = {},
 ): ExtractRequest {
   return {
-    candidates: [{ candidate_ids: ["candidate-1"] }],
+    candidates: [{ candidate_ids: [CANDIDATE_ID] }],
     job_id: "job-1",
     lease_generation: 7,
     lease_token: "lease-token",
@@ -380,7 +379,7 @@ function finalizeRequest(
 ): FinalizeRequest {
   return {
     candidate_set_sha256: "candidate-set-sha256",
-    decisions: [{ candidate_id: "candidate-1", decision: "merge" }],
+    decisions: [{ candidate_id: CANDIDATE_ID, decision: "merge" }],
     finalize_token: "finalize-token",
     job_id: "job-1",
     lease_generation: 7,
@@ -389,5 +388,41 @@ function finalizeRequest(
     request_schema_version: 1,
     submission_id: "finalize-submission",
     ...overrides,
+  };
+}
+
+function possibleMatches(knowledgeId: string): RuntimeMatchSet[] {
+  return [
+    {
+      candidate_id: CANDIDATE_ID,
+      possible_matches: [
+        {
+          category: "other",
+          detail: "Prefer current facts.",
+          etag: "a".repeat(64),
+          knowledge_id: knowledgeId,
+          revision: 1,
+          rule: "Prefer facts",
+          scope: [],
+          severity: "should",
+          status: "active",
+        },
+      ],
+    },
+  ];
+}
+
+function extractCandidate() {
+  return {
+    candidate: {
+      category: "other" as const,
+      confidence: 0.8,
+      detail: "Prefer facts that are current.",
+      evidence_comment_ids: ["comment-1"],
+      rule: "Prefer facts",
+      scope: [],
+      severity: "should" as const,
+    },
+    candidate_id: CANDIDATE_ID,
   };
 }

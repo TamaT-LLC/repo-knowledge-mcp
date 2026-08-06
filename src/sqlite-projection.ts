@@ -58,6 +58,11 @@ export interface CanonicalKnowledgeReadView {
   readonly snapshot: CanonicalProjectionSnapshot;
 }
 
+export interface CanonicalKnowledgeSearchView {
+  readonly searchResults: readonly KnowledgeSearchResult[];
+  readonly snapshot: CanonicalProjectionSnapshot;
+}
+
 interface CapturedKnowledge {
   readonly document: KnowledgeDocument;
   readonly mtimeNs: bigint;
@@ -174,6 +179,19 @@ export class SqliteCanonicalProjection {
   async readKnowledgeView(
     searchRequest?: ExhaustiveKnowledgeSearchRequest,
   ): Promise<CanonicalKnowledgeReadView> {
+    const view = await this.readKnowledgeSearchView(
+      searchRequest === undefined ? [] : [searchRequest],
+    );
+    return {
+      searchResult: view.searchResults[0] ?? null,
+      snapshot: view.snapshot,
+    };
+  }
+
+  /** Runs multiple exhaustive searches against one consistent projection. */
+  async readKnowledgeSearchView(
+    searchRequests: readonly ExhaustiveKnowledgeSearchRequest[],
+  ): Promise<CanonicalKnowledgeSearchView> {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
     try {
@@ -181,10 +199,9 @@ export class SqliteCanonicalProjection {
       database.exec("BEGIN");
       try {
         const view = {
-          searchResult:
-            searchRequest === undefined
-              ? null
-              : searchKnowledgeDatabase(database, searchRequest, true),
+          searchResults: searchRequests.map((request) =>
+            searchKnowledgeDatabase(database, request, true),
+          ),
           snapshot: readSnapshot(database),
         };
         database.exec("COMMIT");

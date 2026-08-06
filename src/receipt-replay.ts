@@ -1,5 +1,14 @@
-import { normalizeSetArrays } from "./canonical.js";
 import type { SkippedStableResponse } from "./evidence-policy.js";
+import {
+  ExtractCandidateSchema,
+  type ExtractCandidate as DomainExtractCandidate,
+} from "./domain-schemas.js";
+import {
+  computeMatchSetDigest,
+  normalizePossibleMatchSets,
+  type PossibleKnowledgeMatch,
+  type PossibleMatchSet,
+} from "./possible-match.js";
 import {
   RequestIntegrityError,
   computeRequestSha256,
@@ -8,10 +17,7 @@ import {
   type PhaseRequest,
 } from "./request-integrity.js";
 
-export interface ExtractCandidate {
-  readonly candidate: unknown;
-  readonly candidate_id: string;
-}
+export type ExtractCandidate = DomainExtractCandidate;
 
 export interface MergeDecisionRequiredStableResponse {
   readonly candidates: readonly ExtractCandidate[];
@@ -21,14 +27,12 @@ export interface MergeDecisionRequiredStableResponse {
 export type ExtractStableResponse =
   MergeDecisionRequiredStableResponse | SkippedStableResponse;
 
-export interface PossibleMatchBinding {
-  readonly candidate_id: string;
-  readonly possible_match_ids: readonly string[];
-}
+export type { PossibleMatchBinding } from "./possible-match.js";
 
 export interface MergeDecisionRequiredRuntimeResponse extends MergeDecisionRequiredStableResponse {
   readonly finalize_token: string;
-  readonly possible_matches: readonly PossibleMatchBinding[];
+  readonly match_set_digest: string;
+  readonly possible_matches: readonly PossibleMatchSet<PossibleKnowledgeMatch>[];
 }
 
 export type ExtractRuntimeResponse =
@@ -71,6 +75,14 @@ export class InMemoryReceiptStore implements ReceiptStore {
       throw new TypeError(
         "merge_decision_required receipts must contain a candidate",
       );
+    }
+    if (
+      receipt.phase === "extract" &&
+      receipt.stableResponse.state === "merge_decision_required"
+    ) {
+      for (const candidate of receipt.stableResponse.candidates) {
+        ExtractCandidateSchema.parse(candidate);
+      }
     }
 
     const key = receiptKey(receipt.phase, receipt.submissionId);
@@ -145,7 +157,7 @@ export interface ReceiptReplayDependencies {
   readonly receiptStore: ReceiptStore;
   readonly searchPossibleMatches: (
     candidates: readonly ExtractCandidate[],
-  ) => MaybePromise<readonly PossibleMatchBinding[]>;
+  ) => MaybePromise<readonly PossibleMatchSet<PossibleKnowledgeMatch>[]>;
   readonly tokenSecret: Uint8Array;
   readonly validateAuthorization: (request: PhaseRequest) => MaybePromise<void>;
 }
@@ -221,7 +233,7 @@ export class ReceiptReplayEngine {
       );
     }
 
-    const possibleMatches = normalizeSetArrays(
+    const possibleMatches = normalizePossibleMatchSets(
       await this.dependencies.searchPossibleMatches(
         receipt.stableResponse.candidates,
       ),
@@ -244,6 +256,7 @@ export class ReceiptReplayEngine {
       response: {
         candidates: receipt.stableResponse.candidates,
         finalize_token: finalizeToken,
+        match_set_digest: computeMatchSetDigest(possibleMatches),
         possible_matches: possibleMatches,
         state: "merge_decision_required",
       },

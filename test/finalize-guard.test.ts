@@ -13,6 +13,13 @@ import {
 } from "../src/finalize-guard.js";
 import type { PossibleMatchBinding } from "../src/index.js";
 
+const CANDIDATE_ID = "cand_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const KNOWLEDGE_1 = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const KNOWLEDGE_2 = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAW";
+const KNOWLEDGE_NEW = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAX";
+const ETAG_A = "a".repeat(64);
+const ETAG_B = "b".repeat(64);
+
 const BASE_COMMENTS: readonly FingerprintComment[] = [
   {
     body: "Use deterministic ordering.",
@@ -31,8 +38,21 @@ const BASE_DISTILLATION_INPUT: DistillationKeyInput = {
 };
 const BASE_MATCHES: readonly PossibleMatchBinding[] = [
   {
-    candidate_id: "candidate-1",
-    possible_match_ids: ["knowledge-2", "knowledge-1"],
+    candidate_id: CANDIDATE_ID,
+    possible_matches: [
+      {
+        etag: ETAG_B,
+        knowledge_id: KNOWLEDGE_2,
+        revision: 2,
+        status: "proposed",
+      },
+      {
+        etag: ETAG_A,
+        knowledge_id: KNOWLEDGE_1,
+        revision: 1,
+        status: "active",
+      },
+    ],
   },
 ];
 
@@ -119,8 +139,15 @@ describe("match-set binding", () => {
     const harness = createHarness({
       matches: [
         {
-          candidate_id: "candidate-1",
-          possible_match_ids: ["knowledge-new"],
+          candidate_id: CANDIDATE_ID,
+          possible_matches: [
+            {
+              etag: ETAG_A,
+              knowledge_id: KNOWLEDGE_NEW,
+              revision: 1,
+              status: "active",
+            },
+          ],
         },
       ],
     });
@@ -179,8 +206,21 @@ describe("source snapshot provenance", () => {
     });
     expect(harness.canonicalWrite).toHaveBeenCalledWith(context, [
       {
-        candidate_id: "candidate-1",
-        possible_match_ids: ["knowledge-1", "knowledge-2"],
+        candidate_id: CANDIDATE_ID,
+        possible_matches: [
+          {
+            etag: ETAG_A,
+            knowledge_id: KNOWLEDGE_1,
+            revision: 1,
+            status: "active",
+          },
+          {
+            etag: ETAG_B,
+            knowledge_id: KNOWLEDGE_2,
+            revision: 2,
+            status: "proposed",
+          },
+        ],
       },
     ]);
     expect(harness.events).toEqual([

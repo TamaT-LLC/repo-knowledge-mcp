@@ -1,11 +1,18 @@
 import {
-  compareCodeUnits,
   normalizeComments,
   sha256Jcs,
   sha256NormalizedJcs,
-  sortAndDedupeStrings,
 } from "./canonical.js";
-import type { PossibleMatchBinding } from "./receipt-replay.js";
+import {
+  computeMatchSetDigest,
+  normalizePossibleMatchBindings,
+  type PossibleMatchBinding,
+} from "./possible-match.js";
+
+export {
+  computeMatchSetDigest,
+  normalizePossibleMatchBindings,
+} from "./possible-match.js";
 
 export interface FingerprintComment {
   readonly body: string;
@@ -157,37 +164,6 @@ export function computeDistillationKey(input: DistillationKeyInput): string {
     schema: input.schema,
     trust_policy: input.trustPolicy,
   });
-}
-
-/** Computes a locale-independent digest for possible-match bindings. */
-export function computeMatchSetDigest(
-  matches: readonly PossibleMatchBinding[],
-): string {
-  return sha256Jcs(normalizePossibleMatchBindings(matches));
-}
-
-/** Normalizes both binding order and each binding's set-like ID array. */
-export function normalizePossibleMatchBindings(
-  matches: readonly PossibleMatchBinding[],
-): PossibleMatchBinding[] {
-  const normalized = matches
-    .map(({ candidate_id, possible_match_ids }) => ({
-      candidate_id,
-      possible_match_ids: sortAndDedupeStrings(possible_match_ids),
-    }))
-    .sort((a, b) => compareCodeUnits(a.candidate_id, b.candidate_id));
-
-  for (let index = 1; index < normalized.length; index += 1) {
-    if (
-      normalized[index - 1]!.candidate_id === normalized[index]!.candidate_id
-    ) {
-      throw new TypeError(
-        `Duplicate possible-match candidate: ${normalized[index]!.candidate_id}`,
-      );
-    }
-  }
-
-  return normalized;
 }
 
 function assertFinalizeJob(
