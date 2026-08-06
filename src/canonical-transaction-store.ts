@@ -80,6 +80,15 @@ export interface CanonicalTransactionRequest {
   readonly transactionId: string;
 }
 
+export interface CanonicalLockedMutation<T> {
+  readonly transaction: CanonicalTransactionRequest | null;
+  readonly value: T;
+}
+
+export type CanonicalLockedMutationPlanner<T> = (
+  snapshot: CanonicalProjectionSnapshot,
+) => CanonicalLockedMutation<T>;
+
 export interface KnowledgeUpdateRequest {
   readonly expectedEtag: string;
   readonly expectedRevision: number;
@@ -201,6 +210,33 @@ export class CanonicalTransactionStore {
       await this.recoverLocked();
       await this.projection.ensureCurrent();
       await this.commitLocked(request);
+    });
+  }
+
+  /**
+   * Reads the current projection and conditionally commits one transaction
+   * under the same repository lock. Planners must remain short and must not
+   * perform provider, network, or other unbounded work.
+   */
+  async runLockedMutation<T>(
+    planner: CanonicalLockedMutationPlanner<T>,
+  ): Promise<T> {
+    return this.withRepoLock(async () => {
+      await this.recoverLocked();
+      const snapshot = await this.projection.ensureCurrent();
+      const planned: unknown = planner(snapshot);
+      if (isPromiseLike(planned)) {
+        void Promise.resolve(planned).catch(() => undefined);
+        throw new CanonicalStoreError(
+          "INVALID_TRANSACTION",
+          "Locked mutation planners must be synchronous",
+        );
+      }
+      const mutation = planned as CanonicalLockedMutation<T>;
+      if (mutation.transaction !== null) {
+        await this.commitLocked(mutation.transaction);
+      }
+      return mutation.value;
     });
   }
 
@@ -815,6 +851,15 @@ export class CanonicalTransactionStore {
       transactionId,
     });
   }
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    "then" in value &&
+    typeof value.then === "function"
+  );
 }
 
 function validateRequest(request: CanonicalTransactionRequest): void {
