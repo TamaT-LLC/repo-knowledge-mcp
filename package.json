@@ -20,7 +20,9 @@
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "gray-matter": "^4.0.3",
-    "yaml": "^2.9.0"
+    "ulid": "^3.0.2",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
