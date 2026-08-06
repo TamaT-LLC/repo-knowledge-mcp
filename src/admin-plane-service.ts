@@ -44,7 +44,7 @@ import {
 import { scopesMayOverlap } from "./merge-candidate-service.js";
 import { REVISION_PROPOSAL_EVENT_PATH } from "./canonical-finalize-service.js";
 import type {
-  CanonicalKnowledgeReadView,
+  CanonicalKnowledgeSearchView,
   CanonicalProjectionSnapshot,
 } from "./sqlite-projection.js";
 
@@ -262,11 +262,11 @@ export class AdminPlaneService {
     const knowledgeId = KnowledgeIdSchema.parse(id);
     const initial = (await this.repository.readKnowledgeView()).snapshot;
     const initialKnowledge = findKnowledge(initial, knowledgeId, this.repoId);
-    const searchRequest = adminSearchRequest(
+    const searchRequests = adminSearchRequests(
       initialKnowledge.projected,
       this.repoId,
     );
-    const view = await this.repository.readKnowledgeView(searchRequest);
+    const view = await this.repository.readKnowledgeSearchView(searchRequests);
     return knowledgeReview(
       findKnowledge(view.snapshot, knowledgeId, this.repoId),
       view,
@@ -405,14 +405,14 @@ export class AdminPlaneService {
   private async findPossibleMatches(
     subject: AdminSearchSubject,
   ): Promise<readonly AdminPossibleMatch[]> {
-    const searchRequest = adminSearchRequest(subject, this.repoId);
-    if (searchRequest === undefined) {
+    const searchRequests = adminSearchRequests(subject, this.repoId);
+    if (searchRequests.length === 0) {
       throw new AdminPlaneError(
         "POSSIBLE_MATCH_QUERY_INVALID",
         "add --active requires rule or detail that can be normalized for possible-match review",
       );
     }
-    const view = await this.repository.readKnowledgeView(searchRequest);
+    const view = await this.repository.readKnowledgeSearchView(searchRequests);
     return possibleMatchesForReview(
       view,
       this.repoId,
@@ -654,7 +654,7 @@ export class AdminPlaneService {
 
 function knowledgeReview(
   current: CurrentKnowledge,
-  view: CanonicalKnowledgeReadView,
+  view: CanonicalKnowledgeSearchView,
   repo: string,
   repoId: string,
   possibleMatchLimit: number,
@@ -776,49 +776,69 @@ function findProposal(
   return proposal;
 }
 
-function adminSearchRequest(
+function adminSearchRequests(
   subject: AdminSearchSubject,
   repoId: string,
-): ExhaustiveKnowledgeSearchRequest | undefined {
+): ExhaustiveKnowledgeSearchRequest[] {
+  const requests: ExhaustiveKnowledgeSearchRequest[] = [];
+  const normalizedQueries = new Set<string>();
   for (const value of [subject.rule, subject.detail]) {
     try {
-      return {
+      const query = normalizeKnowledgeSearchQuery(value).normalized;
+      if (normalizedQueries.has(query)) continue;
+      normalizedQueries.add(query);
+      requests.push({
         category: subject.category,
-        query: normalizeKnowledgeSearchQuery(value).normalized,
+        query,
         repoId,
         statuses: ["active", "proposed", "stale"],
-      };
+      });
     } catch (error) {
       if (!(error instanceof KnowledgeSearchError)) throw error;
     }
   }
-  return undefined;
+  return requests;
 }
 
 function possibleMatchesForReview(
-  view: CanonicalKnowledgeReadView,
+  view: CanonicalKnowledgeSearchView,
   repoId: string,
   scope: readonly string[],
   possibleMatchLimit: number,
   excludedId?: string,
 ): AdminPossibleMatch[] {
-  return (view.searchResult?.hits ?? [])
-    .filter(
-      (match) =>
-        match.id !== excludedId &&
-        match.repoId === repoId &&
-        scopesMayOverlap(scope, match.scope),
-    )
-    .slice(0, possibleMatchLimit)
-    .map((match) => ({
-      etag: match.etag,
-      id: match.id,
-      revision: match.revision,
-      rule: match.rule,
-      scope: match.scope,
-      severity: match.severity,
-      status: match.status,
-    }));
+  const matches: AdminPossibleMatch[] = [];
+  const seenIds = new Set<string>();
+  const maximumRank = Math.max(
+    0,
+    ...view.searchResults.map((result) => result.hits.length),
+  );
+  for (let rank = 0; rank < maximumRank; rank += 1) {
+    for (const result of view.searchResults) {
+      const match = result.hits[rank];
+      if (
+        match === undefined ||
+        match.id === excludedId ||
+        seenIds.has(match.id) ||
+        match.repoId !== repoId ||
+        !scopesMayOverlap(scope, match.scope)
+      ) {
+        continue;
+      }
+      seenIds.add(match.id);
+      matches.push({
+        etag: match.etag,
+        id: match.id,
+        revision: match.revision,
+        rule: match.rule,
+        scope: match.scope,
+        severity: match.severity,
+        status: match.status,
+      });
+      if (matches.length === possibleMatchLimit) return matches;
+    }
+  }
+  return matches;
 }
 
 function binding(review: AdminKnowledgeReview): MutationBinding {

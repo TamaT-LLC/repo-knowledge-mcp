@@ -26,6 +26,7 @@ const PROPOSED_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const STALE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAW";
 const ACTIVE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAX";
 const ADDED_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAY";
+const DETAIL_MATCH_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAZ";
 const EVIDENCE_ID = "ev_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const PROPOSAL_ID = "proposal-admin-1";
 const SEED_TRANSACTION_ID = "txn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -311,6 +312,7 @@ describe("AdminPlaneService knowledge mutations", () => {
     });
     expect(terminal.output.join("")).toContain("Possible matches:");
     expect(terminal.output.join("")).toContain(ACTIVE_ID);
+    expect(terminal.output.join("")).toContain(DETAIL_MATCH_ID);
   });
 
   it("rejects add --active when possible-match input cannot be normalized", async () => {
@@ -534,6 +536,14 @@ async function createFixture(): Promise<Fixture> {
     id: ACTIVE_ID,
     origin: { type: "manual" },
     rule: "Approve secure updates",
+    status: "active",
+  });
+  await writeKnowledge(root, {
+    activation: { origin: "human", pinned: false },
+    detail: "A manually curated rule",
+    id: DETAIL_MATCH_ID,
+    origin: { type: "manual" },
+    rule: "Keep manual entries concise",
     status: "active",
   });
 
