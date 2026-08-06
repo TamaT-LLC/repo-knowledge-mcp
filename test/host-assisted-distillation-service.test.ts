@@ -16,6 +16,7 @@ import {
   ThreadObservationSchema,
   computeDistillationInputDigest,
   computeCandidateSetSha256,
+  computeMatchSetDigest,
   computePromptDigest,
   computeThreadContentFingerprint,
   computeThreadDistillationKey,
@@ -28,6 +29,7 @@ import {
   type DistillJobCoordinatorOptions,
   type DomainExtractCandidate,
   type HostAssistedFinalizeJob,
+  type HostAssistedMergeCandidateSearch,
   type RepoKnowledgeConfig,
 } from "../src/index.js";
 
@@ -349,6 +351,63 @@ describe("HostAssistedDistillationService", () => {
       await readFile(join(root, "events", "distillation.jsonl"), "utf8"),
     ).not.toContain("restart-finalize-token");
   });
+
+  it("does not issue a finalize handle when ingest changes the source during match search", async () => {
+    const root = await createRepository();
+    const config = enabledConfig();
+    const fixture = await seedPendingJob(root, config, {
+      body: "Original review source.",
+    });
+    let now = START + 1_000;
+    const coordinator = new DistillJobCoordinator(
+      new CanonicalTransactionStore(root),
+      coordinatorOptions({
+        leaseTokens: ["original-lease-token"],
+        now: () => new Date(now),
+      }),
+    );
+    const lease = await coordinator.acquireLease({
+      job_id: fixture.jobId,
+      repo_id: REPO_ID,
+    });
+    await coordinator.markAwaitingFinalize(lease!);
+    const candidates = [extractCandidate(fixture.commentId)];
+    await appendExtractReceipt(root, fixture.jobId, candidates, now + 100);
+    const contexts = new RuntimeFinalizeContextStore({
+      nextToken: () => "must-not-be-issued",
+      now: () => new Date(now),
+    });
+    const mergeCandidateSearch: HostAssistedMergeCandidateSearch = {
+      search: async (request) => {
+        await appendChangedSource(root, fixture, now + 200);
+        const possibleMatches = request.candidates.map((candidate) => ({
+          candidate_id: candidate.candidate_id,
+          possible_matches: [],
+        }));
+        return {
+          candidates: request.candidates,
+          match_set_digest: computeMatchSetDigest(possibleMatches),
+          possible_matches: possibleMatches,
+        };
+      },
+    };
+
+    now += 150;
+    const result = await service(root, config, {
+      finalizeContexts: contexts,
+      leaseTokens: ["resumed-lease-token"],
+      mergeCandidateSearch,
+      now: () => new Date(now),
+    }).prepare();
+
+    expect(result).toMatchObject({
+      blocked_jobs: [{ reason: "distillation_context_changed" }],
+      jobs: [],
+      state: "prepared",
+    });
+    expect(contexts.size).toBe(0);
+    expect(JSON.stringify(result)).not.toContain("must-not-be-issued");
+  });
 });
 
 interface SeedJobOptions {
@@ -363,7 +422,9 @@ interface SeededJob {
   readonly contentFingerprint: string;
   readonly distillationKey: string;
   readonly jobId: string;
+  readonly prNumber: number;
   readonly snapshotId: string;
+  readonly threadId: string;
 }
 
 async function seedPendingJob(
@@ -503,8 +564,110 @@ async function seedPendingJob(
     contentFingerprint,
     distillationKey,
     jobId,
+    prNumber,
     snapshotId,
+    threadId,
   };
+}
+
+async function appendChangedSource(
+  root: string,
+  fixture: SeededJob,
+  timestamp: number,
+): Promise<void> {
+  const observedAt = new Date(timestamp).toISOString();
+  const snapshotId = createDomainId("snapshot", timestamp);
+  const transactionId = createDomainId("transaction", timestamp);
+  const changedBody = "Changed review source during match search.";
+  const normalizedComment = {
+    body: changedBody,
+    createdAt: new Date(START).toISOString(),
+    id: fixture.commentId,
+    updatedAt: observedAt,
+  };
+  const contentFingerprint = computeThreadContentFingerprint(
+    fixture.threadId,
+    "src/index.ts",
+    [normalizedComment],
+  );
+  const snapshot = PullRequestSnapshotSchema.parse({
+    complete: true,
+    observed_at: observedAt,
+    pr_number: fixture.prNumber,
+    repo_id: REPO_ID,
+    review_summary_ids: [],
+    snapshot_id: snapshotId,
+    thread_ids: [fixture.threadId],
+  });
+  const thread = ThreadObservationSchema.parse({
+    comment_ids: [fixture.commentId],
+    content_fingerprint: contentFingerprint,
+    is_outdated: false,
+    is_resolved: false,
+    observation_id: createDomainId("observation", timestamp),
+    observation_type: "thread",
+    observed_at: observedAt,
+    path: "src/index.ts",
+    pr_number: fixture.prNumber,
+    repo_id: REPO_ID,
+    snapshot_id: snapshotId,
+    state_fingerprint: `sha256:${"a".repeat(64)}`,
+    thread_id: fixture.threadId,
+  });
+  const comment = CommentObservationSchema.parse({
+    actor: {
+      actor_id: "actor-alice",
+      actor_kind: "user",
+      author_association: "MEMBER",
+      login: "alice",
+      provider: "human",
+      trust: "trusted",
+    },
+    body: changedBody,
+    comment_id: fixture.commentId,
+    created_at: normalizedComment.createdAt,
+    observation_id: createDomainId("observation", timestamp + 1),
+    observation_type: "comment",
+    observed_at: observedAt,
+    snapshot_id: snapshotId,
+    thread_id: fixture.threadId,
+    updated_at: observedAt,
+    url: `https://github.com/${REPOSITORY}/pull/${String(
+      fixture.prNumber,
+    )}#discussion_r${String(fixture.prNumber)}`,
+  });
+  const records: CanonicalJsonlRecord[] = [
+    canonicalRecord(
+      "PullRequestSnapshot",
+      snapshot,
+      snapshotId,
+      transactionId,
+      observedAt,
+    ),
+    canonicalRecord(
+      "ThreadObservation",
+      thread,
+      thread.observation_id,
+      transactionId,
+      observedAt,
+    ),
+    canonicalRecord(
+      "CommentObservation",
+      comment,
+      comment.observation_id,
+      transactionId,
+      observedAt,
+    ),
+  ];
+  await new CanonicalTransactionStore(root).commit({
+    appendRecords: records.map((record) => ({
+      record,
+      targetPath: "raw/host-assisted-fixture.jsonl",
+    })),
+    createdAt: observedAt,
+    fileWrites: [],
+    transactionId,
+  });
 }
 
 async function appendExtractReceipt(
@@ -587,6 +750,7 @@ interface ServiceTestOptions {
   readonly finalizeContexts?: RuntimeFinalizeContextStore;
   readonly leaseDurationMs?: number;
   readonly leaseTokens?: readonly string[];
+  readonly mergeCandidateSearch?: HostAssistedMergeCandidateSearch;
   readonly now?: () => Date;
   readonly promptDigest?: string;
 }
@@ -602,6 +766,9 @@ function service(
     ...(options.finalizeContexts === undefined
       ? {}
       : { finalizeContexts: options.finalizeContexts }),
+    ...(options.mergeCandidateSearch === undefined
+      ? {}
+      : { mergeCandidateSearch: options.mergeCandidateSearch }),
     promptDigest: options.promptDigest ?? PROMPT_DIGEST,
     repository: {
       absolutePath: root,
@@ -663,12 +830,13 @@ function canonicalRecord<T>(
   payload: T,
   recordId: string,
   transactionId: string,
+  recordedAt = new Date(START).toISOString(),
 ): CanonicalJsonlRecord<T> {
   return {
     payload,
     record_id: recordId,
     record_type: recordType,
-    recorded_at: new Date(START).toISOString(),
+    recorded_at: recordedAt,
     schema_version: 1,
     transaction_id: transactionId,
   };

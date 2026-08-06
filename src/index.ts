@@ -315,6 +315,7 @@ export {
   type HostAssistedDistillationServiceOptions,
   type HostAssistedExtractJob,
   type HostAssistedFinalizeJob,
+  type HostAssistedMergeCandidateSearch,
   type HostAssistedPreparedJob,
   type PrepareDistillationRequest,
   type PrepareDistillationResult,

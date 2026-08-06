@@ -39,6 +39,7 @@ import {
 import { reviewSummaryThreadId } from "./github-pull-request-client.js";
 import {
   MergeCandidateSearchService,
+  type MergeCandidateSearchRequest,
   type MergeCandidateSearchResult,
 } from "./merge-candidate-service.js";
 import type {
@@ -160,9 +161,17 @@ export interface HostAssistedDistillationServiceOptions {
   readonly config: RepoKnowledgeConfig;
   readonly coordinatorOptions?: DistillJobCoordinatorOptions;
   readonly finalizeContexts?: RuntimeFinalizeContextStore;
+  /** Test/composition seam; production callers normally use the canonical service. */
+  readonly mergeCandidateSearch?: HostAssistedMergeCandidateSearch;
   readonly promptDigest: string;
   readonly repository: RepositoryResolution;
   readonly repositoryContext: unknown;
+}
+
+export interface HostAssistedMergeCandidateSearch {
+  search(
+    request: MergeCandidateSearchRequest,
+  ): Promise<MergeCandidateSearchResult>;
 }
 
 export type HostAssistedDistillationErrorCode =
@@ -207,7 +216,7 @@ export class HostAssistedDistillationService {
 
   private readonly config: RepoKnowledgeConfig;
   private readonly coordinator: DistillJobCoordinator;
-  private readonly mergeCandidates: MergeCandidateSearchService;
+  private readonly mergeCandidates: HostAssistedMergeCandidateSearch;
   private readonly now: () => Date;
   private readonly promptDigest: string;
   private readonly repoId: string;
@@ -227,10 +236,12 @@ export class HostAssistedDistillationService {
       ...options.coordinatorOptions,
       now: this.now,
     });
-    this.mergeCandidates = new MergeCandidateSearchService({
-      repoId: this.repoId,
-      repository: this.store,
-    });
+    this.mergeCandidates =
+      options.mergeCandidateSearch ??
+      new MergeCandidateSearchService({
+        repoId: this.repoId,
+        repository: this.store,
+      });
     this.finalizeContexts =
       options.finalizeContexts ??
       new RuntimeFinalizeContextStore({ now: this.now });
@@ -395,6 +406,16 @@ export class HostAssistedDistillationService {
 
     const current = await this.store.readSnapshot();
     const currentJob = findLeasedJob(current, lease);
+    // The search is intentionally lock-free. Rebuild the source from the
+    // post-search snapshot so a concurrent ingest cannot produce a handle that
+    // mixes old review provenance with newer merge-search state.
+    const currentSource = this.currentSource(current, currentJob);
+    if (currentSource.contentFingerprint !== source.contentFingerprint) {
+      throw hostError(
+        "DISTILLATION_CONTEXT_CHANGED",
+        "the review source changed while merge candidates were prepared",
+      );
+    }
     try {
       assertCurrentDistillJobLease(
         currentJob,
@@ -420,14 +441,14 @@ export class HostAssistedDistillationService {
     try {
       issued = this.finalizeContexts.issue({
         candidate_set_sha256: candidateSetSha256,
-        content_fingerprint: source.contentFingerprint,
+        content_fingerprint: currentSource.contentFingerprint,
         distillation_key: currentJob.distillation_key,
         expires_at: lease.expires_at,
         job_id: lease.job_id,
         lease_generation: lease.lease_generation,
         match_set_digest: matches.match_set_digest,
         possible_matches: matches.possible_matches,
-        source_snapshot_id: source.snapshotId,
+        source_snapshot_id: currentSource.snapshotId,
       });
     } catch (error) {
       if (
@@ -454,7 +475,7 @@ export class HostAssistedDistillationService {
       match_set_digest: matches.match_set_digest,
       phase: "finalize",
       possible_matches: matches.possible_matches,
-      thread_fingerprint: source.contentFingerprint,
+      thread_fingerprint: currentSource.contentFingerprint,
     };
   }
 
