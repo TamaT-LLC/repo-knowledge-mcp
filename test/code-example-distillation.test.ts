@@ -274,14 +274,20 @@ describe("M2 code example fixtures", () => {
         "local.send(fetchThing(id));",
     );
 
-    // Every identifier token requires grounding; declared bindings, short
-    // tokens, generic tokens, and validated module specifier interiors do not.
-    expect(tokens.identifiers).toEqual(["HttpClient", "fetchThing", "send"]);
+    // Every identifier token requires grounding — declared names included;
+    // only short tokens, generic tokens, and validated module specifier
+    // interiors are exempt.
+    expect(tokens.identifiers).toEqual([
+      "HttpClient",
+      "fetchThing",
+      "local",
+      "send",
+    ]);
     expect(tokens.specifiers).toEqual(["@scope/pkg"]);
 
     // The exhaustive pass covers quoted bracket members, type annotations,
-    // and string-literal words alike, while standard-library type names stay
-    // excluded through the generic token list.
+    // string-literal words, and declared bindings alike, while
+    // standard-library type names stay excluded through the generic list.
     const fabricated = extractCodeExampleReferenceTokens(
       'const value: FabricatedType = client["fabricatedApi"]();\n' +
         'const rows = ["apple"];\n' +
@@ -292,6 +298,9 @@ describe("M2 code example fixtures", () => {
       "apple",
       "client",
       "fabricatedApi",
+      "rows",
+      "typed",
+      "value",
     ]);
     expect(fabricated.specifiers).toEqual([]);
 
@@ -307,11 +316,25 @@ describe("M2 code example fixtures", () => {
     expect(positionIndependent.identifiers).toEqual([
       "FabricatedType",
       "RealType",
+      "cache",
       "client",
       "fabricatedApi",
       "fabricatedMethod",
       "loadCache",
       "payload",
+      "union",
+    ]);
+
+    // Declaring a fabricated name inside the example does not exempt it.
+    const declaredBypass = extractCodeExampleReferenceTokens(
+      "interface FabricatedService {}\n" +
+        "type FabricatedPayload = Record<string, never>;\n" +
+        "const fabricatedValue = new FabricatedService();",
+    );
+    expect(declaredBypass.identifiers).toEqual([
+      "FabricatedPayload",
+      "FabricatedService",
+      "fabricatedValue",
     ]);
 
     const example: GeneratedCodeExample = {
@@ -346,12 +369,61 @@ describe("M2 code example fixtures", () => {
         },
         [
           {
-            body: "parseProfile should return the ProfileForm we validate from the payload.",
+            body: "parseProfile builds the profile as a ProfileForm we validate from the payload.",
             id: "comment-1",
           },
         ],
       ),
     ).toEqual({ grounded: true, ungrounded_tokens: [] });
+  });
+
+  it("rejects declared fabricated names and matches specifiers on exact boundaries", () => {
+    const example = (content: string): GeneratedCodeExample => ({
+      content,
+      evidence_comment_ids: ["comment-1"],
+      generated_example: true,
+      language: "typescript",
+    });
+
+    // A declaration inside the example does not launder fabricated names.
+    expect(
+      evaluateCodeExampleGrounding(
+        example(
+          "interface FabricatedService {}\nconst svc = new FabricatedService();",
+        ),
+        [
+          {
+            body: "Wrap the svc wiring behind the documented factory.",
+            id: "comment-1",
+          },
+        ],
+      ),
+    ).toEqual({
+      grounded: false,
+      ungrounded_tokens: ["FabricatedService"],
+    });
+
+    // Module specifiers match whole, boundary-delimited evidence strings.
+    const specifierEvidence = [
+      {
+        body: 'Use helperThing from "@scope/pkg-utils" for this.',
+        id: "comment-1",
+      },
+    ];
+    expect(
+      evaluateCodeExampleGrounding(
+        example(
+          'import { helperThing } from "@scope/pkg-utils";\nhelperThing();',
+        ),
+        specifierEvidence,
+      ),
+    ).toEqual({ grounded: true, ungrounded_tokens: [] });
+    expect(
+      evaluateCodeExampleGrounding(
+        example('import { helperThing } from "@scope/pkg";\nhelperThing();'),
+        specifierEvidence,
+      ),
+    ).toEqual({ grounded: false, ungrounded_tokens: ["@scope/pkg"] });
   });
 
   it("binds the M2 schema change into the output schema digest and distillation key", () => {

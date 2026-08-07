@@ -167,7 +167,7 @@
     {
       "comments": [
         {
-          "body": "The profile form save handler on the client swallows failures; please persist through the existing helper instead.",
+          "body": "The profile form save handler on the client swallows the returned value; please persist through the existing helper instead.",
           "id": "PRRC_bracket_type_1"
         }
       ],

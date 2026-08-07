@@ -7,11 +7,14 @@ import type { GeneratedCodeExample } from "./domain-schemas.js";
  * diff hunk of the review comments it cites. The contract is exhaustive
  * rather than positional: every identifier token in the content is a
  * candidate, and only deterministic exclusions (generic tokens, minimum
- * length, locally declared bindings, validated module specifiers) remove a
- * token from the requirement. Fabricated function, type, and package names
- * are therefore rejected fail-closed regardless of the syntax — optional
- * chaining, unions, generics, `satisfies`, and future constructs included.
- * False positives deliberately fall on the rejection side.
+ * length, validated module specifiers) remove a token from the requirement.
+ * Declaring a name inside the example does not exempt it — otherwise a
+ * fabricated type or API could be laundered through `interface Fabricated {}`
+ * followed by a use. Fabricated function, type, and package names are
+ * therefore rejected fail-closed regardless of the syntax — optional
+ * chaining, unions, generics, `satisfies`, declarations, and future
+ * constructs included. False positives deliberately fall on the rejection
+ * side.
  */
 
 export const CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH = 3;
@@ -166,11 +169,9 @@ const MODULE_KEYWORD_TOKEN_REGEX = new RegExp(
 );
 const QUOTED_MODULE_SPECIFIER_REGEX =
   /(?:\bfrom\s*|\bimport\s*|\brequire\s*\(\s*)["']([^"'\n]+)["']/gu;
-const DECLARED_TOKEN_REGEX = new RegExp(
-  "(?<![A-Za-z0-9_$])(?:catch|class|const|def|enum|fn|for|fun|function|" +
-    `interface|let|struct|trait|type|val|var)\\s+(${IDENTIFIER})`,
-  "gu",
-);
+const SPECIFIER_RUN_REGEX = new RegExp(MODULE_SPECIFIER, "gu");
+const QUOTED_EVIDENCE_STRING_REGEX = /["']([^"'\n]+)["']/gu;
+const TRAILING_SPECIFIER_PUNCTUATION_REGEX = /[.:/-]+$/u;
 
 export interface CodeExampleEvidenceSource {
   readonly body: string;
@@ -181,11 +182,14 @@ export interface CodeExampleEvidenceSource {
 export interface CodeExampleReferenceTokens {
   /**
    * Every identifier token in the content that survives the deterministic
-   * exclusions: generic tokens, tokens below the minimum length, locally
-   * declared names, and the interior of validated module specifiers.
+   * exclusions: generic tokens, tokens below the minimum length, and the
+   * interior of validated module specifiers. Declared names are included.
    */
   readonly identifiers: readonly string[];
-  /** Module specifiers matched as substrings, e.g. `@scope/pkg`. */
+  /**
+   * Module specifiers matched against evidence as whole, boundary-delimited
+   * strings, e.g. `@scope/pkg`.
+   */
   readonly specifiers: readonly string[];
 }
 
@@ -198,12 +202,10 @@ export interface CodeExampleGroundingResult {
  * Extracts every identifier token from the content, including tokens inside
  * string literals and comments (quoted bracket members and error messages are
  * data too). Excluded deterministically: tokens shorter than the minimum
- * length, generic tokens, names declared after a declaration keyword
- * (`catch|class|const|def|enum|fn|for|fun|function|interface|let|struct|`
- * `trait|type|val|var`), and the interior of quoted module specifiers, which
- * are validated separately as substrings. Function parameters, destructuring
- * bindings, and import-bound names are intentionally not excluded; they fail
- * closed toward requiring grounding.
+ * length, generic tokens, and the interior of quoted module specifiers,
+ * which are validated separately as whole specifiers. Declared names,
+ * function parameters, destructuring bindings, and import-bound names are
+ * intentionally not excluded; they fail closed toward requiring grounding.
  */
 export function extractCodeExampleReferenceTokens(
   content: string,
@@ -212,29 +214,27 @@ export function extractCodeExampleReferenceTokens(
     [
       ...captureAll(content, MODULE_KEYWORD_TOKEN_REGEX),
       ...captureAll(content, QUOTED_MODULE_SPECIFIER_REGEX),
-    ].filter(
-      (specifier) =>
-        specifier.length >= CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH &&
-        !GENERIC_TOKEN_SET.has(specifier.toLowerCase()),
-    ),
+    ]
+      .map((specifier) =>
+        specifier.replace(TRAILING_SPECIFIER_PUNCTUATION_REGEX, ""),
+      )
+      .filter(
+        (specifier) =>
+          specifier.length >= CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH &&
+          !GENERIC_TOKEN_SET.has(specifier.toLowerCase()),
+      ),
   );
-  // Quoted module specifiers are validated as whole substrings; blank their
+  // Quoted module specifiers are validated as whole specifiers; blank their
   // interiors so their fragments are not reported twice.
   const tokenizable = content.replaceAll(
     QUOTED_MODULE_SPECIFIER_REGEX,
     (match) => " ".repeat(match.length),
   );
-  const declared = new Set(
-    captureAll(tokenizable, DECLARED_TOKEN_REGEX).map((token) =>
-      token.toLowerCase(),
-    ),
-  );
   const identifiers = sortAndDedupeStrings(
     (tokenizable.match(IDENTIFIER_TOKEN_REGEX) ?? []).filter(
       (token) =>
         token.length >= CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH &&
-        !GENERIC_TOKEN_SET.has(token.toLowerCase()) &&
-        !declared.has(token.toLowerCase()),
+        !GENERIC_TOKEN_SET.has(token.toLowerCase()),
     ),
   );
   return { identifiers, specifiers };
@@ -242,10 +242,12 @@ export function extractCodeExampleReferenceTokens(
 
 /**
  * Verifies that every reference token in the example content occurs in the
- * body or diff hunk of the comments the example cites. Matching is
- * case-insensitive; identifiers must match a whole evidence token and module
- * specifiers must occur as substrings. Missing cited comments leave the
- * evidence text empty, so unknown IDs fail closed.
+ * body or diff hunk of the comments the example cites. Identifiers match a
+ * whole evidence token case-insensitively. Module specifiers match an
+ * evidence specifier — a quoted string or a maximal specifier-pattern run,
+ * with trailing `.`/`:`/`/`/`-` punctuation trimmed — as a whole,
+ * case-sensitive string; substring containment is never sufficient. Missing
+ * cited comments leave the evidence text empty, so unknown IDs fail closed.
  */
 export function evaluateCodeExampleGrounding(
   example: GeneratedCodeExample,
@@ -259,24 +261,47 @@ export function evaluateCodeExampleGrounding(
         ? source.body
         : `${source.body}\n${source.diffHunk}`,
     )
-    .join("\n")
-    .toLowerCase();
+    .join("\n");
   const evidenceTokens = new Set(
-    evidenceText.match(IDENTIFIER_TOKEN_REGEX) ?? [],
+    evidenceText.toLowerCase().match(IDENTIFIER_TOKEN_REGEX) ?? [],
   );
+  const evidenceSpecifiers = collectEvidenceSpecifiers(evidenceText);
   const tokens = extractCodeExampleReferenceTokens(example.content);
   const ungrounded = [
     ...tokens.identifiers.filter(
       (token) => !evidenceTokens.has(token.toLowerCase()),
     ),
     ...tokens.specifiers.filter(
-      (specifier) => !evidenceText.includes(specifier.toLowerCase()),
+      (specifier) => !evidenceSpecifiers.has(specifier),
     ),
   ];
   return {
     grounded: ungrounded.length === 0,
     ungrounded_tokens: sortAndDedupeStrings(ungrounded),
   };
+}
+
+/**
+ * Collects every specifier-shaped string in the evidence text: quoted string
+ * contents and maximal specifier-pattern runs, each also added with trailing
+ * sentence punctuation trimmed so prose like `use @scope/pkg.` still grounds
+ * the exact specifier without enabling prefix matches.
+ */
+function collectEvidenceSpecifiers(text: string): ReadonlySet<string> {
+  const specifiers = new Set<string>();
+  const add = (value: string): void => {
+    if (value.length === 0) return;
+    specifiers.add(value);
+    const trimmed = value.replace(TRAILING_SPECIFIER_PUNCTUATION_REGEX, "");
+    if (trimmed.length > 0) specifiers.add(trimmed);
+  };
+  for (const match of text.matchAll(QUOTED_EVIDENCE_STRING_REGEX)) {
+    add(match[1]!);
+  }
+  for (const match of text.matchAll(SPECIFIER_RUN_REGEX)) {
+    add(match[0]);
+  }
+  return specifiers;
 }
 
 function captureAll(content: string, pattern: RegExp): string[] {

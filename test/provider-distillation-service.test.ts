@@ -239,7 +239,7 @@ describe("distillation prompt and output boundary", () => {
       expect.objectContaining({
         code: "DISTILLATION_OUTPUT_INVALID",
         validationSummary:
-          "code_example content references tokens absent from its cited evidence: FabricatedType, client, fabricatedApi",
+          "code_example content references tokens absent from its cited evidence: FabricatedType, client, fabricatedApi, value",
       }),
     );
   });
@@ -247,7 +247,7 @@ describe("distillation prompt and output boundary", () => {
   it("rejects fabricated names regardless of syntax position", () => {
     const evidence = [
       {
-        body: "The client should call loadCache() and treat the payload as RealType.",
+        body: "The client should call loadCache() to rebuild the cache, then treat the payload union as RealType.",
         id: "comment-1",
       },
     ];
@@ -271,6 +271,20 @@ describe("distillation prompt and output boundary", () => {
       {
         content: "payload satisfies FabricatedType;",
         ungrounded: "FabricatedType",
+      },
+      {
+        content:
+          "interface FabricatedService {}\nloadCache(FabricatedService);",
+        ungrounded: "FabricatedService",
+      },
+      {
+        content:
+          "type FabricatedPayload = Record<string, never>;\nloadCache();",
+        ungrounded: "FabricatedPayload",
+      },
+      {
+        content: "const fabricatedCache = loadCache();",
+        ungrounded: "fabricatedCache",
       },
     ];
 

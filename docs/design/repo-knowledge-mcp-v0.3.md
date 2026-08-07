@@ -2780,13 +2780,14 @@ Architecture §6.2 が M2 に課す「入力 diff またはレビュー本文に
 2. **決定的除外**: 次のいずれかに該当するトークンは grounding を要求しない
    - 長さが `CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH = 3` 未満
    - frozen リスト `CODE_EXAMPLE_GENERIC_TOKENS`（言語横断キーワード・汎用 builtin・標準ライブラリ型名。`Promise` / `Result` / `Vec` / `satisfies` 等を小文字表記で収載し case-insensitive に照合。リスト全体はテスト [code-example-distillation.test.ts](../../test/code-example-distillation.test.ts) で完全固定し、追加・削除は仕様変更として扱う）
-   - content 内で宣言キーワード（`catch|class|const|def|enum|fn|for|fun|function|interface|let|struct|trait|type|val|var`）の直後に宣言されたローカル束縛名。関数パラメータ・分割代入・import 局所名は**除外しない**（外部参照とみなし、根拠を要求する側へ倒す）
-3. **モジュール参照**: `import` / `from` / `use` 直後の識別子・パス、および `from` / `import` / `require(` に続く引用符付き specifier は、specifier 全体を部分文字列として照合する
+
+   **宣言による除外は存在しない**: content 内で宣言された名前（`interface` / `type` / `const` 等による宣言、関数パラメータ、分割代入、import 局所名）も照合対象に含める。宣言 + 使用の形で架空の型・API 名を通す抜け道を構造的に塞ぐためであり、正当な例のローカル変数名が根拠に現れない場合も拒否側に倒す
+3. **モジュール参照**: `import` / `from` / `use` 直後の識別子・パス、および `from` / `import` / `require(` に続く引用符付き specifier（いずれも末尾の `.` `:` `/` `-` を除去）は、**境界付き完全一致**で照合する。根拠テキストから specifier 候補集合 — 引用符内文字列と、specifier パターン（`[A-Za-z_$@][A-Za-z0-9_$@:./-]*`）の最大一致（それぞれ末尾句読点 `.` `:` `/` `-` を除去した変形も含める）— を抽出し、specifier 全体が集合の要素と **case-sensitive に完全一致**する場合のみ根拠ありとする。部分文字列照合は行わない（根拠が `@scope/pkg-utils` のとき `@scope/pkg` は拒否される）
 4. **照合**: 残った全トークンを根拠テキストと照合し、**未照合が 1 つでもあれば fail-closed で拒否**する
 
-判定は **case-insensitive** で行う。根拠テキストは `code_example.evidence_comment_ids` が引用する comment の body + diff_hunk の連結に限定する（thread の他コメントは根拠にならない）。識別子トークンは根拠テキストの識別子トークン集合への完全一致、モジュール specifier は部分文字列一致で照合する。引用 comment が現存しない場合は根拠テキストが空になり、同様に拒否される。
+識別子トークンの判定は **case-insensitive**（根拠テキストの識別子トークン集合への完全一致）、モジュール specifier の判定は **case-sensitive**（前項の境界付き完全一致）で行う。根拠テキストは `code_example.evidence_comment_ids` が引用する comment の body + diff_hunk の連結に限定する（thread の他コメントは根拠にならない）。引用 comment が現存しない場合は根拠テキストが空になり、同様に拒否される。
 
-**誤検知の扱い**: 網羅方式では、根拠に現れないローカル慣用名（パラメータ名・文字列内の単語等）も拒否側に倒れる。これは fail-closed 設計として仕様上許容する。緩和は generic リストへの追加（= 仕様変更としてテスト固定を更新）でのみ行う。
+**誤検知の扱い**: 網羅方式では、根拠に現れないローカル慣用名（宣言名・パラメータ名・文字列内の単語等）も拒否側に倒れる。これは fail-closed 設計として仕様上許容する。緩和は generic リストへの追加（= 仕様変更としてテスト固定を更新）でのみ行う。
 
 この規則の限界: untrusted コメント自体が架空 API 名を本文に含む場合、字句照合は通過しうる。その永続化は trust policy（§11）と proposed 既定 status が防ぐ二重防御であり、grounding 検証は provider の幻覚（根拠に現れない名前の生成）を対象とする。
 
@@ -2795,6 +2796,8 @@ Architecture §6.2 が M2 に課す「入力 diff またはレビュー本文に
 - 有効な comment ID + `generated_example: true` でも、content が引用根拠に現れないトークンを参照する場合は 3 経路すべてで拒否される（fixture `grounded-id-fabricated-content`、[code-example-distillation.json](../../test/fixtures/code-example-distillation.json)）
 - 角括弧メンバー参照（`client["fabricatedApi"]()`）と型注釈（`const value: FabricatedType`）の架空名も拒否される（fixture `bracket-and-type-fabrication`）
 - 構文位置に依存しない: `fabricatedApi?.()` / `client?.fabricatedMethod()` / `Map<string, FabricatedType>` / `RealType | FabricatedType` / `value satisfies FabricatedType` がいずれも拒否される（fixture `optional-chaining-and-compound-types` と回帰テスト）
+- 宣言による回避が拒否される: `interface FabricatedService {}` / `type FabricatedPayload = …` / `const fabricatedCache = …` のように content 内で宣言しても、根拠に現れない名前は拒否される
+- モジュール specifier は境界付き完全一致: 根拠が `@scope/pkg-utils` のとき `@scope/pkg` の import は拒否され、完全一致する specifier は受理される
 - diff_hunk のみに現れる API は根拠として有効
-- 宣言済みローカル変数・3 文字未満・generic トークンは grounding を要求しない
+- 3 文字未満・generic トークンは grounding を要求しない
 - `CODE_EXAMPLE_GENERIC_TOKENS` と最小長はテストで完全固定
