@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
+  computeBaselineIdentityDigest,
   evaluateProviderBaselineArtifact,
   isProviderGoldenBaselineArtifact,
 } from "./golden-baseline.js";
@@ -9,6 +10,7 @@ import { evaluateGoldenFixture } from "./golden-evaluator.js";
 import { evaluateOutcomeRankingFixture } from "./outcome-ranking-golden.js";
 import {
   QualityGateThresholdsSchema,
+  assertQualityGateBaselineBinding,
   evaluateQualityGate,
 } from "./quality-gate.js";
 
@@ -21,12 +23,23 @@ try {
   if (isProviderGoldenBaselineArtifact(input)) {
     const { artifact, report } = evaluateProviderBaselineArtifact(input);
     if (arguments_.thresholdsPath === undefined) {
-      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      // The baseline block is printed verbatim so a thresholds review can
+      // copy the exact measurement identity it binds to.
+      const baseline = {
+        artifact_digest: computeBaselineIdentityDigest(artifact),
+        artifact_kind: artifact.artifact_kind,
+        corpus_digest: artifact.corpus_digest,
+        corpus_id: artifact.corpus_id,
+        measured_at: artifact.measured_at,
+      };
+      process.stdout.write(
+        `${JSON.stringify({ baseline, report }, null, 2)}\n`,
+      );
     } else {
       const thresholds = QualityGateThresholdsSchema.parse(
         JSON.parse(await readFile(arguments_.thresholdsPath, "utf8")),
       );
-      assertThresholdBaselineBinding(artifact, thresholds);
+      assertQualityGateBaselineBinding(artifact, thresholds);
       const gate = evaluateQualityGate(report, thresholds);
       process.stdout.write(
         `${JSON.stringify({ quality_gate: gate, report }, null, 2)}\n`,
@@ -85,29 +98,4 @@ function isOutcomeRankingFixture(input: unknown): boolean {
     input !== null &&
     (input as { fixture_kind?: unknown }).fixture_kind === "outcome_ranking"
   );
-}
-
-function assertThresholdBaselineBinding(
-  artifact: {
-    readonly artifact_kind: string;
-    readonly corpus_digest: string;
-    readonly corpus_id: string;
-  },
-  thresholds: {
-    readonly baseline: {
-      readonly artifact_kind: string;
-      readonly corpus_digest: string;
-      readonly corpus_id: string;
-    };
-  },
-): void {
-  if (
-    thresholds.baseline.artifact_kind !== artifact.artifact_kind ||
-    thresholds.baseline.corpus_id !== artifact.corpus_id ||
-    thresholds.baseline.corpus_digest !== artifact.corpus_digest
-  ) {
-    throw new TypeError(
-      "thresholds were reviewed against a different baseline corpus",
-    );
-  }
 }

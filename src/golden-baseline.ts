@@ -359,6 +359,27 @@ export function computeRankingPolicyDigest(): string {
   return `sha256:${sha256Jcs(OUTCOME_RANKING_POLICY)}`;
 }
 
+/**
+ * Hashes the complete measurement identity of a baseline artifact: corpus,
+ * measurement time, transmission mode, and every provenance generation
+ * (model, prompt, output schema, trust policy, ranking policy, search
+ * derivation). Thresholds bind to this digest, so a re-measurement of the
+ * same corpus at another time or with another model can never inherit a
+ * review that was performed against a different artifact.
+ */
+export function computeBaselineIdentityDigest(
+  artifact: ProviderGoldenBaselineArtifact,
+): string {
+  return `sha256:${sha256Jcs({
+    artifact_kind: artifact.artifact_kind,
+    corpus_digest: artifact.corpus_digest,
+    corpus_id: artifact.corpus_id,
+    measured_at: artifact.measured_at,
+    provenance: artifact.provenance,
+    transmission: artifact.transmission,
+  })}`;
+}
+
 function promptComments(
   thread: AnonymizedCorpusThread,
 ): DistillationPromptComment[] {

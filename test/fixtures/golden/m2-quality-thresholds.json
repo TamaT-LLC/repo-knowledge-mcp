@@ -1,5 +1,6 @@
 {
   "baseline": {
+    "artifact_digest": "sha256:68c1a897a749998770466877cc62f58d27bce4f30c2645015135bec69b14d276",
     "artifact_kind": "provider_golden_baseline",
     "corpus_digest": "sha256:8ed07ed9274397a6d9b5b7cbbc19bc1d01476218c8157c1649a00be0e050b3b0",
     "corpus_id": "m2-anonymized-corpus-2026-08-07",

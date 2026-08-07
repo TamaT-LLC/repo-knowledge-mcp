@@ -81,24 +81,55 @@ describe("anonymized corpus fixture", () => {
     expect(categories.size).toBe(9);
   });
 
-  it("rejects raw secrets, tokens, and non-anonymized identities", () => {
-    const findings = findSensitiveContent({
-      comments: [
-        { body: "my key is sk-ant-abc12345DEF" },
-        { body: "email me at somebody@example.com" },
-        { body: "token ghp_0123456789abcdefghij0123456789" },
-        { body: "-----BEGIN RSA PRIVATE KEY-----" },
-        { body: "Authorization: Bearer abcdef" },
-      ],
-    });
+  it("rejects every supported credential format and non-anonymized identity", () => {
+    const samples: readonly {
+      readonly body: string;
+      readonly kind: string;
+    }[] = [
+      { body: "my key is sk-ant-abc12345DEF", kind: "provider_api_key" },
+      {
+        body: "openai key sk-proj-abcDEF123456789012345678",
+        kind: "provider_api_key",
+      },
+      {
+        body: "legacy openai key sk-abcDEF12345678901234",
+        kind: "provider_api_key",
+      },
+      {
+        body: "token ghp_0123456789abcdefghij0123456789",
+        kind: "github_token",
+      },
+      {
+        body: "fine grained github_pat_11ABCDEFG0123456789abcdef",
+        kind: "github_token",
+      },
+      { body: "slack xoxb-1234567890-abcdefghij", kind: "slack_token" },
+      { body: "aws AKIAIOSFODNN7EXAMPLE", kind: "aws_access_key_id" },
+      {
+        body: "google AIzaSyA1234567890abcdefghijklmnopqrstuvw",
+        kind: "google_api_key",
+      },
+      { body: "-----BEGIN RSA PRIVATE KEY-----", kind: "private_key_block" },
+      { body: "Authorization: Bearer abcdef", kind: "authorization_header" },
+      {
+        body: 'api_key = "abcdefghij0123456789"',
+        kind: "generic_secret_assignment",
+      },
+      {
+        body: "password: hunter2hunter2hunter2",
+        kind: "generic_secret_assignment",
+      },
+      { body: "email me at somebody@example.com", kind: "email_address" },
+    ];
 
-    expect(findings.map((finding) => finding.kind).sort()).toEqual([
-      "authorization_header",
-      "email_address",
-      "github_token",
-      "private_key_block",
-      "provider_api_key",
-    ]);
+    for (const sample of samples) {
+      const findings = findSensitiveContent({ body: sample.body });
+      expect(
+        findings.map((finding) => finding.kind),
+        `expected ${sample.kind} for: ${sample.body}`,
+      ).toContain(sample.kind);
+    }
+    expect(findSensitiveContent({ body: "no secrets here" })).toEqual([]);
   });
 
   it("refuses to parse a corpus containing sensitive content without echoing it", async () => {

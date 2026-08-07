@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   QUALITY_GATE_METRICS,
+  QualityGateBindingError,
   QualityGateThresholdsSchema,
+  assertQualityGateBaselineBinding,
+  computeBaselineIdentityDigest,
   evaluateProviderBaselineArtifact,
   evaluateQualityGate,
   type QualityGateThresholds,
@@ -49,15 +52,58 @@ describe("M2 quality gate thresholds", () => {
     );
 
     expect(thresholds.baseline).toEqual({
+      artifact_digest: computeBaselineIdentityDigest(artifact),
       artifact_kind: artifact.artifact_kind,
       corpus_digest: artifact.corpus_digest,
       corpus_id: artifact.corpus_id,
       measured_at: artifact.measured_at,
     });
+    expect(() =>
+      assertQualityGateBaselineBinding(artifact, thresholds),
+    ).not.toThrow();
     for (const metric of QUALITY_GATE_METRICS) {
       expect(thresholds.metrics[metric].measured).toBe(
         report.metrics[metric].value,
       );
+    }
+  });
+
+  it("rejects a same-corpus artifact measured at a different time", async () => {
+    const thresholds = await loadThresholds();
+    const { artifact } = evaluateProviderBaselineArtifact(
+      JSON.parse(await readFile(ARTIFACT_URL, "utf8")),
+    );
+    const remeasured = {
+      ...artifact,
+      measured_at: "2026-08-08T12:00:00.000Z",
+    };
+
+    expect(() =>
+      assertQualityGateBaselineBinding(remeasured, thresholds),
+    ).toThrow(QualityGateBindingError);
+    expect(() =>
+      assertQualityGateBaselineBinding(remeasured, thresholds),
+    ).toThrow(/measured_at/u);
+  });
+
+  it("rejects a same-corpus artifact from a different provenance generation", async () => {
+    const thresholds = await loadThresholds();
+    const { artifact } = evaluateProviderBaselineArtifact(
+      JSON.parse(await readFile(ARTIFACT_URL, "utf8")),
+    );
+    const otherModel = {
+      ...artifact,
+      provenance: { ...artifact.provenance, model: "some-other-model" },
+    };
+    const otherMode = {
+      ...artifact,
+      transmission: { cloud_consent: true, mode: "live" as const },
+    };
+
+    for (const tampered of [otherModel, otherMode]) {
+      expect(() =>
+        assertQualityGateBaselineBinding(tampered, thresholds),
+      ).toThrow(/artifact_digest/u);
     }
   });
 

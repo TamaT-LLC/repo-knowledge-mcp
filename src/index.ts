@@ -63,6 +63,7 @@ export {
   ProviderGoldenBaselineArtifactSchema,
   RecordedPredictionsSchema,
   captureProviderGoldenBaseline,
+  computeBaselineIdentityDigest,
   computeRankingPolicyDigest,
   createAdapterPredictionProvider,
   createRecordedPredictionProvider,
@@ -102,7 +103,9 @@ export {
 } from "./golden-evaluator.js";
 export {
   QUALITY_GATE_METRICS,
+  QualityGateBindingError,
   QualityGateThresholdsSchema,
+  assertQualityGateBaselineBinding,
   evaluateQualityGate,
   type QualityGateMetricName,
   type QualityGateMetricResult,

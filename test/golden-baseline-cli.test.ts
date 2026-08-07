@@ -137,6 +137,25 @@ describe("golden baseline CLI", () => {
     expect(result.stderr).toContain("BASELINE_CORPUS_MISMATCH");
   });
 
+  it("rejects thresholds reviewed against a different measurement", async () => {
+    const thresholds = JSON.parse(await readFile(THRESHOLDS, "utf8")) as {
+      baseline: { measured_at: string };
+    };
+    thresholds.baseline.measured_at = "2026-08-08T12:00:00.000Z";
+    const staleThresholdsPath = join(workingDirectory, "stale-thresholds.json");
+    await writeFile(staleThresholdsPath, JSON.stringify(thresholds), "utf8");
+
+    const result = await execa(
+      process.execPath,
+      [GOLDEN_CLI, ARTIFACT, "--thresholds", staleThresholdsPath],
+      { cwd: repositoryRoot, reject: false },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("QUALITY_GATE_BASELINE_MISMATCH");
+    expect(result.stderr).toContain("measured_at");
+  });
+
   it("evaluates the committed artifact against the reviewed thresholds", async () => {
     const result = await execa(
       process.execPath,

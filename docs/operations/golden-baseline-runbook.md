@@ -26,8 +26,11 @@ metric report は artifact 内の記録済み prediction だけから決定的�
 - 実測は匿名化 corpus 全文を Anthropic API へ送信する。送信には
   `--consent-cloud-transmission` フラグによる**明示 opt-in が必須**で、
   フラグなしの `--live` は `BASELINE_CLOUD_CONSENT_REQUIRED` で拒否される
-- corpus は読み込み時に秘匿情報 scan（API key / token / private key /
-  Authorization header / メールアドレス）を通過しなければならない。
+- corpus は読み込み時に秘匿情報 scan を通過しなければならない。検出対象は
+  provider API key（`sk-` prefix 全般: Anthropic / OpenAI 等）/ Google API key /
+  GitHub token / Slack token / AWS access key / private key block /
+  Authorization header / 代入形式の secret（`api_key = "..."` 等）/
+  メールアドレス。過剰検出は fail-closed として許容する。
   検出時はエラーに **JSON パスとパターン種別のみ**が載り、値そのものは出力されない
 - 生成された artifact も保存前に同じ scan を通る。raw secret・token・
   非匿名化レビュー内容が baseline artifact に混入した場合、保存自体が失敗する
@@ -69,8 +72,13 @@ $ node dist/golden-cli.js test/fixtures/golden/m2-provider-baseline.json \
 
 - exit 0: 全指標が下限以上（`quality_gate.ok: true`）
 - exit 1: いずれかの指標が下限未満。report の `results[]` で該当 metric を特定する
-- exit 2: artifact / thresholds の形式不正、または thresholds が別 corpus に紐づく
-- `--thresholds` なしで実行すると report のみを出力する
+- exit 2: artifact / thresholds の形式不正、または thresholds が別の測定に紐づく
+  （`QUALITY_GATE_BASELINE_MISMATCH`）。thresholds の `baseline` は corpus だけでなく
+  `measured_at` と、provenance（model / prompt / schema / trust・ranking policy）+
+  transmission mode を含む `artifact_digest` で測定世代に束縛される。同じ corpus を
+  別時刻・別 model で測り直した artifact は旧 thresholds では gate を通過できない
+- `--thresholds` なしで実行すると `{ baseline, report }` を出力する。`baseline`
+  ブロックは thresholds へそのまま転記できる測定 identity（`artifact_digest` 含む）
 - 同じコマンドは `npm run golden` の 3 本目としても実行され、CI でも
   （記録済み prediction のみで）毎回検証される
 
@@ -105,8 +113,11 @@ $ node dist/golden-baseline-cli.js \
    誤差幅と corpus サイズ（1 誤り当たりの metric 変動量）を根拠に選ぶ
 3. `m2-quality-thresholds.json` を更新する:
    - `metrics.<name>.measured` / `margin` / `minimum` / `rationale`（変更理由）
-   - `baseline`（artifact_kind / corpus_id / corpus_digest / measured_at）を
-     新しい artifact に一致させる（不一致は gate 実行時に拒否される）
+   - `baseline`（artifact_kind / corpus_id / corpus_digest / measured_at /
+     artifact_digest）を review 対象 artifact の値に一致させる。値は
+     `node dist/golden-cli.js <artifact>` の出力冒頭 `baseline` ブロックを
+     そのまま転記する（不一致は gate 実行時に
+     `QUALITY_GATE_BASELINE_MISMATCH` で拒否される）
    - `source` を `live_measurement` に変更する
    - `thresholds_version` を bump する（例: `m2-thresholds-v2`）
    - `reviewed.at` / `reviewed.by` を review 実施者で更新する
@@ -124,6 +135,7 @@ live 実測で置き換える際は必ずこの手順で version を進めるこ
 | `BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI` | CI 環境で `--live` | 実測はローカルでのみ行う。CI では replay を使う |
 | `BASELINE_SENSITIVE_CONTENT` | corpus か prediction に秘匿情報 | 報告された JSON パスの内容を匿名化してから再実行する |
 | `BASELINE_CORPUS_MISMATCH` | corpus と recorded の世代不一致 | 対になる corpus / recorded ファイルを揃える |
+| `QUALITY_GATE_BASELINE_MISMATCH` | thresholds が別の測定（別時刻・別 model・別 prompt/schema/policy 世代）に紐づく | 手順 4 で thresholds を対象 artifact に対して再 review し、`baseline` ブロックを更新する |
 | `BASELINE_RECORDED_PREDICTION_MISSING` | recorded に未収載スレッド | corpus 変更後に recorded prediction を取り直す |
 | `AUTHENTICATION_MISSING` | `ANTHROPIC_API_KEY` 未設定 | operator の鍵を環境変数で設定する |
 

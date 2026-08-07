@@ -5,6 +5,10 @@ import {
   NonEmptyStringSchema,
   Sha256DigestSchema,
 } from "./domain-schemas.js";
+import {
+  computeBaselineIdentityDigest,
+  type ProviderGoldenBaselineArtifact,
+} from "./golden-baseline.js";
 import type { GoldenEvaluationReport } from "./golden-evaluator.js";
 
 /** Every §18.1 metric that the M2 quality gate thresholds must cover. */
@@ -49,6 +53,7 @@ export const QualityGateThresholdsSchema = z
   .object({
     baseline: z
       .object({
+        artifact_digest: Sha256DigestSchema,
         artifact_kind: NonEmptyStringSchema,
         corpus_digest: Sha256DigestSchema,
         corpus_id: NonEmptyStringSchema,
@@ -83,6 +88,53 @@ export interface QualityGateReport {
   readonly results: readonly QualityGateMetricResult[];
   readonly source: QualityGateThresholds["source"];
   readonly thresholds_version: string;
+}
+
+export class QualityGateBindingError extends Error {
+  readonly code = "QUALITY_GATE_BASELINE_MISMATCH";
+
+  constructor(message: string) {
+    super(`QUALITY_GATE_BASELINE_MISMATCH: ${message}`);
+    this.name = "QualityGateBindingError";
+  }
+}
+
+/**
+ * Verifies that thresholds were reviewed against exactly this measurement.
+ * The artifact digest covers measured_at, transmission mode, and every
+ * provenance generation, so a same-corpus artifact measured at another time
+ * or with another model / prompt / schema / policy is rejected fail-closed.
+ */
+export function assertQualityGateBaselineBinding(
+  artifact: ProviderGoldenBaselineArtifact,
+  thresholds: QualityGateThresholds,
+): void {
+  const parsed = QualityGateThresholdsSchema.parse(thresholds);
+  const mismatches: string[] = [];
+  if (parsed.baseline.artifact_kind !== artifact.artifact_kind) {
+    mismatches.push("artifact_kind");
+  }
+  if (parsed.baseline.corpus_id !== artifact.corpus_id) {
+    mismatches.push("corpus_id");
+  }
+  if (parsed.baseline.corpus_digest !== artifact.corpus_digest) {
+    mismatches.push("corpus_digest");
+  }
+  if (parsed.baseline.measured_at !== artifact.measured_at) {
+    mismatches.push("measured_at");
+  }
+  if (
+    parsed.baseline.artifact_digest !== computeBaselineIdentityDigest(artifact)
+  ) {
+    mismatches.push("artifact_digest");
+  }
+  if (mismatches.length > 0) {
+    throw new QualityGateBindingError(
+      `thresholds were reviewed against a different baseline measurement (${mismatches.join(
+        ", ",
+      )})`,
+    );
+  }
 }
 
 /**
