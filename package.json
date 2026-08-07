@@ -36,9 +36,11 @@
     "build": "tsc -p tsconfig.build.json",
     "check": "npm run format:check && npm run docs:check && npm run lint && npm run typecheck && npm test",
     "docs:check": "node check-markdown-links.mjs",
-    "format": "prettier --write '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' '*.json' '*.mjs'",
-    "format:check": "prettier --check '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' '*.json' '*.mjs'",
+    "format": "prettier --write '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' 'test/**/*.json' 'docs/**/*.json' '*.json' '*.mjs'",
+    "format:check": "prettier --check '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' 'test/**/*.json' 'docs/**/*.json' '*.json' '*.mjs'",
+    "golden": "npm run build && node dist/golden-cli.js test/fixtures/golden/m1-golden.json",
     "lint": "eslint src test --max-warnings=0",
+    "smoke:m1": "npm run build && node dist/m1-smoke-cli.js",
     "test": "npm run build && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

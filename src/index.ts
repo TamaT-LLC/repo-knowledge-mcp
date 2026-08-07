@@ -57,6 +57,22 @@ export {
   type GhRunnerOptions,
 } from "./gh-runner.js";
 export {
+  GoldenFixtureSchema,
+  evaluateGoldenFixture,
+  type GoldenEvaluationReport,
+  type GoldenFixture,
+  type GoldenMetric,
+} from "./golden-evaluator.js";
+export {
+  M1SmokeManifestSchema,
+  runM1SmokeGate,
+  type M1SmokeCommandExecutor,
+  type M1SmokeCommandResult,
+  type M1SmokeManifest,
+  type M1SmokeReport,
+  type RunM1SmokeGateOptions,
+} from "./m1-smoke-gate.js";
+export {
   DEFAULT_REVIEW_COMMENT_PAGE_SIZE,
   DEFAULT_REVIEW_PAGE_SIZE,
   DEFAULT_REVIEW_THREAD_PAGE_SIZE,

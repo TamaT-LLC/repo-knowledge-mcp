@@ -3,11 +3,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = dirname(fileURLToPath(import.meta.url));
-const documentationRoot = join(repositoryRoot, "docs", "design");
-const markdownFiles = (await readdir(documentationRoot))
-  .filter((name) => name.endsWith(".md"))
-  .map((name) => join(documentationRoot, name))
-  .sort();
+const documentationRoot = join(repositoryRoot, "docs");
+const markdownFiles = (await collectMarkdownFiles(documentationRoot)).sort();
 const failures = [];
 
 for (const markdownPath of markdownFiles) {
@@ -43,6 +40,16 @@ function linesOutsideFences(source) {
     if (fence === null) result.push({ line, lineNumber: index + 1 });
   }
   return result;
+}
+
+async function collectMarkdownFiles(directory) {
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await collectMarkdownFiles(path)));
+    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(path);
+  }
+  return files;
 }
 
 function checkHeadingStructure(markdownPath, lines) {

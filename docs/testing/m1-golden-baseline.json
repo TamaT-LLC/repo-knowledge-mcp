@@ -1,0 +1,61 @@
+{
+  "counts": {
+    "cases": 50,
+    "knowledge_cases": 40,
+    "search_queries": 6
+  },
+  "fixture_id": "m1-anonymized-baseline-2026-08-06",
+  "metrics": {
+    "category_macro_f1": {
+      "denominator": 9,
+      "numerator": 9,
+      "value": 1
+    },
+    "extraction_precision": {
+      "denominator": 40,
+      "numerator": 40,
+      "value": 1
+    },
+    "extraction_recall": {
+      "denominator": 40,
+      "numerator": 40,
+      "value": 1
+    },
+    "merge_pairwise_precision": {
+      "denominator": 20,
+      "numerator": 20,
+      "value": 1
+    },
+    "merge_pairwise_recall": {
+      "denominator": 20,
+      "numerator": 20,
+      "value": 1
+    },
+    "scope_expected_file_match_rate": {
+      "denominator": 80,
+      "numerator": 80,
+      "value": 1
+    },
+    "scope_valid_glob_rate": {
+      "denominator": 40,
+      "numerator": 40,
+      "value": 1
+    },
+    "search_mrr": {
+      "denominator": 6,
+      "numerator": 6,
+      "value": 1
+    },
+    "search_ndcg": {
+      "denominator": 6,
+      "numerator": 6,
+      "value": 1
+    },
+    "severity_weighted_accuracy": {
+      "denominator": 81,
+      "numerator": 81,
+      "value": 1
+    }
+  },
+  "schema_version": 1
+}
