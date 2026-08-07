@@ -217,6 +217,33 @@ describe("distillation prompt and output boundary", () => {
     );
   });
 
+  it("rejects fabricated quoted bracket members and type annotations", () => {
+    expect(() =>
+      parseDistillationOutput(
+        JSON.stringify({
+          candidates: [
+            {
+              ...candidate("Keep failures visible", ["comment-1"]),
+              code_example: {
+                ...codeExample(["comment-1"]),
+                content:
+                  'const value: FabricatedType = client["fabricatedApi"]();',
+              },
+            },
+          ],
+          skip_reason: null,
+        }),
+        groundedSourceComments(),
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: "DISTILLATION_OUTPUT_INVALID",
+        validationSummary:
+          "code_example content references tokens absent from its cited evidence: FabricatedType, fabricatedApi",
+      }),
+    );
+  });
+
   it("grounds example tokens against the cited diff hunk as well as bodies", () => {
     const output = parseDistillationOutput(
       JSON.stringify({

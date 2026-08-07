@@ -13,14 +13,18 @@ import type { GeneratedCodeExample } from "./domain-schemas.js";
 export const CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH = 3;
 
 /**
- * Frozen cross-language keywords and ubiquitous builtins that occur in
- * reference positions but carry no repository-specific meaning. This list is
- * part of the grounding contract and is pinned by tests; extending it is a
- * spec change.
+ * Frozen cross-language keywords, ubiquitous builtins, and standard-library
+ * type names that occur in reference or type positions but carry no
+ * repository-specific meaning. This list is part of the grounding contract
+ * and is pinned by tests; extending it is a spec change. Matching is
+ * case-insensitive, so lowercase entries also cover `Promise`, `Result`, etc.
  */
 export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
+  "array",
   "assert",
   "await",
+  "boolean",
+  "box",
   "break",
   "case",
   "catch",
@@ -29,18 +33,21 @@ export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
   "const",
   "constructor",
   "continue",
+  "date",
   "def",
   "default",
   "delete",
   "elif",
   "else",
   "enum",
+  "error",
   "export",
   "extends",
   "finally",
   "for",
   "from",
   "function",
+  "hashmap",
   "import",
   "instanceof",
   "interface",
@@ -48,16 +55,30 @@ export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
   "length",
   "let",
   "loop",
+  "map",
   "match",
   "new",
+  "number",
+  "object",
+  "omit",
+  "option",
+  "partial",
+  "pick",
   "print",
   "println",
+  "promise",
   "pub",
   "raise",
+  "readonly",
+  "record",
+  "regexp",
   "require",
+  "result",
   "return",
   "self",
+  "set",
   "static",
+  "string",
   "struct",
   "super",
   "switch",
@@ -70,6 +91,7 @@ export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
   "use",
   "val",
   "var",
+  "vec",
   "void",
   "while",
   "with",
@@ -81,6 +103,7 @@ const GENERIC_TOKEN_SET: ReadonlySet<string> = new Set(
 );
 
 const IDENTIFIER = "[A-Za-z_$][A-Za-z0-9_$]*";
+const TYPE_IDENTIFIER = "[A-Z][A-Za-z0-9_$]*";
 const MODULE_SPECIFIER = "[A-Za-z_$@][A-Za-z0-9_$@:./-]*";
 const IDENTIFIER_TOKEN_REGEX = new RegExp(IDENTIFIER, "gu");
 const CALLED_TOKEN_REGEX = new RegExp(
@@ -92,8 +115,25 @@ const MEMBER_ROOT_TOKEN_REGEX = new RegExp(
   `(?<![A-Za-z0-9_$.])(${IDENTIFIER})(?=\\s*\\.[A-Za-z_$])`,
   "gu",
 );
+const BRACKET_MEMBER_TOKEN_REGEX = new RegExp(
+  `(?<=[A-Za-z0-9_$)\\]])\\[\\s*["'](${IDENTIFIER})["']\\s*\\]`,
+  "gu",
+);
 const CONSTRUCTED_TOKEN_REGEX = new RegExp(
   `(?<![A-Za-z0-9_$])new\\s+(${IDENTIFIER})`,
+  "gu",
+);
+const ANNOTATED_TYPE_TOKEN_REGEX = new RegExp(
+  `:\\s*(${TYPE_IDENTIFIER})`,
+  "gu",
+);
+const ASSERTED_TYPE_TOKEN_REGEX = new RegExp(
+  `(?<![A-Za-z0-9_$])as\\s+(${TYPE_IDENTIFIER})`,
+  "gu",
+);
+const GENERIC_TYPE_TOKEN_REGEX = new RegExp(`<\\s*(${TYPE_IDENTIFIER})`, "gu");
+const EXTENDED_TYPE_TOKEN_REGEX = new RegExp(
+  `(?<![A-Za-z0-9_$])(?:extends|implements)\\s+(${TYPE_IDENTIFIER})`,
   "gu",
 );
 const MODULE_KEYWORD_TOKEN_REGEX = new RegExp(
@@ -115,7 +155,10 @@ export interface CodeExampleEvidenceSource {
 }
 
 export interface CodeExampleReferenceTokens {
-  /** Identifier references: calls, member access, `new`, import names. */
+  /**
+   * Identifier references: calls, member access (dotted and quoted-bracket),
+   * `new`, capital-initial type references, and import names.
+   */
   readonly identifiers: readonly string[];
   /** Module specifiers matched as substrings, e.g. `@scope/pkg`. */
   readonly specifiers: readonly string[];
@@ -128,7 +171,8 @@ export interface CodeExampleGroundingResult {
 
 /**
  * Extracts reference-position tokens from example content: called
- * identifiers, member access segments and their roots, constructed types, and
+ * identifiers, member access segments and their roots, quoted bracket
+ * members, constructed types, capital-initial type references, and
  * import/module references. Locally declared names, tokens shorter than the
  * minimum length, and generic tokens are excluded.
  */
@@ -145,7 +189,12 @@ export function extractCodeExampleReferenceTokens(
       ...captureAll(content, CALLED_TOKEN_REGEX),
       ...captureAll(content, MEMBER_TOKEN_REGEX),
       ...captureAll(content, MEMBER_ROOT_TOKEN_REGEX),
+      ...captureAll(content, BRACKET_MEMBER_TOKEN_REGEX),
       ...captureAll(content, CONSTRUCTED_TOKEN_REGEX),
+      ...captureAll(content, ANNOTATED_TYPE_TOKEN_REGEX),
+      ...captureAll(content, ASSERTED_TYPE_TOKEN_REGEX),
+      ...captureAll(content, GENERIC_TYPE_TOKEN_REGEX),
+      ...captureAll(content, EXTENDED_TYPE_TOKEN_REGEX),
     ].filter(
       (token) =>
         token.length >= CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH &&

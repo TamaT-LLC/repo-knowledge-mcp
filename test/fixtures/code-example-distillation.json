@@ -163,6 +163,41 @@
         "skip_reason": null
       },
       "tags": ["code-example", "fictional-api", "grounding"]
+    },
+    {
+      "comments": [
+        {
+          "body": "The profile form save handler on the client swallows failures; please persist through the existing helper instead.",
+          "id": "PRRC_bracket_type_1"
+        }
+      ],
+      "description": "The output cites a real comment ID and sets generated_example: true, but the content reaches a fabricated API through a quoted bracket member and annotates a fabricated type; grounding validation rejects both.",
+      "expected": {
+        "accepted": false,
+        "validation_summary": "code_example content references tokens absent from its cited evidence: FabricatedType, fabricatedApi"
+      },
+      "id": "bracket-and-type-fabrication",
+      "output": {
+        "candidates": [
+          {
+            "category": "architecture",
+            "code_example": {
+              "content": "const value: FabricatedType = client[\"fabricatedApi\"]();",
+              "evidence_comment_ids": ["PRRC_bracket_type_1"],
+              "generated_example": true,
+              "language": "typescript"
+            },
+            "confidence": 0.9,
+            "detail": "Fabricates a bracket-accessed API and a type name that never appear in the cited evidence.",
+            "evidence_comment_ids": ["PRRC_bracket_type_1"],
+            "rule": "Persist profile form input through one helper",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "tags": ["code-example", "fictional-api", "grounding", "bracket-member"]
     }
   ]
 }

@@ -79,6 +79,7 @@ describe("M2 code example fixtures", () => {
       "prompt-injection-forged-evidence",
       "fictional-api-coercion",
       "grounded-id-fabricated-content",
+      "bracket-and-type-fabrication",
     ]);
     for (const entry of cases) {
       if (!entry.expected.accepted) {
@@ -137,8 +138,11 @@ describe("M2 code example fixtures", () => {
   it("pins the deterministic grounding token rules", () => {
     expect(CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH).toBe(3);
     expect(CODE_EXAMPLE_GENERIC_TOKENS).toEqual([
+      "array",
       "assert",
       "await",
+      "boolean",
+      "box",
       "break",
       "case",
       "catch",
@@ -147,18 +151,21 @@ describe("M2 code example fixtures", () => {
       "const",
       "constructor",
       "continue",
+      "date",
       "def",
       "default",
       "delete",
       "elif",
       "else",
       "enum",
+      "error",
       "export",
       "extends",
       "finally",
       "for",
       "from",
       "function",
+      "hashmap",
       "import",
       "instanceof",
       "interface",
@@ -166,16 +173,30 @@ describe("M2 code example fixtures", () => {
       "length",
       "let",
       "loop",
+      "map",
       "match",
       "new",
+      "number",
+      "object",
+      "omit",
+      "option",
+      "partial",
+      "pick",
       "print",
       "println",
+      "promise",
       "pub",
       "raise",
+      "readonly",
+      "record",
+      "regexp",
       "require",
+      "result",
       "return",
       "self",
+      "set",
       "static",
+      "string",
       "struct",
       "super",
       "switch",
@@ -188,6 +209,7 @@ describe("M2 code example fixtures", () => {
       "use",
       "val",
       "var",
+      "vec",
       "void",
       "while",
       "with",
@@ -204,6 +226,17 @@ describe("M2 code example fixtures", () => {
     // grounding; declared bindings, short tokens, and generic tokens do not.
     expect(tokens.identifiers).toEqual(["HttpClient", "fetchThing", "send"]);
     expect(tokens.specifiers).toEqual(["@scope/pkg"]);
+
+    // Quoted bracket members and capital-initial type positions require
+    // grounding; array literals, bracket receivers, declared bindings, and
+    // standard-library type names do not.
+    const fabricated = extractCodeExampleReferenceTokens(
+      'const value: FabricatedType = client["fabricatedApi"]();\n' +
+        'const rows = ["apple"];\n' +
+        "const typed = rows as Promise<Result>;",
+    );
+    expect(fabricated.identifiers).toEqual(["FabricatedType", "fabricatedApi"]);
+    expect(fabricated.specifiers).toEqual([]);
 
     const example: GeneratedCodeExample = {
       content: "local.send(fetchThing(id));",
@@ -227,6 +260,22 @@ describe("M2 code example fixtures", () => {
       grounded: false,
       ungrounded_tokens: ["fetchThing", "local", "send"],
     });
+    expect(
+      evaluateCodeExampleGrounding(
+        {
+          content: "const profile: ProfileForm = parseProfile(payload);",
+          evidence_comment_ids: ["comment-1"],
+          generated_example: true,
+          language: "typescript",
+        },
+        [
+          {
+            body: "parseProfile should return the ProfileForm we validate.",
+            id: "comment-1",
+          },
+        ],
+      ),
+    ).toEqual({ grounded: true, ungrounded_tokens: [] });
   });
 
   it("binds the M2 schema change into the output schema digest and distillation key", () => {
