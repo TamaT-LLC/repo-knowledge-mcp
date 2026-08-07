@@ -30,6 +30,7 @@ import {
   type IngestPullRequestResult,
   type IngestRepositoryResolver,
   type RepositoryResolution,
+  type RepositoryResolutionInput,
   type SyncCursor,
   type SyncPullRequestEnumerator,
   type SyncPullRequestIngester,
@@ -279,13 +280,58 @@ describe("SyncRepoService", () => {
     });
   });
 
-  it("rejects an ingester bound to a different repository before any mutation", async () => {
+  it("accepts an ingester bound to an alias of the same repository", async () => {
     const repository = await createRepository();
-    const foreign = buildIngester(repository, "other/repository");
-
-    expect(() => syncService(repository, { ingester: foreign })).toThrowError(
-      /SYNC_REPOSITORY_MISMATCH/,
+    const canonical = resolutionOf(repository, REPO_ID, REPOSITORY);
+    const resolver = new MappedRepositoryResolver(
+      new Map([
+        [REPOSITORY, canonical],
+        // A historical alias resolves to the same stable repo_id.
+        ["owner/old-name", { ...canonical, aliases: ["owner/old-name"] }],
+      ]),
     );
+    const service = syncService(repository, {
+      ingester: buildIngester(repository, "owner/old-name"),
+      repositoryResolver: resolver,
+    });
+
+    await expect(service.sync()).resolves.toMatchObject({
+      discovered: 3,
+      failed: 0,
+      ingested: 3,
+      jobs_created: 3,
+      next_cursor: cursorAt(3),
+    });
+    await expect(
+      new SyncCheckpointStore(repository).read(),
+    ).resolves.toMatchObject({ cursor: cursorAt(3) });
+  });
+
+  it("rejects an ingester bound to a truly different repository before any mutation", async () => {
+    const repository = await createRepository();
+    const resolver = new MappedRepositoryResolver(
+      new Map([
+        [REPOSITORY, resolutionOf(repository, REPO_ID, REPOSITORY)],
+        [
+          "other/repository",
+          resolutionOf(repository, "R_other_node", "other/repository"),
+        ],
+      ]),
+    );
+    const recorder = new FlakyIngester(
+      buildIngester(repository, "other/repository"),
+      new Set(),
+    );
+    const service = syncService(repository, {
+      ingester: recorder,
+      repositoryResolver: resolver,
+    });
+
+    await expect(service.sync()).rejects.toMatchObject({
+      code: "SYNC_REPOSITORY_MISMATCH",
+    });
+    // The run fails closed before a single ingest is attempted.
+    expect(recorder.calls).toEqual([]);
     const snapshot = await new CanonicalTransactionStore(
       repository,
     ).readSnapshot();
@@ -368,6 +414,24 @@ class FixturePullRequestFetcher implements CompleteSnapshotFetcher {
     readonly repo: string;
   }): Promise<CompleteGitHubPullRequestSnapshot> {
     return completeSnapshot(request.prNumber);
+  }
+}
+
+/** Resolves configured names (canonical or alias) to stable resolutions. */
+class MappedRepositoryResolver implements IngestRepositoryResolver {
+  constructor(
+    private readonly resolutions: ReadonlyMap<string, RepositoryResolution>,
+  ) {}
+
+  async resolve(
+    input?: RepositoryResolutionInput,
+  ): Promise<RepositoryResolution> {
+    const resolution =
+      input?.repo === undefined ? undefined : this.resolutions.get(input.repo);
+    if (resolution === undefined) {
+      throw new Error(`unknown repository ${input?.repo ?? "<none>"}`);
+    }
+    return resolution;
   }
 }
 
@@ -460,6 +524,21 @@ async function createRepository(): Promise<string> {
   const repository = await mkdtemp(join(tmpdir(), "rkm-sync-repo-"));
   temporaryRepositories.push(repository);
   return repository;
+}
+
+function resolutionOf(
+  repositoryRoot: string,
+  repoId: string,
+  currentName: string,
+): RepositoryResolution {
+  return {
+    absolutePath: repositoryRoot,
+    aliases: [],
+    currentName,
+    path: `repos/${repoId}`,
+    repoId,
+    source: "tool-repo",
+  };
 }
 
 function syncService(

@@ -37,7 +37,11 @@ export interface SyncPullRequestEnumerator {
 }
 
 export interface SyncPullRequestIngester {
-  /** The repository the ingester is bound to; checked before any mutation. */
+  /**
+   * The repository name the ingester is bound to. Before any mutation it is
+   * resolved to its stable repo_id and compared with the sync target, so an
+   * alias and the canonical name of the same repository both pass.
+   */
   readonly repo: string;
 
   ingestPullRequest(request: {
@@ -130,14 +134,6 @@ export class SyncRepoService {
     this.ingester = options.ingester;
     this.now = options.now ?? (() => new Date());
     this.repo = RepositoryNameSchema.parse(options.repo);
-    // Fail closed before any mutation: an ingester bound to another
-    // repository must never commit a single PR into this sync run.
-    if (this.ingester.repo !== this.repo) {
-      throw new SyncRepoError(
-        "SYNC_REPOSITORY_MISMATCH",
-        `ingester is bound to ${this.ingester.repo}, not ${this.repo}`,
-      );
-    }
     this.repositoryResolver = options.repositoryResolver;
     this.syncLockTimeoutMs =
       options.syncLockTimeoutMs ?? DEFAULT_SYNC_LOCK_TIMEOUT_MS;
@@ -147,12 +143,34 @@ export class SyncRepoService {
     const repository = await this.repositoryResolver.resolve({
       repo: this.repo,
     });
+    await this.assertIngesterBinding(repository);
     await mkdir(repository.absolutePath, { mode: 0o700, recursive: true });
     return withPosixFileLock(
       join(repository.absolutePath, SYNC_LOCK_FILE_NAME),
       this.syncLockTimeoutMs,
       async () => this.syncSerialized(repository, request),
     );
+  }
+
+  /**
+   * Fails closed before any mutation when the injected ingester is bound to
+   * a different repository. Bindings are compared by the resolver's stable
+   * repo_id, never by raw name, so an alias and the canonical name of the
+   * same repository are both accepted.
+   */
+  private async assertIngesterBinding(
+    repository: RepositoryResolution,
+  ): Promise<void> {
+    if (this.ingester.repo === this.repo) return;
+    const ingesterRepository = await this.repositoryResolver.resolve({
+      repo: this.ingester.repo,
+    });
+    if (ingesterRepository.repoId !== repository.repoId) {
+      throw new SyncRepoError(
+        "SYNC_REPOSITORY_MISMATCH",
+        `ingester is bound to ${this.ingester.repo} (${ingesterRepository.repoId}), not ${this.repo} (${repository.repoId})`,
+      );
+    }
   }
 
   private async syncSerialized(
@@ -210,8 +228,9 @@ export class SyncRepoService {
         });
         break;
       }
-      // Defense in depth behind the constructor binding check: a diverging
-      // resolver still stops the run before the checkpoint advances.
+      // Defense in depth behind the pre-sync binding check: an ingester with
+      // a diverging resolver still stops the run before the checkpoint
+      // advances.
       if (result.repo_id !== repository.repoId) {
         throw new SyncRepoError(
           "SYNC_REPOSITORY_MISMATCH",
