@@ -57,6 +57,40 @@ export {
   type GhRunnerOptions,
 } from "./gh-runner.js";
 export {
+  BASELINE_SEARCH_DERIVATION_VERSION,
+  GoldenBaselineCaptureError,
+  PROVIDER_GOLDEN_BASELINE_ARTIFACT_KIND,
+  ProviderGoldenBaselineArtifactSchema,
+  RecordedPredictionsSchema,
+  captureProviderGoldenBaseline,
+  computeRankingPolicyDigest,
+  createAdapterPredictionProvider,
+  createRecordedPredictionProvider,
+  evaluateProviderBaselineArtifact,
+  isProviderGoldenBaselineArtifact,
+  type BaselinePredictionProvider,
+  type BaselinePredictionRequest,
+  type BaselinePredictionResponse,
+  type CaptureProviderGoldenBaselineRequest,
+  type GoldenBaselineCaptureErrorCode,
+  type ProviderBaselineEvaluation,
+  type ProviderGoldenBaselineArtifact,
+  type RecordedPredictions,
+} from "./golden-baseline.js";
+export {
+  ANONYMIZED_THREAD_CORPUS_KIND,
+  AnonymizedThreadCorpusSchema,
+  MINIMUM_QUALITY_GATE_THREADS,
+  SensitiveContentError,
+  findSensitiveContent,
+  parseAnonymizedThreadCorpus,
+  type AnonymizedCorpusSearch,
+  type AnonymizedCorpusThread,
+  type AnonymizedThreadCorpus,
+  type SensitiveContentFinding,
+  type SensitiveContentKind,
+} from "./golden-corpus.js";
+export {
   GoldenFixtureSchema,
   evaluateGoldenFixture,
   goldenMetric,
@@ -66,6 +100,15 @@ export {
   type GoldenFixture,
   type GoldenMetric,
 } from "./golden-evaluator.js";
+export {
+  QUALITY_GATE_METRICS,
+  QualityGateThresholdsSchema,
+  evaluateQualityGate,
+  type QualityGateMetricName,
+  type QualityGateMetricResult,
+  type QualityGateReport,
+  type QualityGateThresholds,
+} from "./quality-gate.js";
 export {
   OUTCOME_RANKING_BASELINE_POLICY_VERSION,
   OutcomeRankingFixtureSchema,

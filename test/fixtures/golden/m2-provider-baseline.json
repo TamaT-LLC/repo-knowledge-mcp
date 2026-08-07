@@ -1,0 +1,1446 @@
+{
+  "artifact_kind": "provider_golden_baseline",
+  "corpus_digest": "sha256:8ed07ed9274397a6d9b5b7cbbc19bc1d01476218c8157c1649a00be0e050b3b0",
+  "corpus_id": "m2-anonymized-corpus-2026-08-07",
+  "fixture": {
+    "cases": [
+      {
+        "expected": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": "merge-style-const",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t01",
+        "prediction": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-01",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/pricing.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": "merge-style-const",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t02",
+        "prediction": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-01",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/checkout.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t03",
+        "prediction": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/session.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t04",
+        "prediction": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-02",
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/parser.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t05",
+        "prediction": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/retry.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["multiple-rules"]
+      },
+      {
+        "expected": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "consider"
+        },
+        "id": "m2-t06",
+        "prediction": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "consider"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/router.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": "merge-naming-bool",
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t07",
+        "prediction": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-03",
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/user.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": "merge-naming-bool",
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t08",
+        "prediction": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-03",
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/form.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t09",
+        "prediction": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/config-loader.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["test/**"],
+          "severity": "must"
+        },
+        "id": "m2-t10",
+        "prediction": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["test/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "test/support/helper.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t11",
+        "prediction": {
+          "category": "naming",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "consider"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/order-form.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "architecture",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/storage/**"],
+          "severity": "must"
+        },
+        "id": "m2-t12",
+        "prediction": {
+          "category": "architecture",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-02",
+          "scope": ["src/storage/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/storage/index.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "architecture",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t13",
+        "prediction": {
+          "category": "architecture",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/cli.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "architecture",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t14",
+        "prediction": {
+          "category": "architecture",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/canonical-writer.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "architecture",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t15",
+        "prediction": {
+          "category": "architecture",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/sqlite-projection.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "architecture",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t16",
+        "prediction": {
+          "category": "other",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/job-runner.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": "merge-error-result",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t17",
+        "prediction": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-04",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/ipc.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": "merge-error-result",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t18",
+        "prediction": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-04",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/sync.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t19",
+        "prediction": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/provider.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t20",
+        "prediction": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/errors.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t21",
+        "prediction": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/import.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t22",
+        "prediction": {
+          "category": "error-handling",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/cli-exit.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": "merge-security-secret",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t23",
+        "prediction": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-05",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/logger.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": "merge-security-secret",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t24",
+        "prediction": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-05",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/diagnostics.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t25",
+        "prediction": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/input.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": [".github/**"],
+          "severity": "must"
+        },
+        "id": "m2-t26",
+        "prediction": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": ".github/workflows/release.yml"
+          },
+          {
+            "matches": false,
+            "path": "src/ci-helper.ts"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t27",
+        "prediction": {
+          "category": "security",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/prompt-builder.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "perf",
+          "is_knowledge": true,
+          "merge_group": "merge-perf-batch",
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t28",
+        "prediction": {
+          "category": "perf",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/sync-index.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "perf",
+          "is_knowledge": true,
+          "merge_group": "merge-perf-batch",
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "id": "m2-t29",
+        "prediction": {
+          "category": "perf",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/reindex.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "perf",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "consider"
+        },
+        "id": "m2-t30",
+        "prediction": {
+          "category": "perf",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "consider"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/matcher.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "perf",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t31",
+        "prediction": {
+          "category": "style",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/loader.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": "merge-test-aaa",
+          "scope": ["test/**"],
+          "severity": "should"
+        },
+        "id": "m2-t32",
+        "prediction": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-06",
+          "scope": ["test/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "test/cart.test.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": "merge-test-aaa",
+          "scope": ["test/**"],
+          "severity": "should"
+        },
+        "id": "m2-t33",
+        "prediction": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": "predicted-merge-06",
+          "scope": ["test/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "test/orders.test.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["test/**"],
+          "severity": "should"
+        },
+        "id": "m2-t34",
+        "prediction": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["test/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "test/sum.test.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["test/**"],
+          "severity": "must"
+        },
+        "id": "m2-t35",
+        "prediction": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["test/**"],
+          "severity": "must"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "test/db.test.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["test/**"],
+          "severity": "consider"
+        },
+        "id": "m2-t36",
+        "prediction": {
+          "category": "test",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["test/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "test/ui.test.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "docs",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "id": "m2-t37",
+        "prediction": {
+          "category": "docs",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/api.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "docs",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["docs/**"],
+          "severity": "should"
+        },
+        "id": "m2-t38",
+        "prediction": {
+          "category": "docs",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["docs/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "docs/operations/new-runbook.md"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": "docs",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["README.md"],
+          "severity": "consider"
+        },
+        "id": "m2-t39",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "README.md"
+          },
+          {
+            "matches": false,
+            "path": "docs/other.md"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": "other",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/generated/**"],
+          "severity": "should"
+        },
+        "id": "m2-t40",
+        "prediction": {
+          "category": "other",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["src/generated/**"],
+          "severity": "should"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "src/generated/types.ts"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["external-contributor"]
+      },
+      {
+        "expected": {
+          "category": "other",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["package.json"],
+          "severity": "consider"
+        },
+        "id": "m2-t41",
+        "prediction": {
+          "category": "other",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["package.json"],
+          "severity": "consider"
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "package.json"
+          },
+          {
+            "matches": false,
+            "path": "src/deps.ts"
+          }
+        ],
+        "tags": ["unknown-bot"]
+      },
+      {
+        "expected": {
+          "category": "other",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": ["scripts/**"],
+          "severity": "should"
+        },
+        "id": "m2-t42",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [
+          {
+            "matches": true,
+            "path": "scripts/build.mjs"
+          },
+          {
+            "matches": false,
+            "path": "examples/unrelated.txt"
+          }
+        ],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t43",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [],
+        "tags": ["prompt-injection", "external-contributor"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t44",
+        "prediction": {
+          "category": "other",
+          "is_knowledge": true,
+          "merge_group": null,
+          "scope": [],
+          "severity": "consider"
+        },
+        "scope_checks": [],
+        "tags": ["nested-pagination"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t45",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [],
+        "tags": ["resolved-rejected"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t46",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t47",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t48",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [],
+        "tags": ["retracted"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t49",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [],
+        "tags": ["reply"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t50",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [],
+        "tags": ["edited"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t51",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [],
+        "tags": ["short-query"]
+      },
+      {
+        "expected": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "id": "m2-t52",
+        "prediction": {
+          "category": null,
+          "is_knowledge": false,
+          "merge_group": null,
+          "scope": [],
+          "severity": null
+        },
+        "scope_checks": [],
+        "tags": ["edited"]
+      }
+    ],
+    "fixture_id": "m2-anonymized-corpus-2026-08-07-provider-baseline",
+    "schema_version": 1,
+    "searches": [
+      {
+        "id": "m2-s01",
+        "ranking": ["m2-t01", "m2-t02"],
+        "relevance": {
+          "m2-t01": 3,
+          "m2-t02": 2
+        }
+      },
+      {
+        "id": "m2-s02",
+        "ranking": ["m2-t07", "m2-t08", "m2-t09", "m2-t16"],
+        "relevance": {
+          "m2-t07": 3,
+          "m2-t08": 2
+        }
+      },
+      {
+        "id": "m2-s03",
+        "ranking": ["m2-t17", "m2-t18", "m2-t19", "m2-t21"],
+        "relevance": {
+          "m2-t17": 3,
+          "m2-t18": 2,
+          "m2-t19": 1
+        }
+      },
+      {
+        "id": "m2-s04",
+        "ranking": ["m2-t23", "m2-t24"],
+        "relevance": {
+          "m2-t23": 3,
+          "m2-t24": 3
+        }
+      },
+      {
+        "id": "m2-s05",
+        "ranking": ["m2-t28", "m2-t29", "m2-t15"],
+        "relevance": {
+          "m2-t29": 3,
+          "m2-t28": 2
+        }
+      },
+      {
+        "id": "m2-s06",
+        "ranking": ["m2-t32", "m2-t33"],
+        "relevance": {
+          "m2-t32": 3,
+          "m2-t33": 2
+        }
+      }
+    ]
+  },
+  "measured_at": "2026-08-07T00:00:00.000Z",
+  "provenance": {
+    "model": "fixture-baseline-m2-v1",
+    "output_schema_digest": "sha256:4774ac77661812c3f85ed97cd3b7f2f790d42a53ff2da7c209f73fcb825faae6",
+    "output_schema_version": "distill-output-v2",
+    "prompt_digest": "sha256:cddf99a57a99287b541cf42940c751c32945154b9f099fc0b12a653725995a92",
+    "prompt_version": "distill-v2",
+    "provider": "fixture-replay",
+    "ranking_policy_digest": "sha256:026d3bb660d3e674bf5ccf53a3b0e069eb0216f3e72e0842a6bcb2efd6391bfb",
+    "ranking_policy_version": "m2-outcome-v1",
+    "search_derivation_version": "baseline-search-v1",
+    "trust_policy_digest": "sha256:2b77eba04870339481fcc03aa4315c5c687c23521e026912cda12ecc0770a839"
+  },
+  "schema_version": 1,
+  "transmission": {
+    "cloud_consent": false,
+    "mode": "replay"
+  }
+}

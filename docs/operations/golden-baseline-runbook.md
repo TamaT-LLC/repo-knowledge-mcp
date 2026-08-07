@@ -1,0 +1,143 @@
+# provider golden baseline 測定 runbook
+
+匿名化 corpus を実 provider に送って golden baseline を実測し、M2 quality gate の
+閾値（[m2-quality-thresholds.json](../../test/fixtures/golden/m2-quality-thresholds.json)）を
+確定・更新するための手順書。設計上の背景は
+[repo-knowledge-mcp v0.3 設計書](../design/repo-knowledge-mcp-v0.3.md) の §18（テスト方針）と §19 M2 を参照。
+
+## 全体像
+
+| 入力 / 出力 | ファイル | 内容 |
+|---|---|---|
+| 入力 | `test/fixtures/golden/m2-anonymized-corpus.json` | 匿名化 50+ スレッド corpus と検索クエリ。期待ラベルはローカル評価専用で、provider へは送らない項目に依存しない |
+| 入力（replay） | `test/fixtures/golden/m2-recorded-predictions.json` | 記録済み provider prediction。replay はネットワークに一切触れない |
+| 出力 | `test/fixtures/golden/m2-provider-baseline.json` | prediction から組み立てた golden fixture + model/prompt/schema/policy provenance |
+| 出力 | `test/fixtures/golden/m2-quality-thresholds.json` | metric ごとの下限閾値（review 済み・version 付き） |
+
+baseline artifact は「期待値のコピー」ではなく **provider prediction の記録**である。
+metric report は artifact 内の記録済み prediction だけから決定的に再計算できるため、
+同じ artifact からは常に同じ report が得られる。
+
+## 前提条件と同意モデル
+
+- 実測（`--live`）は operator がローカル端末で行う。**CI からは絶対に実行しない**。
+  CLI は `CI` / `GITHUB_ACTIONS` 環境変数を検出すると
+  `BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI` で拒否する（fail-closed）
+- 実測は匿名化 corpus 全文を Anthropic API へ送信する。送信には
+  `--consent-cloud-transmission` フラグによる**明示 opt-in が必須**で、
+  フラグなしの `--live` は `BASELINE_CLOUD_CONSENT_REQUIRED` で拒否される
+- corpus は読み込み時に秘匿情報 scan（API key / token / private key /
+  Authorization header / メールアドレス）を通過しなければならない。
+  検出時はエラーに **JSON パスとパターン種別のみ**が載り、値そのものは出力されない
+- 生成された artifact も保存前に同じ scan を通る。raw secret・token・
+  非匿名化レビュー内容が baseline artifact に混入した場合、保存自体が失敗する
+- `ANTHROPIC_API_KEY` は環境変数でのみ渡す。ファイルや artifact には書かない
+
+## 1. replay での再現（ネットワーク不要・通常運用）
+
+記録済み prediction から baseline artifact を byte 単位で再生成する。
+
+```console
+$ npm run golden:baseline:replay
+```
+
+内部的には次と同じ。
+
+```console
+$ node dist/golden-baseline-cli.js \
+    --corpus test/fixtures/golden/m2-anonymized-corpus.json \
+    --replay test/fixtures/golden/m2-recorded-predictions.json \
+    --out test/fixtures/golden/m2-provider-baseline.json
+```
+
+- `measured_at` は recorded prediction の `recorded_at` を用いるため、
+  出力は何度実行しても同一 byte になる（リポジトリへコミットする際は
+  `npm run format` で prettier 整形を適用する。整形は表記のみで内容は不変）
+- corpus と recorded prediction の `corpus_id` が一致しない場合は
+  `BASELINE_CORPUS_MISMATCH` で失敗する
+
+## 2. metric report の再計算と quality gate
+
+抽出（precision / recall）・category（macro F1）・severity（weighted accuracy）・
+merge（pairwise precision / recall）・scope（valid glob 率・期待ファイル一致率）・
+検索（MRR / NDCG）の全指標を artifact から再計算し、閾値と比較する。
+
+```console
+$ node dist/golden-cli.js test/fixtures/golden/m2-provider-baseline.json \
+    --thresholds test/fixtures/golden/m2-quality-thresholds.json
+```
+
+- exit 0: 全指標が下限以上（`quality_gate.ok: true`）
+- exit 1: いずれかの指標が下限未満。report の `results[]` で該当 metric を特定する
+- exit 2: artifact / thresholds の形式不正、または thresholds が別 corpus に紐づく
+- `--thresholds` なしで実行すると report のみを出力する
+- 同じコマンドは `npm run golden` の 3 本目としても実行され、CI でも
+  （記録済み prediction のみで）毎回検証される
+
+## 3. 実 provider での実測（operator のみ・明示 opt-in）
+
+```console
+$ export ANTHROPIC_API_KEY=<operator の鍵>
+$ node dist/golden-baseline-cli.js \
+    --corpus test/fixtures/golden/m2-anonymized-corpus.json \
+    --live --model <実測に使う model id> \
+    --consent-cloud-transmission \
+    --out /tmp/m2-live-baseline.json
+```
+
+- `measured_at` は実行時刻になる
+- artifact の `provenance` に provider / model / prompt（version + digest）/
+  output schema（version + digest）/ trust policy digest / ranking policy
+  （version + digest）/ 検索導出 version が記録され、世代を一意に追跡できる
+- `transmission` に `mode: "live"` と `cloud_consent: true` が記録される
+- 複数回実測して metric の分散（誤差）を確認する場合は `--out` を変えて
+  実行し、それぞれに手順 2 の report 再計算を行う
+
+実測結果を後から再現可能な記録として残す場合は、provider の応答を
+`m2-recorded-predictions.json` と同じ schema（`responses[thread_id].output`）へ
+転記した recorded prediction ファイルを作り、手順 1 の replay で artifact が
+再生成できることを確認してからコミットする。
+
+## 4. 閾値の確定・更新手順（version 付き）
+
+1. 手順 3 の実測を **複数回**（最低 2 回）行い、metric ごとの値と誤差幅を記録する
+2. metric ごとに `minimum = 実測値の最小値 − margin` を決める。margin は
+   誤差幅と corpus サイズ（1 誤り当たりの metric 変動量）を根拠に選ぶ
+3. `m2-quality-thresholds.json` を更新する:
+   - `metrics.<name>.measured` / `margin` / `minimum` / `rationale`（変更理由）
+   - `baseline`（artifact_kind / corpus_id / corpus_digest / measured_at）を
+     新しい artifact に一致させる（不一致は gate 実行時に拒否される）
+   - `source` を `live_measurement` に変更する
+   - `thresholds_version` を bump する（例: `m2-thresholds-v2`）
+   - `reviewed.at` / `reviewed.by` を review 実施者で更新する
+4. `npm run golden` と `npm run check` が成功することを確認してコミットする
+
+現行の `m2-thresholds-v1` は **fixture ベース**（`source: "fixture_replay"`、
+記録済み fixture prediction の replay 実測値 − margin）であり、実 provider の
+live 実測で置き換える際は必ずこの手順で version を進めること。
+
+## 失敗時の診断
+
+| エラー | 原因 | 対処 |
+|---|---|---|
+| `BASELINE_CLOUD_CONSENT_REQUIRED` | `--live` に opt-in フラグなし | 送信内容を確認のうえ `--consent-cloud-transmission` を付ける |
+| `BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI` | CI 環境で `--live` | 実測はローカルでのみ行う。CI では replay を使う |
+| `BASELINE_SENSITIVE_CONTENT` | corpus か prediction に秘匿情報 | 報告された JSON パスの内容を匿名化してから再実行する |
+| `BASELINE_CORPUS_MISMATCH` | corpus と recorded の世代不一致 | 対になる corpus / recorded ファイルを揃える |
+| `BASELINE_RECORDED_PREDICTION_MISSING` | recorded に未収載スレッド | corpus 変更後に recorded prediction を取り直す |
+| `AUTHENTICATION_MISSING` | `ANTHROPIC_API_KEY` 未設定 | operator の鍵を環境変数で設定する |
+
+## corpus を変更する場合
+
+corpus とその期待ラベル・recorded prediction は
+`scripts/generate-m2-baseline-corpus.mjs` から決定的に生成される。
+
+```console
+$ node scripts/generate-m2-baseline-corpus.mjs
+$ npm run golden:baseline:replay
+$ npm run format
+$ npm run golden
+```
+
+corpus を変更したら `corpus_id` を日付付きで進め、thresholds の `baseline` 節と
+`thresholds_version` も併せて更新する（手順 4）。
