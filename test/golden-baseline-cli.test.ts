@@ -156,6 +156,29 @@ describe("golden baseline CLI", () => {
     expect(result.stderr).toContain("measured_at");
   });
 
+  it("rejects an artifact whose predictions were swapped after review", async () => {
+    const artifact = JSON.parse(await readFile(ARTIFACT, "utf8")) as {
+      fixture: { cases: { prediction: { is_knowledge: boolean } }[] };
+    };
+    artifact.fixture.cases[0]!.prediction.is_knowledge =
+      !artifact.fixture.cases[0]!.prediction.is_knowledge;
+    const tamperedArtifactPath = join(
+      workingDirectory,
+      "tampered-artifact.json",
+    );
+    await writeFile(tamperedArtifactPath, JSON.stringify(artifact), "utf8");
+
+    const result = await execa(
+      process.execPath,
+      [GOLDEN_CLI, tamperedArtifactPath, "--thresholds", THRESHOLDS],
+      { cwd: repositoryRoot, reject: false },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain("QUALITY_GATE_BASELINE_MISMATCH");
+    expect(result.stderr).toContain("artifact_digest");
+  });
+
   it("evaluates the committed artifact against the reviewed thresholds", async () => {
     const result = await execa(
       process.execPath,

@@ -86,6 +86,34 @@ describe("M2 quality gate thresholds", () => {
     ).toThrow(/measured_at/u);
   });
 
+  it("rejects an artifact whose recorded predictions were edited after review", async () => {
+    const thresholds = await loadThresholds();
+    const { artifact } = evaluateProviderBaselineArtifact(
+      JSON.parse(await readFile(ARTIFACT_URL, "utf8")),
+    );
+    const flippedCase = {
+      ...artifact.fixture.cases[0]!,
+      prediction: {
+        ...artifact.fixture.cases[0]!.prediction,
+        severity: "consider",
+      },
+    };
+    const tampered = {
+      ...artifact,
+      fixture: {
+        ...artifact.fixture,
+        cases: [flippedCase, ...artifact.fixture.cases.slice(1)],
+      },
+    };
+
+    expect(() =>
+      assertQualityGateBaselineBinding(tampered, thresholds),
+    ).toThrow(QualityGateBindingError);
+    expect(() =>
+      assertQualityGateBaselineBinding(tampered, thresholds),
+    ).toThrow(/artifact_digest/u);
+  });
+
   it("rejects a same-corpus artifact from a different provenance generation", async () => {
     const thresholds = await loadThresholds();
     const { artifact } = evaluateProviderBaselineArtifact(

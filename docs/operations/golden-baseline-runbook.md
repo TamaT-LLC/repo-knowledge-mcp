@@ -74,9 +74,11 @@ $ node dist/golden-cli.js test/fixtures/golden/m2-provider-baseline.json \
 - exit 1: いずれかの指標が下限未満。report の `results[]` で該当 metric を特定する
 - exit 2: artifact / thresholds の形式不正、または thresholds が別の測定に紐づく
   （`QUALITY_GATE_BASELINE_MISMATCH`）。thresholds の `baseline` は corpus だけでなく
-  `measured_at` と、provenance（model / prompt / schema / trust・ranking policy）+
-  transmission mode を含む `artifact_digest` で測定世代に束縛される。同じ corpus を
-  別時刻・別 model で測り直した artifact は旧 thresholds では gate を通過できない
+  `measured_at` と、**artifact 全体**（provenance の全世代 + transmission mode +
+  記録済み prediction fixture 本体）の JCS SHA-256 である `artifact_digest` で
+  測定内容に束縛される。同じ corpus を別時刻・別 model で測り直した artifact も、
+  review 後に prediction を 1 件でも差し替えた artifact も、旧 thresholds では
+  gate を通過できない
 - `--thresholds` なしで実行すると `{ baseline, report }` を出力する。`baseline`
   ブロックは thresholds へそのまま転記できる測定 identity（`artifact_digest` 含む）
 - 同じコマンドは `npm run golden` の 3 本目としても実行され、CI でも
@@ -135,7 +137,7 @@ live 実測で置き換える際は必ずこの手順で version を進めるこ
 | `BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI` | CI 環境で `--live` | 実測はローカルでのみ行う。CI では replay を使う |
 | `BASELINE_SENSITIVE_CONTENT` | corpus か prediction に秘匿情報 | 報告された JSON パスの内容を匿名化してから再実行する |
 | `BASELINE_CORPUS_MISMATCH` | corpus と recorded の世代不一致 | 対になる corpus / recorded ファイルを揃える |
-| `QUALITY_GATE_BASELINE_MISMATCH` | thresholds が別の測定（別時刻・別 model・別 prompt/schema/policy 世代）に紐づく | 手順 4 で thresholds を対象 artifact に対して再 review し、`baseline` ブロックを更新する |
+| `QUALITY_GATE_BASELINE_MISMATCH` | thresholds が別の測定に紐づく（別時刻・別 model・別 prompt/schema/policy 世代、または review 後の prediction 差し替え） | 手順 4 で thresholds を対象 artifact に対して再 review し、`baseline` ブロックを更新する |
 | `BASELINE_RECORDED_PREDICTION_MISSING` | recorded に未収載スレッド | corpus 変更後に recorded prediction を取り直す |
 | `AUTHENTICATION_MISSING` | `ANTHROPIC_API_KEY` 未設定 | operator の鍵を環境変数で設定する |
 

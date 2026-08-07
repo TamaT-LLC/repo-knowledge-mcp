@@ -101,9 +101,11 @@ export class QualityGateBindingError extends Error {
 
 /**
  * Verifies that thresholds were reviewed against exactly this measurement.
- * The artifact digest covers measured_at, transmission mode, and every
- * provenance generation, so a same-corpus artifact measured at another time
- * or with another model / prompt / schema / policy is rejected fail-closed.
+ * The artifact digest covers the whole artifact — measured_at, transmission
+ * mode, every provenance generation, and the recorded prediction fixture —
+ * so a same-corpus artifact measured at another time, with another model /
+ * prompt / schema / policy, or with edited predictions is rejected
+ * fail-closed.
  */
 export function assertQualityGateBaselineBinding(
   artifact: ProviderGoldenBaselineArtifact,
