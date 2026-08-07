@@ -384,9 +384,31 @@ describe("summarizePilotLog", () => {
     expect(summary.backlog.pending_jobs_monotonically_increasing).toBeNull();
   });
 
-  it("ignores unobserved days outside the observed span when detecting gaps", () => {
-    // The unrecorded day 3 is after the last observed day: the series
-    // itself is contiguous, so the verdict stays boolean.
+  it("voids the backlog verdict when the window's leading edge is not observed", () => {
+    // Day 1 is excused with a reason: the series starts unobserved, so the
+    // backlog may already have moved before the first sample.
+    const summary = summarizePilotLog({
+      durationDays: 3,
+      records: [
+        buildMissingDailyRecord({
+          date: "2026-08-01",
+          pilotId: PILOT_ID,
+          reason: "cron not yet installed",
+          recordedAt: RECORDED_AT,
+        }),
+        observedRecord("2026-08-02", { pendingJobs: 1 }),
+        observedRecord("2026-08-03", { pendingJobs: 2 }),
+      ],
+      startDate: "2026-08-01",
+    });
+
+    expect(summary.backlog.backlog_series_gaps).toEqual(["2026-08-01"]);
+    expect(summary.backlog.pending_jobs_monotonically_increasing).toBeNull();
+  });
+
+  it("voids the backlog verdict when the window's trailing edge is not observed", () => {
+    // The unrecorded day 3 ends the window unobserved: the final backlog
+    // state is unknown, so no boolean verdict is possible.
     const summary = summarizePilotLog({
       durationDays: 3,
       records: [
@@ -396,8 +418,8 @@ describe("summarizePilotLog", () => {
       startDate: "2026-08-01",
     });
 
-    expect(summary.backlog.backlog_series_gaps).toEqual([]);
-    expect(summary.backlog.pending_jobs_monotonically_increasing).toBe(true);
+    expect(summary.backlog.backlog_series_gaps).toEqual(["2026-08-03"]);
+    expect(summary.backlog.pending_jobs_monotonically_increasing).toBeNull();
   });
 
   it("does not flag a backlog that dips, stays flat, or has a single sample", () => {

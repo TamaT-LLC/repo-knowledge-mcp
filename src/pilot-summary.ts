@@ -44,9 +44,10 @@ export interface PilotBacklogDayPoint {
 
 export interface PilotSummaryBacklog {
   /**
-   * Window dates between the first and last observed day that have no
-   * observed record (missing or unrecorded). Any entry here interrupts the
-   * backlog series and makes the monotonicity verdict indeterminate.
+   * Every window date without an observed record (missing or unrecorded),
+   * including the leading and trailing edges of the window. Any entry here
+   * leaves part of the backlog series unobserved and makes the
+   * monotonicity verdict indeterminate.
    */
   readonly backlog_series_gaps: readonly string[];
   readonly final_failed_jobs: number | null;
@@ -60,10 +61,13 @@ export interface PilotSummaryBacklog {
    * least two observed days, no day-over-day decrease, and a final value
    * strictly above the first. This is the machine check for the pilot
    * plan's go condition "the backlog did not end monotonically increasing".
-   * `null` (fail-closed) when `backlog_series_gaps` is non-empty: the
-   * backlog may have moved during the gap, so the verdict is indeterminate
-   * and a human must review the daily records and incidents instead of
-   * treating the run as an automatic go.
+   * The boolean verdict exists only when every window day was observed;
+   * `null` (fail-closed) whenever `backlog_series_gaps` is non-empty — the
+   * backlog may have moved on any unobserved day, edges included, so the
+   * verdict is indeterminate and a human must review the daily records and
+   * incidents instead of treating the run as an automatic go. Mid-pilot
+   * summaries are therefore `null` by design; the machine verdict only
+   * settles once the full window is observed.
    */
   readonly pending_jobs_monotonically_increasing: boolean | null;
 }
@@ -224,21 +228,17 @@ function countByGateStatus(
 }
 
 /**
- * Window dates strictly between the first and last observed day without an
- * observed record. Each one breaks the day-over-day backlog series, whether
- * the day was excused (missing record) or simply unrecorded.
+ * Every window date without an observed record — whether the day was
+ * excused (missing record) or simply unrecorded, and whether it falls
+ * between observed days or on the window's edges. Each one leaves a day of
+ * backlog movement unobserved, so any gap voids the machine verdict.
  */
 function listBacklogSeriesGaps(
   expectedDates: readonly string[],
   observed: readonly ObservedPilotDailyRecord[],
 ): readonly string[] {
-  const first = observed[0]?.date;
-  const last = observed.at(-1)?.date;
-  if (first === undefined || last === undefined) return [];
   const observedDates = new Set(observed.map((record) => record.date));
-  return expectedDates.filter(
-    (date) => date > first && date < last && !observedDates.has(date),
-  );
+  return expectedDates.filter((date) => !observedDates.has(date));
 }
 
 /**

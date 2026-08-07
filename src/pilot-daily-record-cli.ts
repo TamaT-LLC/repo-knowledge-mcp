@@ -1,5 +1,5 @@
-import { appendFile, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { appendFile, readFile, realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 
 import {
   DEFAULT_PILOT_DURATION_DAYS,
@@ -108,7 +108,7 @@ async function runRecord(parsed: RecordArguments): Promise<void> {
         stats: await readJson(parsed.statsPath!),
         syncSummaries: await readSyncLog(parsed.syncLogPath!),
       });
-  const logPath = resolve(parsed.logPath);
+  const logPath = await canonicalLogPath(parsed.logPath);
   // Read-check-append is one critical section: without the lock, two
   // concurrent record runs could both pass the duplicate/pilot check and
   // append conflicting records that later break every summarize.
@@ -116,12 +116,30 @@ async function runRecord(parsed: RecordArguments): Promise<void> {
     `${logPath}.lock`,
     RECORD_LOCK_TIMEOUT_MS,
     async () => {
-      const existing = await readPilotLog(parsed.logPath);
+      const existing = await readPilotLog(logPath);
       assertAppendable(existing, record);
       await appendFile(logPath, `${JSON.stringify(record)}\n`, "utf8");
     },
   );
   process.stdout.write(`${JSON.stringify(record, null, 2)}\n`);
+}
+
+/**
+ * Canonicalizes the log path (resolving symlinks) before deriving the lock
+ * path, so two runs addressing the same log through different spellings —
+ * a symlink versus its target, a symlinked parent directory — contend on
+ * one lock instead of silently bypassing each other.
+ */
+async function canonicalLogPath(path: string): Promise<string> {
+  const resolved = resolve(path);
+  try {
+    return await realpath(resolved);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // The log itself may not exist yet: canonicalize its parent directory
+    // and keep the (non-symlink) final component.
+    return join(await realpath(dirname(resolved)), basename(resolved));
+  }
 }
 
 async function runSummarize(parsed: SummarizeArguments): Promise<void> {

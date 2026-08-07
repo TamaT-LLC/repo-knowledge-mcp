@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -236,6 +236,41 @@ describe("pilot daily record CLI", () => {
     const persisted = (await readFile(contendedLogPath, "utf8"))
       .trim()
       .split("\n");
+    expect(persisted).toHaveLength(1);
+  });
+
+  it("locks one log addressed through a symlink alias and its real path alike", async () => {
+    const realLogPath = join(workingDirectory, "aliased-real.jsonl");
+    await writeFile(realLogPath, "", "utf8");
+    const aliasLogPath = join(workingDirectory, "aliased-link.jsonl");
+    await symlink(realLogPath, aliasLogPath);
+    const recordArgv = (logArgument: string): readonly string[] => [
+      "record",
+      "--log",
+      logArgument,
+      "--pilot",
+      PILOT_ID,
+      "--date",
+      "2026-08-06",
+      "--missing",
+      "--reason",
+      "alias contention",
+      "--recorded-at",
+      "2026-08-07T00:05:00.000Z",
+    ];
+
+    const [viaReal, viaAlias] = await Promise.all([
+      runCli(recordArgv(realLogPath)),
+      runCli(recordArgv(aliasLogPath)),
+    ]);
+
+    // Both spellings canonicalize to the same lock, so the race stays
+    // deterministic: one append wins, the other sees the duplicate date.
+    const exitCodes = [viaReal.exitCode, viaAlias.exitCode].sort();
+    expect(exitCodes).toEqual([0, 1]);
+    const loser = viaReal.exitCode === 0 ? viaAlias : viaReal;
+    expect(loser.stderr).toContain("PILOT_DUPLICATE_DATE");
+    const persisted = (await readFile(realLogPath, "utf8")).trim().split("\n");
     expect(persisted).toHaveLength(1);
   });
 

@@ -31,7 +31,8 @@
 | backlog.final_pending_jobs / pending_jobs_by_day |        | 系列の目視確認（傍証）                   |      |
 | quality.days_by_gate_status.integrity_failure    |        | 0 日                                     |      |
 
-`pending_jobs_monotonically_increasing` が `null`（欠測による系列断絶で判定不能）の
+`pending_jobs_monotonically_increasing` が `null`（window 内に欠測・未記録日があり
+判定不能。先頭・末尾の欠測を含む）の
 場合は自動 go としない。`backlog_series_gaps` に列挙された日付の日次記録・incident を
 人間が review して backlog が発散していないことを確認し、判断根拠をここに記録する:
 
