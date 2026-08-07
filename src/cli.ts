@@ -1,4 +1,5 @@
 import {
+  IsoDateTimeSchema,
   KnowledgeCategorySchema,
   KnowledgeIdSchema,
   KnowledgeStatusSchema,
@@ -15,11 +16,13 @@ import type {
 } from "./mcp-mutation-tools.js";
 import { REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION } from "./mcp-server.js";
 import { parseRepositoryName } from "./repository-resolver.js";
+import type { SyncRepoSummary } from "./sync-repo-service.js";
 
 export const REPO_KNOWLEDGE_CLI_HELP = `Usage: repo-knowledge <command> [options]
 
 Commands:
   serve                         Start the MCP stdio server
+  sync [repo] [--since <iso>]   Incrementally sync updated pull requests
   ingest [repo] <pr>            Ingest one complete pull-request snapshot
   distill [repo]                Consume provider-enabled pending jobs
   list [repo] [--status value]  List canonical knowledge
@@ -42,7 +45,15 @@ Repository selection:
 Redistill selectors (choose exactly one):
   --all | --author <login> | --prompt-version <version> | --failed
 
-M1 intentionally excludes sync, sync_repo, record_outcome, and stats.
+Sync options:
+  --since <iso-datetime>        Initial boundary for a first sync; with a stored
+                                checkpoint it must be strictly older than the
+                                checkpoint boundary
+
+Sync exits 0 when every discovered pull request synced, 1 on any failure,
+and 2 on usage errors, so cron can alert on non-zero exits.
+
+record_outcome and stats remain deferred to a later milestone.
 `;
 
 export const REPO_KNOWLEDGE_CLI_EXIT = Object.freeze({
@@ -168,6 +179,11 @@ export type ParsedCliCommand =
       readonly selection: CliRepositorySelection;
     }
   | {
+      readonly kind: "sync";
+      readonly selection: CliRepositorySelection;
+      readonly since?: string;
+    }
+  | {
       readonly kind: "ingest";
       readonly prNumber: number;
       readonly selection: CliRepositorySelection;
@@ -226,7 +242,7 @@ export interface CliRepositorySelection {
 }
 
 export type RepoKnowledgeCliErrorCode =
-  "CLI_ARGUMENT_INVALID" | "CLI_COMMAND_UNAVAILABLE_IN_M1" | "CLI_TTY_REQUIRED";
+  "CLI_ARGUMENT_INVALID" | "CLI_COMMAND_UNAVAILABLE" | "CLI_TTY_REQUIRED";
 
 export class RepoKnowledgeCliError extends Error {
   constructor(
@@ -266,20 +282,13 @@ export function parseRepoKnowledgeCliArguments(
   if (argv.length === 0) {
     return stdinIsTTY ? { kind: "help" } : { kind: "serve", selection: {} };
   }
-  if (
-    argv.some((token) => token === "--since" || token.startsWith("--since="))
-  ) {
-    throw unavailable(
-      "--since belongs to the deferred sync command and is not available in M1",
-    );
-  }
   const name = argv[0]!;
   if (name === "help" || name === "--help" || name === "-h") {
     if (argv.length !== 1) throw usage("help does not accept arguments");
     return { kind: "help" };
   }
-  if (["sync", "sync_repo", "record_outcome", "stats"].includes(name)) {
-    throw unavailable(`${name} is deferred until after M1`);
+  if (["record_outcome", "stats"].includes(name)) {
+    throw unavailable(`${name} is deferred to a later milestone`);
   }
   if (argv.slice(1).includes("--help") || argv.slice(1).includes("-h")) {
     return { kind: "help" };
@@ -288,6 +297,8 @@ export function parseRepoKnowledgeCliArguments(
   switch (name) {
     case "serve":
       return parseServe(argv.slice(1));
+    case "sync":
+      return parseSync(argv.slice(1));
     case "doctor":
       return parseDoctor(argv.slice(1));
     case "ingest":
@@ -336,6 +347,20 @@ async function executeCliCommand(
           : { startupWorkspace: command.selection.workspacePath }),
       });
       return;
+    case "sync": {
+      const service = await options.mutationServiceResolver.resolve(
+        command.selection,
+      );
+      const summary = await service.syncRepo(
+        command.since === undefined ? {} : { since: command.since },
+      );
+      writeJson(options.io, summary);
+      if (summary.failed === 0) return;
+      // Machine-readable summary stays on stdout; the operator diagnostic and
+      // the non-zero exit code make partial failures visible to cron.
+      options.io.writeStderr(syncFailureDiagnostic(summary));
+      return REPO_KNOWLEDGE_CLI_EXIT.failure;
+    }
     case "doctor": {
       const result = await options.doctor.run(command.selection);
       writeJson(options.io, result);
@@ -470,6 +495,21 @@ function parseServe(args: readonly string[]): ParsedCliCommand {
   const parsed = parseOptions(args, REPOSITORY_OPTION_DEFINITION);
   assertPositionalCount(parsed, 0, 0, "serve");
   return { kind: "serve", selection: selection(parsed) };
+}
+
+function parseSync(args: readonly string[]): ParsedCliCommand {
+  const parsed = parseOptions(args, {
+    values: ["repo", "workspace", "since"],
+  });
+  assertPositionalCount(parsed, 0, 1, "sync");
+  const since = parsed.values.get("since");
+  return {
+    kind: "sync",
+    selection: selection(parsed, parsed.positionals[0]),
+    ...(since === undefined
+      ? {}
+      : { since: parseSchema(IsoDateTimeSchema, since, "since") }),
+  };
 }
 
 function parseDoctor(args: readonly string[]): ParsedCliCommand {
@@ -856,6 +896,24 @@ function writeJson(io: RepoKnowledgeCliIo, value: unknown): void {
   io.writeStdout(`${JSON.stringify(value)}\n`);
 }
 
+/**
+ * Operator diagnostic for a partially failed sync run. The checkpoint stops
+ * at the last contiguous success, so a plain re-run retries the failed pull
+ * request before anything newer.
+ */
+function syncFailureDiagnostic(summary: SyncRepoSummary): string {
+  const first = summary.failures[0];
+  const firstFailure =
+    first === undefined
+      ? ""
+      : ` First failure: PR #${String(first.pr_number)}: ${safeDiagnosticMessage(first.message)}.`;
+  return (
+    `SYNC_PARTIAL_FAILURE: ${String(summary.failed)} of ${String(summary.discovered)} ` +
+    "discovered pull request(s) failed; the checkpoint stays at the last contiguous " +
+    `success, so re-running sync retries the failed pull request first.${firstFailure}\n`
+  );
+}
+
 function cliDiagnostic(error: unknown): {
   readonly code: string;
   readonly exitCode: number;
@@ -900,7 +958,7 @@ function usage(message: string, cause?: unknown): RepoKnowledgeCliError {
 
 function unavailable(message: string): RepoKnowledgeCliError {
   return new RepoKnowledgeCliError(
-    "CLI_COMMAND_UNAVAILABLE_IN_M1",
+    "CLI_COMMAND_UNAVAILABLE",
     message,
     REPO_KNOWLEDGE_CLI_EXIT.usage,
   );

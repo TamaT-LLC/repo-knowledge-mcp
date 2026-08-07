@@ -44,6 +44,14 @@ import {
   type PrepareDistillationResult,
 } from "./host-assisted-distillation-service.js";
 import { MergeClassifierError } from "./merge-classifier.js";
+import { FileLockTimeoutError } from "./posix-file-lock.js";
+import { SyncCheckpointError } from "./sync-checkpoint-store.js";
+import { SyncCursorError, SyncCursorSchema } from "./sync-cursor.js";
+import {
+  SyncRepoError,
+  type SyncRepoRequest,
+  type SyncRepoSummary,
+} from "./sync-repo-service.js";
 import {
   ModelPlaneKnowledgeError,
   ModelPlaneKnowledgeService,
@@ -214,6 +222,36 @@ export const IngestPrResultSchema = z
   .strict();
 
 export const IngestPrOutputSchema = mutationOutputSchema(IngestPrResultSchema);
+
+export const SyncRepoInputSchema = z
+  .object({
+    ...RepositorySelectionShape,
+    since: IsoDateTimeSchema.optional().describe(
+      "Initial ISO-8601 boundary; only pull requests updated strictly after it are synced. With a stored checkpoint it must be strictly older than the checkpoint boundary.",
+    ),
+  })
+  .strict();
+
+const SyncPullRequestFailureMcpSchema = z
+  .object({
+    message: z.string(),
+    pr_number: PositiveSafeIntegerSchema,
+  })
+  .strict();
+
+export const SyncRepoResultSchema = z
+  .object({
+    discovered: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    failures: z.array(SyncPullRequestFailureMcpSchema),
+    ingested: z.number().int().nonnegative(),
+    jobs_created: z.number().int().nonnegative(),
+    next_cursor: SyncCursorSchema.nullable(),
+    unchanged: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const SyncRepoOutputSchema = mutationOutputSchema(SyncRepoResultSchema);
 
 export const PrepareDistillationInputSchema = z
   .object({
@@ -554,6 +592,12 @@ export const MUTATION_TOOL_ANNOTATIONS = Object.freeze({
     openWorldHint: false,
     readOnlyHint: false,
   }),
+  sync_repo: Object.freeze({
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+    readOnlyHint: false,
+  }),
   update_knowledge: Object.freeze({
     destructiveHint: false,
     idempotentHint: false,
@@ -581,6 +625,8 @@ export interface KnowledgeMutationOperations {
   submitFinalize(
     request: SubmitFinalizeRequest,
   ): Promise<z.infer<typeof SubmitFinalizedResultMcpSchema>>;
+  /** Incremental checkpoint-resumed sync through the same ingest pipeline. */
+  syncRepo(request?: SyncRepoRequest): Promise<SyncRepoSummary>;
   updateKnowledge(
     request: ModelPlaneUpdateKnowledgeRequest,
   ): Promise<ModelPlaneUpdateKnowledgeResult>;
@@ -692,6 +738,7 @@ export class CanonicalKnowledgeMutationServiceResolver implements KnowledgeMutat
       prepareDistillation: (request) => pipeline.prepareDistillation(request),
       submitExtract: (request) => pipeline.submitExtract(request),
       submitFinalize: (request) => pipeline.submitFinalize(request),
+      syncRepo: (request) => pipeline.syncRepo(request),
       updateKnowledge: (request) => knowledge.updateKnowledge(request),
     };
   }
@@ -726,6 +773,28 @@ export function registerMutationTools(
             pr_number: input.pr_number,
           }),
         summarizeIngest,
+      );
+    },
+  );
+
+  server.registerTool(
+    "sync_repo",
+    {
+      annotations: MUTATION_TOOL_ANNOTATIONS.sync_repo,
+      description:
+        "Incrementally sync updated pull requests through the ingest pipeline, resuming from the durable checkpoint unless a strictly older explicit since boundary is given.",
+      inputSchema: SyncRepoInputSchema,
+      outputSchema: SyncRepoOutputSchema,
+      title: "Sync repository pull requests",
+    },
+    async (input) => {
+      return executeMutation(
+        SyncRepoResultSchema,
+        async () =>
+          (await resolveMutationService(options, input)).syncRepo({
+            ...(input.since === undefined ? {} : { since: input.since }),
+          }),
+        summarizeSync,
       );
     },
   );
@@ -1084,6 +1153,44 @@ export function mapMutationError(error: unknown): MutationToolErrorPayload {
     };
   }
 
+  if (error instanceof SyncRepoError) {
+    if (error.code === "SYNC_SINCE_BEYOND_CHECKPOINT") {
+      return {
+        ...knownError(error, false),
+        next_action:
+          "Call sync_repo without since to resume from the stored checkpoint, or pass a boundary strictly older than it.",
+      };
+    }
+    return knownError(error, false);
+  }
+
+  if (error instanceof SyncCursorError) {
+    if (error.code === "SYNC_BOUNDARY_CONFLICT") {
+      return {
+        ...knownError(error, false),
+        next_action:
+          "Pass either since or a stored cursor boundary, never both.",
+      };
+    }
+    return knownError(error, false);
+  }
+
+  if (error instanceof SyncCheckpointError) {
+    return {
+      ...knownError(error, false),
+      next_action:
+        "Inspect and repair the repository sync/checkpoint.json file before syncing again.",
+    };
+  }
+
+  if (error instanceof FileLockTimeoutError) {
+    return {
+      ...knownError(error, true),
+      next_action:
+        "Another run holds the repository sync lock; wait for it to finish, then call sync_repo again.",
+    };
+  }
+
   if (
     error instanceof MergeClassifierError ||
     error instanceof IngestPrMutationError ||
@@ -1139,6 +1246,35 @@ function summarizeIngest(
         result.pending > 0
           ? "If host-assisted distillation is explicitly enabled, call prepare_distillation; otherwise leave the jobs pending."
           : "Review any proposed knowledge through the admin CLI.",
+      retryable: true,
+    },
+  };
+}
+
+function summarizeSync(
+  result: z.infer<typeof SyncRepoResultSchema>,
+): MutationToolPresentation {
+  const firstFailure = result.failures[0];
+  const failureNote =
+    firstFailure === undefined
+      ? ""
+      : ` Stopped at PR #${String(firstFailure.pr_number)} after the first failure.`;
+  return {
+    body: `### Repository synced\n\nDiscovered **${result.discovered}** updated pull request(s); **${result.ingested}** ingested and **${result.unchanged}** unchanged.${failureNote}`,
+    summary: {
+      counts: {
+        discovered: result.discovered,
+        failed: result.failed,
+        ingested: result.ingested,
+        jobs_created: result.jobs_created,
+        unchanged: result.unchanged,
+      },
+      next_action:
+        result.failed > 0
+          ? "Call sync_repo again without since; the checkpoint stopped at the last contiguous success, so the failed pull request is retried first."
+          : result.jobs_created > 0
+            ? "If host-assisted distillation is explicitly enabled, call prepare_distillation; otherwise leave the jobs pending."
+            : "No further action is required until new review activity arrives.",
       retryable: true,
     },
   };

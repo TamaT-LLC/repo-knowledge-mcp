@@ -243,17 +243,16 @@ describe("repo-knowledge CLI", () => {
   });
 
   it.each([
-    [["sync", REPOSITORY], "CLI_COMMAND_UNAVAILABLE_IN_M1"],
-    [["record_outcome"], "CLI_COMMAND_UNAVAILABLE_IN_M1"],
-    [["stats"], "CLI_COMMAND_UNAVAILABLE_IN_M1"],
+    [["record_outcome"], "CLI_COMMAND_UNAVAILABLE"],
+    [["stats"], "CLI_COMMAND_UNAVAILABLE"],
     [
       ["ingest", REPOSITORY, "42", "--since", "yesterday"],
-      "CLI_COMMAND_UNAVAILABLE_IN_M1",
+      "CLI_ARGUMENT_INVALID",
     ],
-    [
-      ["ingest", REPOSITORY, "42", "--since=yesterday"],
-      "CLI_COMMAND_UNAVAILABLE_IN_M1",
-    ],
+    [["ingest", REPOSITORY, "42", "--since=yesterday"], "CLI_ARGUMENT_INVALID"],
+    [["sync", REPOSITORY, "--since", "yesterday"], "CLI_ARGUMENT_INVALID"],
+    [["sync", REPOSITORY, "extra"], "CLI_ARGUMENT_INVALID"],
+    [["sync", REPOSITORY, "--workspace", "/work/repo"], "CLI_ARGUMENT_INVALID"],
     [["list", REPOSITORY, "--status", "unknown"], "CLI_ARGUMENT_INVALID"],
     [["redistill", REPOSITORY, "--all", "--failed"], "CLI_ARGUMENT_INVALID"],
     [["reconcile", REPOSITORY], "CLI_ARGUMENT_INVALID"],
@@ -267,14 +266,95 @@ describe("repo-knowledge CLI", () => {
     expect(current.stdout()).toBe("");
   });
 
-  it("keeps deferred v0.2 commands out of help and parser output", () => {
-    expect(REPO_KNOWLEDGE_CLI_HELP).not.toContain("sync [");
-    expect(REPO_KNOWLEDGE_CLI_HELP).not.toContain("record_outcome ");
-    expect(REPO_KNOWLEDGE_CLI_HELP).not.toContain("stats ");
+  it("documents sync while keeping deferred commands out of help", () => {
+    expect(REPO_KNOWLEDGE_CLI_HELP).toContain("sync [repo] [--since <iso>]");
+    expect(REPO_KNOWLEDGE_CLI_HELP).not.toContain("\n  record_outcome");
+    expect(REPO_KNOWLEDGE_CLI_HELP).not.toContain("\n  stats");
     expect(parseRepoKnowledgeCliArguments([], false)).toEqual({
       kind: "serve",
       selection: {},
     });
+  });
+
+  it("routes sync through the same mutation service resolver as MCP", async () => {
+    const current = fixture([
+      "sync",
+      REPOSITORY,
+      "--since",
+      "2026-08-01T00:00:00.000Z",
+    ]);
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+    expect(current.resolveMutation).toHaveBeenCalledWith({ repo: REPOSITORY });
+    expect(current.syncRepo).toHaveBeenCalledWith({
+      since: "2026-08-01T00:00:00.000Z",
+    });
+    expect(JSON.parse(current.stdout())).toEqual({
+      discovered: 2,
+      failed: 0,
+      failures: [],
+      ingested: 1,
+      jobs_created: 1,
+      next_cursor: null,
+      unchanged: 1,
+    });
+    expect(current.stderr()).toBe("");
+  });
+
+  it("omits since from the sync request when the flag is absent", async () => {
+    const current = fixture(["sync", "--workspace", "/work/repo"]);
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+    expect(current.resolveMutation).toHaveBeenCalledWith({
+      workspacePath: "/work/repo",
+    });
+    expect(current.syncRepo).toHaveBeenCalledWith({});
+  });
+
+  it("exits non-zero with an operator diagnostic on a partial sync failure", async () => {
+    const current = fixture(["sync", REPOSITORY]);
+    current.syncRepo.mockResolvedValueOnce({
+      discovered: 3,
+      failed: 1,
+      failures: [{ message: "ingest fixture failure", pr_number: 2 }],
+      ingested: 1,
+      jobs_created: 1,
+      next_cursor: null,
+      unchanged: 0,
+    });
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(
+      REPO_KNOWLEDGE_CLI_EXIT.failure,
+    );
+
+    expect(JSON.parse(current.stdout())).toMatchObject({
+      failed: 1,
+      failures: [{ message: "ingest fixture failure", pr_number: 2 }],
+    });
+    expect(current.stderr()).toContain("SYNC_PARTIAL_FAILURE");
+    expect(current.stderr()).toContain("PR #2");
+    expect(current.stderr()).toContain("last contiguous");
+  });
+
+  it("propagates sync service error codes to stderr with a failure exit", async () => {
+    const current = fixture(["sync", REPOSITORY]);
+    current.syncRepo.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "SYNC_SINCE_BEYOND_CHECKPOINT: --since is not strictly older",
+        ),
+        { code: "SYNC_SINCE_BEYOND_CHECKPOINT" },
+      ),
+    );
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(
+      REPO_KNOWLEDGE_CLI_EXIT.failure,
+    );
+
+    expect(current.stdout()).toBe("");
+    expect(current.stderr()).toContain("SYNC_SINCE_BEYOND_CHECKPOINT");
   });
 });
 
@@ -305,6 +385,15 @@ function fixture(
     unchanged: 0,
     warnings: [],
   }));
+  const syncRepo = vi.fn<KnowledgeMutationOperations["syncRepo"]>(async () => ({
+    discovered: 2,
+    failed: 0,
+    failures: [],
+    ingested: 1,
+    jobs_created: 1,
+    next_cursor: null,
+    unchanged: 1,
+  }));
   const unavailable = async (): Promise<never> => {
     throw new Error("not used by CLI fixture");
   };
@@ -314,6 +403,7 @@ function fixture(
     prepareDistillation: unavailable,
     submitExtract: unavailable,
     submitFinalize: unavailable,
+    syncRepo,
     updateKnowledge: unavailable,
   };
   const resolveMutation = vi.fn<KnowledgeMutationServiceResolver["resolve"]>(
@@ -397,5 +487,6 @@ function fixture(
     serve,
     stderr: () => stderr.join(""),
     stdout: () => stdout.join(""),
+    syncRepo,
   };
 }

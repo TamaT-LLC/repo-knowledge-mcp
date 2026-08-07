@@ -22,6 +22,7 @@ import {
   type CompleteSnapshotFetcher,
 } from "./github-ingest-service.js";
 import { GitHubPullRequestSnapshotClient } from "./github-pull-request-client.js";
+import { GitHubPullRequestEnumerator } from "./github-pull-request-enumerator.js";
 import type { GhRunnerLike } from "./gh-runner.js";
 import { HostAssistedDistillationService } from "./host-assisted-distillation-service.js";
 import { IngestPrMutationService } from "./ingest-pr-mutation-service.js";
@@ -39,6 +40,10 @@ import { CanonicalProviderPostIngestRunner } from "./provider-post-ingest-runner
 import type { RepositoryResolution } from "./repository-resolver.js";
 import { RuntimeFinalizeContextStore } from "./runtime-finalize-context-store.js";
 import { SubmitDistillationService } from "./submit-distillation-service.js";
+import {
+  SyncRepoService,
+  type SyncPullRequestEnumerator,
+} from "./sync-repo-service.js";
 
 export interface RepositoryApplicationOperations
   extends RepositoryMutationPipelineOperations, CliRepositoryOperations {}
@@ -46,6 +51,7 @@ export interface RepositoryApplicationOperations
 export interface RepositoryApplicationFactoryOptions {
   readonly adapter?: LlmProviderAdapter;
   readonly config: RepoKnowledgeConfig;
+  readonly enumerator?: SyncPullRequestEnumerator;
   readonly ghRunner?: GhRunnerLike;
   readonly prompt: DistillationPromptTemplate;
   readonly repositoryContext?: unknown;
@@ -77,6 +83,7 @@ export class DefaultRepositoryApplicationFactory
   private readonly adapter: LlmProviderAdapter;
   private readonly applications = new Map<string, CachedApplication>();
   private readonly config: RepoKnowledgeConfig;
+  private readonly enumerator: SyncPullRequestEnumerator;
   private readonly prompt: DistillationPromptTemplate;
   private readonly repositoryContext: unknown;
   private readonly snapshotClient: CompleteSnapshotFetcher;
@@ -97,6 +104,13 @@ export class DefaultRepositoryApplicationFactory
     this.snapshotClient =
       options.snapshotClient ??
       new GitHubPullRequestSnapshotClient({
+        ...(options.ghRunner === undefined
+          ? {}
+          : { ghRunner: options.ghRunner }),
+      });
+    this.enumerator =
+      options.enumerator ??
+      new GitHubPullRequestEnumerator({
         ...(options.ghRunner === undefined
           ? {}
           : { ghRunner: options.ghRunner }),
@@ -197,6 +211,14 @@ export class DefaultRepositoryApplicationFactory
       providerRunner,
       repo: repository.currentName,
     });
+    // MCP sync_repo and CLI sync share this one checkpoint-resumed service,
+    // so both surfaces produce the identical summary contract.
+    const sync = new SyncRepoService({
+      enumerator: this.enumerator,
+      ingester: ingest,
+      repo: repository.currentName,
+      repositoryResolver: fixedRepositoryResolver,
+    });
     const finalizeContexts = new RuntimeFinalizeContextStore();
     const host = new HostAssistedDistillationService({
       config: this.config,
@@ -235,6 +257,7 @@ export class DefaultRepositoryApplicationFactory
       prepareDistillation: (request) => host.prepare(request),
       submitExtract: (request) => submit.submitExtract(request),
       submitFinalize: (request) => submit.submitFinalize(request),
+      syncRepo: (request) => sync.sync(request),
     });
   }
 }
@@ -254,5 +277,6 @@ function combineOperations(
     reindex: () => cli.reindex(),
     submitExtract: (request) => mutation.submitExtract(request),
     submitFinalize: (request) => mutation.submitFinalize(request),
+    syncRepo: (request) => mutation.syncRepo(request),
   };
 }
