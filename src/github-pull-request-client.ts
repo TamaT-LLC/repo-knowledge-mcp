@@ -9,13 +9,32 @@ import {
   type PullRequestSnapshot,
 } from "./domain-schemas.js";
 import { GhRunner, type GhRunnerLike } from "./gh-runner.js";
+import {
+  GraphqlPageInfoSchema,
+  GitHubSnapshotError,
+  PAGE_INFO_FIELDS,
+  assertConnectionPageBudget as assertPageBudget,
+  assertFreshConnectionCursor as assertFreshCursor,
+  assertGraphqlPageSize as pageSize,
+  duplicateGraphqlNode as duplicateNode,
+  executeGhGraphql,
+  graphqlResponseInvalid as responseInvalid,
+  nextConnectionCursor as nextCursor,
+  requireGraphqlRepository as requireRepository,
+  type GraphqlPageInfo,
+} from "./github-graphql.js";
 import { createDomainId } from "./ids.js";
+
+export {
+  MAX_GRAPHQL_CONNECTION_PAGES,
+  MAX_GRAPHQL_PAGE_SIZE,
+  GitHubSnapshotError,
+  type GitHubSnapshotErrorCode,
+} from "./github-graphql.js";
 
 export const DEFAULT_REVIEW_THREAD_PAGE_SIZE = 20;
 export const DEFAULT_REVIEW_COMMENT_PAGE_SIZE = 30;
 export const DEFAULT_REVIEW_PAGE_SIZE = 50;
-export const MAX_GRAPHQL_PAGE_SIZE = 100;
-export const MAX_GRAPHQL_CONNECTION_PAGES = 10_000;
 
 const ACTOR_FIELDS = `
   __typename
@@ -45,8 +64,6 @@ const REVIEW_FIELDS = `
   updatedAt
   submittedAt
 `;
-
-const PAGE_INFO_FIELDS = "hasNextPage endCursor";
 
 export const FETCH_PULL_REQUEST_SNAPSHOT_QUERY = `
 query FetchPullRequestSnapshot(
@@ -192,13 +209,6 @@ query ValidatePullRequestSnapshot(
   }
 }`;
 
-const PageInfoSchema = z
-  .object({
-    endCursor: z.string().min(1).nullable(),
-    hasNextPage: z.boolean(),
-  })
-  .strict();
-
 const ActorSchema = z
   .object({
     __typename: z.string().min(1),
@@ -223,7 +233,7 @@ const ReviewCommentSchema = z
 const ReviewCommentsConnectionSchema = z
   .object({
     nodes: z.array(ReviewCommentSchema),
-    pageInfo: PageInfoSchema,
+    pageInfo: GraphqlPageInfoSchema,
   })
   .strict();
 
@@ -240,7 +250,7 @@ const ReviewThreadNodeSchema = z
 const ReviewThreadsConnectionSchema = z
   .object({
     nodes: z.array(ReviewThreadNodeSchema),
-    pageInfo: PageInfoSchema,
+    pageInfo: GraphqlPageInfoSchema,
   })
   .strict();
 
@@ -261,7 +271,7 @@ const ReviewSummarySchema = z
 const ReviewsConnectionSchema = z
   .object({
     nodes: z.array(ReviewSummarySchema),
-    pageInfo: PageInfoSchema,
+    pageInfo: GraphqlPageInfoSchema,
   })
   .strict();
 
@@ -384,13 +394,6 @@ const SnapshotValidationResponseDataSchema = z
   })
   .strict();
 
-const GraphqlEnvelopeSchema = z
-  .object({
-    data: z.unknown().nullable().optional(),
-    errors: z.array(z.unknown()).optional(),
-  })
-  .passthrough();
-
 export type GitHubReviewActor = z.infer<typeof ActorSchema>;
 export type GitHubReviewComment = z.infer<typeof ReviewCommentSchema>;
 
@@ -449,29 +452,6 @@ export interface GitHubPullRequestClientOptions {
   readonly now?: () => Date;
   readonly reviewPageSize?: number;
   readonly threadPageSize?: number;
-}
-
-export type GitHubSnapshotErrorCode =
-  | "DUPLICATE_GRAPHQL_NODE"
-  | "GRAPHQL_PAGINATION_INVALID"
-  | "GRAPHQL_PARTIAL_RESPONSE"
-  | "GRAPHQL_REQUEST_FAILED"
-  | "GRAPHQL_RESPONSE_INVALID"
-  | "PULL_REQUEST_CHANGED"
-  | "PULL_REQUEST_NOT_FOUND"
-  | "REPOSITORY_NOT_FOUND"
-  | "SNAPSHOT_INVALID";
-
-export class GitHubSnapshotError extends Error {
-  constructor(
-    readonly code: GitHubSnapshotErrorCode,
-    readonly operation: string,
-    message: string,
-    options?: ErrorOptions,
-  ) {
-    super(`${code}: ${message}`, options);
-    this.name = "GitHubSnapshotError";
-  }
 }
 
 interface MutableReviewThread extends GitHubReviewThread {
@@ -658,7 +638,7 @@ export class GitHubPullRequestSnapshotClient {
     owner: string,
     name: string,
     identity: PullRequestIdentity,
-    firstPageInfo: z.infer<typeof PageInfoSchema>,
+    firstPageInfo: GraphqlPageInfo,
     threads: Map<string, MutableReviewThread>,
   ): Promise<void> {
     let cursor = nextCursor(firstPageInfo, "initial reviewThreads page");
@@ -741,7 +721,7 @@ export class GitHubPullRequestSnapshotClient {
     owner: string,
     name: string,
     identity: PullRequestIdentity,
-    firstPageInfo: z.infer<typeof PageInfoSchema>,
+    firstPageInfo: GraphqlPageInfo,
     reviews: z.infer<typeof ReviewSummarySchema>[],
     seenReviewIds: Set<string>,
   ): Promise<void> {
@@ -853,78 +833,20 @@ export class GitHubPullRequestSnapshotClient {
     schema: z.ZodType<T>,
     stringListVariables: Readonly<Record<string, readonly string[]>> = {},
   ): Promise<T> {
-    let result;
-    try {
-      result = await this.ghRunner.run(
-        graphqlArgs(
-          query,
-          stringVariables,
-          integerVariables,
-          stringListVariables,
-        ),
-      );
-    } catch (error) {
-      throw new GitHubSnapshotError(
-        "GRAPHQL_REQUEST_FAILED",
-        operation,
-        "gh api graphql request failed",
-        { cause: error },
-      );
-    }
-
-    let raw: unknown;
-    try {
-      raw = JSON.parse(result.stdout) as unknown;
-    } catch (error) {
-      throw responseInvalid(operation, "gh returned non-JSON data", error);
-    }
-    const envelope = GraphqlEnvelopeSchema.safeParse(raw);
-    if (!envelope.success) {
-      throw responseInvalid(operation, envelope.error.message, envelope.error);
-    }
-    if ((envelope.data.errors?.length ?? 0) > 0) {
-      throw new GitHubSnapshotError(
-        "GRAPHQL_PARTIAL_RESPONSE",
-        operation,
-        "GraphQL returned errors; any accompanying data was discarded",
-      );
-    }
-    if (envelope.data.data === undefined || envelope.data.data === null) {
-      throw responseInvalid(operation, "GraphQL response did not contain data");
-    }
-    const parsed = schema.safeParse(envelope.data.data);
-    if (!parsed.success) {
-      throw responseInvalid(operation, parsed.error.message, parsed.error);
-    }
-    return parsed.data;
+    return executeGhGraphql({
+      ghRunner: this.ghRunner,
+      integerVariables,
+      operation,
+      query,
+      schema,
+      stringListVariables,
+      stringVariables,
+    });
   }
 }
 
 export function reviewSummaryThreadId(reviewId: string): string {
   return `review-summary:${GitHubNodeIdSchema.parse(reviewId)}`;
-}
-
-function graphqlArgs(
-  query: string,
-  stringVariables: Readonly<Record<string, string>>,
-  integerVariables: Readonly<Record<string, number>>,
-  stringListVariables: Readonly<Record<string, readonly string[]>>,
-): string[] {
-  const args = ["api", "graphql", "-f", `query=${query}`];
-  for (const [key, value] of Object.entries(stringVariables)) {
-    args.push("-f", `${key}=${value}`);
-  }
-  for (const [key, value] of Object.entries(integerVariables)) {
-    args.push("-F", `${key}=${String(value)}`);
-  }
-  for (const [key, values] of Object.entries(stringListVariables)) {
-    if (values.length === 0) {
-      args.push("-F", `${key}[]`);
-      continue;
-    }
-    for (const value of values) args.push("-F", `${key}[]=${value}`);
-  }
-  return args;
 }
 
 function appendThreadNodes(
@@ -972,46 +894,6 @@ function appendComments(
   }
 }
 
-function nextCursor(
-  pageInfo: z.infer<typeof PageInfoSchema>,
-  operation: string,
-): string | null {
-  if (!pageInfo.hasNextPage) return null;
-  if (pageInfo.endCursor === null) {
-    throw new GitHubSnapshotError(
-      "GRAPHQL_PAGINATION_INVALID",
-      operation,
-      "hasNextPage was true without an endCursor",
-    );
-  }
-  return pageInfo.endCursor;
-}
-
-function assertFreshCursor(
-  cursor: string,
-  seen: Set<string>,
-  operation: string,
-): void {
-  if (seen.has(cursor)) {
-    throw new GitHubSnapshotError(
-      "GRAPHQL_PAGINATION_INVALID",
-      operation,
-      "GraphQL repeated a connection cursor",
-    );
-  }
-  seen.add(cursor);
-}
-
-function assertPageBudget(pages: number, operation: string): void {
-  if (pages > MAX_GRAPHQL_CONNECTION_PAGES) {
-    throw new GitHubSnapshotError(
-      "GRAPHQL_PAGINATION_INVALID",
-      operation,
-      "GraphQL connection exceeded the page safety limit",
-    );
-  }
-}
-
 function assertIdentity(
   repoId: string,
   pullRequest: { readonly id: string; readonly number: number },
@@ -1027,17 +909,6 @@ function assertIdentity(
   }
 }
 
-function requireRepository<T>(value: T | null, operation: string): T {
-  if (value === null) {
-    throw new GitHubSnapshotError(
-      "REPOSITORY_NOT_FOUND",
-      operation,
-      "repository was not found or was not accessible",
-    );
-  }
-  return value;
-}
-
 function requirePullRequest<T>(value: T | null, operation: string): T {
   if (value === null) {
     throw new GitHubSnapshotError(
@@ -1049,44 +920,10 @@ function requirePullRequest<T>(value: T | null, operation: string): T {
   return value;
 }
 
-function duplicateNode(operation: string, node: string): GitHubSnapshotError {
-  return new GitHubSnapshotError(
-    "DUPLICATE_GRAPHQL_NODE",
-    operation,
-    `GraphQL pagination returned a duplicate ${node}`,
-  );
-}
-
 function changedError(operation: string): GitHubSnapshotError {
   return new GitHubSnapshotError(
     "PULL_REQUEST_CHANGED",
     operation,
     "repository, pull request, or review data changed during snapshot capture",
   );
-}
-
-function responseInvalid(
-  operation: string,
-  message: string,
-  cause?: unknown,
-): GitHubSnapshotError {
-  return new GitHubSnapshotError(
-    "GRAPHQL_RESPONSE_INVALID",
-    operation,
-    message,
-    cause === undefined ? undefined : { cause },
-  );
-}
-
-function pageSize(value: number, name: string): number {
-  if (
-    !Number.isSafeInteger(value) ||
-    value < 1 ||
-    value > MAX_GRAPHQL_PAGE_SIZE
-  ) {
-    throw new TypeError(
-      `${name} must be between 1 and ${String(MAX_GRAPHQL_PAGE_SIZE)}`,
-    );
-  }
-  return value;
 }
