@@ -98,6 +98,7 @@ describe("repo-knowledge CLI", () => {
     const selectorCases = [
       { argv: ["--all"], request: { selector: "all" } },
       { argv: ["--failed"], request: { selector: "failed" } },
+      { argv: ["--outdated"], request: { selector: "outdated" } },
       {
         argv: ["--prompt-version", "distill-v2"],
         request: {

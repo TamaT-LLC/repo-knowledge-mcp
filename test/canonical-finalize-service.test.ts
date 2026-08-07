@@ -11,8 +11,10 @@ import {
   createDistillationJobEventRecord,
   createDomainId,
   hashLeaseToken,
+  parseKnowledgeBodyCodeExample,
   parseKnowledgeDocument,
   renderDistilledCandidateBody,
+  renderKnowledgeBodyWithCodeExample,
   serializeKnowledgeDocument,
   type CanonicalJsonlRecord,
   type CommentObservation,
@@ -407,6 +409,101 @@ describe("CanonicalFinalizeService", () => {
     expect(document.body).toContain(
       "```typescript\nconst result = await invoke();\n```",
     );
+  }, 15_000);
+
+  it("routes example additions through a revision proposal and never edits active Markdown", async () => {
+    const fixture = await createFixture({
+      evidenceKnowledgeIds: [KNOWLEDGE_A],
+      knowledge: [
+        knowledge(KNOWLEDGE_A, {
+          detail: "Canonical detail",
+          rule: "Keep the canonical rule",
+        }),
+      ],
+    });
+    const before = await knowledgeBytes(fixture.root, KNOWLEDGE_A);
+    const candidates = [
+      candidate(CANDIDATE_A, "Keep the canonical rule", {
+        code_example: {
+          content: "const result = await invoke();",
+          evidence_comment_ids: [ROOT_COMMENT_ID],
+          generated_example: true,
+          language: "typescript",
+        },
+        detail: "Canonical detail",
+        evidence_comment_ids: [ROOT_COMMENT_ID],
+      }),
+    ];
+    const search = await mergeSearch(fixture.store, candidates);
+
+    const result = await finalizer(fixture.store).finalize({
+      ...sourceBinding(),
+      candidates: search.candidates,
+      decisions: [same(CANDIDATE_A, KNOWLEDGE_A)],
+      expected_match_set_digest: search.match_set_digest,
+      lease: lease(),
+      provenance: provenance(),
+    });
+
+    expect(result.revision_proposals).toHaveLength(1);
+    expect(await knowledgeBytes(fixture.root, KNOWLEDGE_A)).toEqual(before);
+    const snapshot = await fixture.store.readSnapshot();
+    const proposal = snapshot.domain.revisionProposals[0]!;
+    expect(proposal).toMatchObject({
+      knowledge_id: KNOWLEDGE_A,
+      status: "pending",
+    });
+    const patchDetail = proposal.patch.detail!;
+    expect(parseKnowledgeBodyCodeExample(patchDetail)).toEqual({
+      code_example: {
+        content: "const result = await invoke();",
+        evidence_comment_ids: [ROOT_COMMENT_ID],
+        generated_example: true,
+        language: "typescript",
+      },
+      detail: "Canonical detail",
+    });
+  }, 15_000);
+
+  it("drops a stored example once the redistilled candidate no longer grounds one", async () => {
+    const fixture = await createFixture({
+      evidenceKnowledgeIds: [KNOWLEDGE_A],
+      knowledge: [
+        knowledge(KNOWLEDGE_A, {
+          detail: renderKnowledgeBodyWithCodeExample("Canonical detail", {
+            content: "const result = await invoke();",
+            evidence_comment_ids: [ROOT_COMMENT_ID],
+            generated_example: true,
+            language: "typescript",
+          }),
+          rule: "Keep the canonical rule",
+        }),
+      ],
+    });
+    const before = await knowledgeBytes(fixture.root, KNOWLEDGE_A);
+    const candidates = [
+      candidate(CANDIDATE_A, "Keep the canonical rule", {
+        detail: "Canonical detail",
+        evidence_comment_ids: [ROOT_COMMENT_ID],
+      }),
+    ];
+    const search = await mergeSearch(fixture.store, candidates);
+
+    const result = await finalizer(fixture.store).finalize({
+      ...sourceBinding(),
+      candidates: search.candidates,
+      decisions: [same(CANDIDATE_A, KNOWLEDGE_A)],
+      expected_match_set_digest: search.match_set_digest,
+      lease: lease(),
+      provenance: provenance(),
+    });
+
+    expect(result.revision_proposals).toHaveLength(1);
+    expect(await knowledgeBytes(fixture.root, KNOWLEDGE_A)).toEqual(before);
+    const proposal = (await fixture.store.readSnapshot()).domain
+      .revisionProposals[0]!;
+    expect(proposal.patch).toEqual({ detail: "Canonical detail" });
+    expect(proposal.patch.detail).not.toContain("generated_example");
   }, 15_000);
 
   it("rejects a code example whose content is not grounded in its cited evidence", async () => {

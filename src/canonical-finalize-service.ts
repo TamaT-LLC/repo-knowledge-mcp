@@ -48,6 +48,7 @@ import {
 } from "./distill-job-coordinator.js";
 import type { ManualReviewMarker } from "./evidence-policy.js";
 import { createDomainId } from "./ids.js";
+import { renderKnowledgeBodyWithCodeExample } from "./knowledge-code-example.js";
 import {
   applyKnowledgeDocumentPatch,
   serializeKnowledgeDocument,
@@ -1024,44 +1025,22 @@ function newKnowledgeFileWrite(
   };
 }
 
-const MINIMUM_CODE_FENCE_LENGTH = 3;
-
 /**
  * Renders the canonical Markdown body for a distilled candidate. A grounded
  * code example is appended below the detail with its `generated_example: true`
  * flag and evidence comment IDs, so the knowledge file keeps the §6.2 M2
- * grounding constraints visible after finalize.
+ * grounding constraints visible after finalize. Same-merge decisions reuse
+ * this rendering inside the revision proposal patch, which also removes a
+ * previously stored example whenever the redistilled candidate no longer
+ * grounds one.
  */
 export function renderDistilledCandidateBody(
   candidate: DistilledCandidate,
 ): string {
-  if (candidate.code_example === undefined) return candidate.detail;
-  const example = candidate.code_example;
-  const fence = "`".repeat(
-    Math.max(
-      MINIMUM_CODE_FENCE_LENGTH,
-      longestBacktickRun(example.content) + 1,
-    ),
+  return renderKnowledgeBodyWithCodeExample(
+    candidate.detail,
+    candidate.code_example,
   );
-  return [
-    candidate.detail.trimEnd(),
-    "",
-    `<!-- generated_example: true; evidence_comment_ids: ${example.evidence_comment_ids.join(
-      ", ",
-    )} -->`,
-    "",
-    `${fence}${example.language}`,
-    example.content.replace(/\n+$/u, ""),
-    fence,
-  ].join("\n");
-}
-
-function longestBacktickRun(value: string): number {
-  let longest = 0;
-  for (const run of value.matchAll(/`+/gu)) {
-    longest = Math.max(longest, run[0].length);
-  }
-  return longest;
 }
 
 function revisionPatch(

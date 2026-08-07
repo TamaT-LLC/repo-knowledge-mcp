@@ -53,7 +53,10 @@ Repository selection:
   --workspace <path>            Select an allowed mapped workspace
 
 Redistill selectors (choose exactly one):
-  --all | --author <login> | --prompt-version <version> | --failed
+  --all | --author <login> | --prompt-version <version> | --failed |
+  --outdated                    Queue only threads whose current prompt,
+                                output schema, or trust policy digest has no
+                                distill job yet; existing jobs are never reset
 
 Sync options:
   --since <iso-datetime>        Initial boundary for a first sync; with a stored
@@ -137,6 +140,7 @@ export type CliRedistillRequest =
   | { readonly selector: "all" }
   | { readonly author: string; readonly selector: "author" }
   | { readonly selector: "failed" }
+  | { readonly selector: "outdated" }
   | { readonly prompt_version: string; readonly selector: "prompt-version" };
 
 export interface CliRedistillResult {
@@ -631,7 +635,7 @@ function parseList(args: readonly string[]): ParsedCliCommand {
 
 function parseRedistill(args: readonly string[]): ParsedCliCommand {
   const parsed = parseOptions(args, {
-    booleans: ["all", "failed"],
+    booleans: ["all", "failed", "outdated"],
     values: ["repo", "workspace", "author", "prompt-version"],
   });
   assertPositionalCount(parsed, 0, 1, "redistill");
@@ -640,10 +644,11 @@ function parseRedistill(args: readonly string[]): ParsedCliCommand {
     parsed.values.has("author"),
     parsed.values.has("prompt-version"),
     parsed.booleans.has("failed"),
+    parsed.booleans.has("outdated"),
   ].filter(Boolean).length;
   if (selectors !== 1) {
     throw usage(
-      "redistill requires exactly one of --all, --author, --prompt-version, or --failed",
+      "redistill requires exactly one of --all, --author, --prompt-version, --failed, or --outdated",
     );
   }
   let request: CliRedistillRequest;
@@ -651,6 +656,8 @@ function parseRedistill(args: readonly string[]): ParsedCliCommand {
     request = { selector: "all" };
   } else if (parsed.booleans.has("failed")) {
     request = { selector: "failed" };
+  } else if (parsed.booleans.has("outdated")) {
+    request = { selector: "outdated" };
   } else if (parsed.values.has("author")) {
     request = {
       author: parseNonEmpty(parsed.values.get("author")!, "author"),

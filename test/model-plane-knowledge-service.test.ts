@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +11,9 @@ import {
   KnowledgeConflictError,
   ModelPlaneKnowledgeService,
   RepoKnowledgeConfigSchema,
+  parseKnowledgeBodyCodeExample,
+  renderKnowledgeBodyWithCodeExample,
+  type GeneratedCodeExample,
   type IngestPullRequestResult,
 } from "../src/index.js";
 
@@ -149,6 +152,67 @@ describe("ModelPlaneKnowledgeService", () => {
       "Build MCP servers from one factory",
     );
   });
+
+  it("protects hand-edited example bodies with byte ETag CAS and removes examples via proposals", async () => {
+    const fixture = await createFixture();
+    const example: GeneratedCodeExample = {
+      content: "const result = await invoke();",
+      evidence_comment_ids: ["comment-example"],
+      generated_example: true,
+      language: "typescript",
+    };
+    const added = await fixture.service.addKnowledge({
+      category: "error-handling",
+      detail: renderKnowledgeBodyWithCodeExample(
+        "Surface backend errors to the UI layer.",
+        example,
+      ),
+      rule: "Report backend errors",
+      scope: ["src/**"],
+      severity: "should",
+    });
+    const path = `knowledge/${KNOWLEDGE_ID}.md`;
+    const absolutePath = join(fixture.root, path);
+    const original = await readFile(absolutePath, "utf8");
+    await writeFile(
+      absolutePath,
+      original.replace(
+        "const result = await invoke();",
+        "await invoke(); // edited by hand",
+      ),
+    );
+
+    await expect(
+      fixture.service.updateKnowledge({
+        expected_etag: added.etag,
+        expected_revision: added.revision,
+        id: added.id,
+        patch: { detail: "Attempted stale example rewrite" },
+      }),
+    ).rejects.toMatchObject({ code: "KNOWLEDGE_CONFLICT" });
+
+    const edited = await fixture.store.readKnowledge(path);
+    expect(parseKnowledgeBodyCodeExample(edited.body).code_example).toEqual({
+      ...example,
+      content: "await invoke(); // edited by hand",
+    });
+
+    const result = await fixture.service.updateKnowledge({
+      expected_etag: edited.etag,
+      expected_revision: edited.revision,
+      id: added.id,
+      patch: { detail: "Surface backend errors to the UI layer." },
+    });
+    expect(result.status).toBe("pending");
+    const untouched = await fixture.store.readKnowledge(path);
+    expect(untouched.etag).toBe(edited.etag);
+    const proposal = (await fixture.store.readSnapshot()).domain
+      .revisionProposals[0]!;
+    expect(proposal.patch.detail).not.toContain("generated_example");
+    expect(
+      parseKnowledgeBodyCodeExample(proposal.patch.detail!).code_example,
+    ).toBeNull();
+  });
 });
 
 describe("IngestPrMutationService", () => {
@@ -232,6 +296,7 @@ describe("IngestPrMutationService", () => {
 });
 
 interface Fixture {
+  readonly root: string;
   readonly service: ModelPlaneKnowledgeService;
   readonly store: CanonicalTransactionStore;
 }
@@ -242,6 +307,7 @@ async function createFixture(): Promise<Fixture> {
   const store = new CanonicalTransactionStore(root);
   const transactionIds = [TRANSACTION_1, TRANSACTION_3];
   return {
+    root,
     service: new ModelPlaneKnowledgeService({
       nextEventId: () => EVENT_ID,
       nextKnowledgeId: () => KNOWLEDGE_ID,

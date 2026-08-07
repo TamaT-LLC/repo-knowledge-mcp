@@ -661,6 +661,14 @@ export {
   type KnowledgeSnapshot,
 } from "./knowledge-file-state.js";
 export {
+  KNOWLEDGE_CODE_EXAMPLE_MARKER_PREFIX,
+  MINIMUM_CODE_EXAMPLE_FENCE_LENGTH,
+  parseKnowledgeBodyCodeExample,
+  renderKnowledgeBodyWithCodeExample,
+  renderKnowledgeCodeExampleSection,
+  type ParsedKnowledgeBody,
+} from "./knowledge-code-example.js";
+export {
   KnowledgeStoreInvalidError,
   applyKnowledgeDocumentPatch,
   computeByteSha256,

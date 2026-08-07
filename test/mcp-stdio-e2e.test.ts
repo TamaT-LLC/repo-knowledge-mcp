@@ -364,6 +364,7 @@ const read = {
       evidence: [],
       knowledge: {
         applied_count: 0,
+        code_example: null,
         detail: "stdio fixture detail",
         etag: "a".repeat(64),
         evidence_count: 1,
