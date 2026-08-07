@@ -274,6 +274,64 @@ describe("pilot daily record CLI", () => {
     expect(persisted).toHaveLength(1);
   });
 
+  it("locks one not-yet-created log addressed through a dangling symlink and its real path alike", async () => {
+    // The target does not exist yet: the symlink is dangling, but both
+    // spellings must still canonicalize to the same lock because
+    // appendFile writes through the link to the same target file.
+    const realLogPath = join(workingDirectory, "dangling-real.jsonl");
+    const aliasLogPath = join(workingDirectory, "dangling-link.jsonl");
+    await symlink(realLogPath, aliasLogPath);
+    const recordArgv = (logArgument: string): readonly string[] => [
+      "record",
+      "--log",
+      logArgument,
+      "--pilot",
+      PILOT_ID,
+      "--date",
+      "2026-08-07",
+      "--missing",
+      "--reason",
+      "dangling alias contention",
+      "--recorded-at",
+      "2026-08-08T00:05:00.000Z",
+    ];
+
+    const [viaReal, viaAlias] = await Promise.all([
+      runCli(recordArgv(realLogPath)),
+      runCli(recordArgv(aliasLogPath)),
+    ]);
+
+    const exitCodes = [viaReal.exitCode, viaAlias.exitCode].sort();
+    expect(exitCodes).toEqual([0, 1]);
+    const loser = viaReal.exitCode === 0 ? viaAlias : viaReal;
+    expect(loser.stderr).toContain("PILOT_DUPLICATE_DATE");
+    const persisted = (await readFile(realLogPath, "utf8")).trim().split("\n");
+    expect(persisted).toHaveLength(1);
+  });
+
+  it("fails closed on a symlink cycle instead of looping", async () => {
+    const cycleA = join(workingDirectory, "cycle-a.jsonl");
+    const cycleB = join(workingDirectory, "cycle-b.jsonl");
+    await symlink(cycleB, cycleA);
+    await symlink(cycleA, cycleB);
+
+    const { exitCode, stderr } = await runCli([
+      "record",
+      "--log",
+      cycleA,
+      "--pilot",
+      PILOT_ID,
+      "--date",
+      "2026-08-08",
+      "--missing",
+      "--reason",
+      "cycle",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("symbolic links");
+  });
+
   it("reports an unreadable input with exit code 1", async () => {
     const { exitCode } = await runCli([
       "record",

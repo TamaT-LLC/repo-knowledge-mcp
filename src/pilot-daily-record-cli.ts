@@ -1,4 +1,4 @@
-import { appendFile, readFile, realpath } from "node:fs/promises";
+import { appendFile, readFile, readlink, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
 import {
@@ -42,6 +42,12 @@ const USAGE_EXIT_CODE = 2;
 const FAILURE_EXIT_CODE = 1;
 /** Same bound the sync CLI uses for its repository lock. */
 const RECORD_LOCK_TIMEOUT_MS = 5000;
+/**
+ * Bound on symlink hops while canonicalizing a not-yet-existing log path.
+ * Mirrors the ELOOP-style limits kernels apply, and turns a symlink cycle
+ * into a fail-closed error instead of an infinite loop.
+ */
+const MAX_SYMLINK_RESOLUTION_DEPTH = 40;
 
 interface RecordArguments {
   readonly command: "record";
@@ -127,19 +133,48 @@ async function runRecord(parsed: RecordArguments): Promise<void> {
 /**
  * Canonicalizes the log path (resolving symlinks) before deriving the lock
  * path, so two runs addressing the same log through different spellings —
- * a symlink versus its target, a symlinked parent directory — contend on
- * one lock instead of silently bypassing each other.
+ * a symlink versus its target, a dangling symlink to a log that does not
+ * exist yet, a symlinked parent directory — converge on one canonical path
+ * and therefore contend on one lock instead of silently bypassing each
+ * other while appendFile writes through to the same target.
  */
 async function canonicalLogPath(path: string): Promise<string> {
-  const resolved = resolve(path);
+  return canonicalizeMaybeMissingPath(resolve(path), 0);
+}
+
+async function canonicalizeMaybeMissingPath(
+  resolved: string,
+  depth: number,
+): Promise<string> {
   try {
     return await realpath(resolved);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    // The log itself may not exist yet: canonicalize its parent directory
-    // and keep the (non-symlink) final component.
-    return join(await realpath(dirname(resolved)), basename(resolved));
   }
+  if (depth >= MAX_SYMLINK_RESOLUTION_DEPTH) {
+    throw new Error(
+      `PILOT_LOG_PATH_UNRESOLVABLE: too many levels of symbolic links while canonicalizing ${resolved}`,
+    );
+  }
+  // The final component does not exist (or is a dangling symlink): the
+  // parent must exist, so canonicalize it, then resolve the component.
+  const candidate = join(await realpath(dirname(resolved)), basename(resolved));
+  let linkTarget: string;
+  try {
+    linkTarget = await readlink(candidate);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // ENOENT: a plain missing file — the canonical parent + name is final.
+    // EINVAL: the component exists and is not a symlink (raced into
+    // existence after the realpath above); the joined path is canonical.
+    if (code === "ENOENT" || code === "EINVAL") return candidate;
+    throw error;
+  }
+  // A relative symlink target is resolved against the symlink's directory.
+  return canonicalizeMaybeMissingPath(
+    resolve(dirname(candidate), linkTarget),
+    depth + 1,
+  );
 }
 
 async function runSummarize(parsed: SummarizeArguments): Promise<void> {
