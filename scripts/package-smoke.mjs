@@ -23,6 +23,7 @@ const expectedTools = [
   "prepare_distillation",
   "search_knowledge",
   "submit_distillation",
+  "sync_repo",
   "update_knowledge",
 ];
 
