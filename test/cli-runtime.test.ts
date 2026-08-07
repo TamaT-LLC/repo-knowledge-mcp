@@ -10,6 +10,8 @@ import {
   REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION,
   REPO_KNOWLEDGE_CLI_HELP,
   runDefaultRepoKnowledgeCli,
+  type GhCommandResult,
+  type GhRunnerLike,
   type RepoKnowledgeCliIo,
 } from "../src/index.js";
 import { WireClient, readTools } from "./support/mcp-test-client.js";
@@ -68,6 +70,28 @@ describe("default CLI runtime", () => {
     await expect(access(storageRoot)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("runs doctor without initializing missing storage", async () => {
+    const parent = await temporaryDirectory();
+    const storageRoot = join(parent, "not-created");
+    const captured = output({ stdinIsTTY: true, stdoutIsTTY: true });
+
+    await expect(
+      runDefaultRepoKnowledgeCli({
+        argv: ["doctor", "owner/repository"],
+        ghRunner: new HealthyGhRunner(),
+        io: captured.io,
+        storageRoot,
+      }),
+    ).resolves.toBe(1);
+
+    expect(JSON.parse(captured.stdout())).toMatchObject({
+      ok: false,
+      summary: { fail: expect.any(Number) },
+    });
+    expect(captured.stderr()).toBe("");
+    await expect(access(storageRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("starts the real MCP stdio server for an argument-free pipe", async () => {
     const storageRoot = join(await temporaryDirectory(), "storage");
     const [clientTransport, serverTransport] =
@@ -110,6 +134,38 @@ describe("default CLI runtime", () => {
     }
   });
 });
+
+class HealthyGhRunner implements GhRunnerLike {
+  async run(args: readonly string[]): Promise<GhCommandResult> {
+    if (args[0] === "--version") {
+      return { stderr: "", stdout: "gh version fixture\n" };
+    }
+    if (args[0] === "auth") {
+      return { stderr: "", stdout: "authenticated\n" };
+    }
+    const query = args.find((value) => value.startsWith("query=")) ?? "";
+    if (query.includes("RepoKnowledgeDoctor")) {
+      return {
+        stderr: "",
+        stdout: JSON.stringify({ data: { viewer: { login: "fixture" } } }),
+      };
+    }
+    if (query.includes("ResolveRepository")) {
+      return {
+        stderr: "",
+        stdout: JSON.stringify({
+          data: {
+            repository: {
+              id: "R_repository",
+              nameWithOwner: "owner/repository",
+            },
+          },
+        }),
+      };
+    }
+    throw new Error(`unexpected gh arguments: ${args.join(" ")}`);
+  }
+}
 
 function output(tty: {
   readonly stdinIsTTY: boolean;

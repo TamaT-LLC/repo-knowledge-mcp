@@ -654,6 +654,15 @@ export {
   type RunDefaultRepoKnowledgeCliOptions,
 } from "./cli-runtime.js";
 export {
+  RepoKnowledgeDoctor,
+  type DoctorCheck,
+  type DoctorCheckStatus,
+  type DoctorReport,
+  type DoctorRepositorySelection,
+  type RepoKnowledgeDoctorLike,
+  type RepoKnowledgeDoctorOptions,
+} from "./doctor-service.js";
+export {
   AddKnowledgeInputSchema,
   AddKnowledgeOutputSchema,
   AddKnowledgeResultSchema,
@@ -784,8 +793,10 @@ export {
 } from "./repository-resolver.js";
 export {
   SqliteCanonicalProjection,
+  captureCanonicalStateReadOnly,
   type CanonicalKnowledgeReadView,
   type CanonicalKnowledgeSearchView,
   type CanonicalProjectionSnapshot,
   type ProjectedCanonicalRecord,
+  type ReadOnlyCanonicalStateCapture,
 } from "./sqlite-projection.js";

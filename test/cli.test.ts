@@ -10,6 +10,7 @@ import {
   type CliRepositoryOperationsResolver,
   type KnowledgeMutationOperations,
   type KnowledgeMutationServiceResolver,
+  type RepoKnowledgeDoctorLike,
   type RepoKnowledgeCliIo,
 } from "../src/index.js";
 
@@ -120,6 +121,34 @@ describe("repo-knowledge CLI", () => {
     expect(
       reconcile.operations.reconcileDerivedMetadata,
     ).toHaveBeenCalledOnce();
+
+    const doctor = fixture(["doctor", REPOSITORY]);
+    await expect(runRepoKnowledgeCli(doctor.options)).resolves.toBe(0);
+    expect(doctor.doctorRun).toHaveBeenCalledWith({ repo: REPOSITORY });
+    expect(JSON.parse(doctor.stdout())).toMatchObject({ ok: true });
+  });
+
+  it("returns failure when doctor reports a failed check", async () => {
+    const current = fixture(["doctor", "--workspace", "/work/repo"]);
+    current.doctorRun.mockResolvedValueOnce({
+      checks: [
+        {
+          id: "github.auth",
+          message: "not authenticated",
+          status: "fail",
+        },
+      ],
+      ok: false,
+      summary: { fail: 1, pass: 0, warn: 0 },
+    });
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(1);
+
+    expect(current.doctorRun).toHaveBeenCalledWith({
+      workspacePath: "/work/repo",
+    });
+    expect(JSON.parse(current.stdout())).toMatchObject({ ok: false });
+    expect(current.stderr()).toBe("");
   });
 
   it("prints only the specified bootstrap line without resolving knowledge", async () => {
@@ -346,11 +375,18 @@ function fixture(
     resolve: resolveOperations,
   };
   const serve = vi.fn(async () => undefined);
+  const doctorRun = vi.fn<RepoKnowledgeDoctorLike["run"]>(async () => ({
+    checks: [],
+    ok: true,
+    summary: { fail: 0, pass: 0, warn: 0 },
+  }));
   return {
+    doctorRun,
     ingestPullRequest,
     operations,
     options: {
       argv,
+      doctor: { run: doctorRun },
       io,
       mutationServiceResolver,
       operationsResolver,
