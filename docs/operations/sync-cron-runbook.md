@@ -63,11 +63,11 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin
 
 ### 終了 code
 
-| exit | 意味 | cron での扱い |
-|---|---|---|
-| 0 | 発見した PR をすべて同期（0 件含む） | 正常。通知不要 |
-| 1 | 部分失敗またはエラー（lock 待ちタイムアウト等含む） | 通知して次回実行で自動再試行 |
-| 2 | 引数誤り（`--since` 形式不正など） | 設定ミス。crontab を修正するまで再試行しても回復しない |
+| exit | 意味                                                | cron での扱い                                          |
+| ---- | --------------------------------------------------- | ------------------------------------------------------ |
+| 0    | 発見した PR をすべて同期（0 件含む）                | 正常。通知不要                                         |
+| 1    | 部分失敗またはエラー（lock 待ちタイムアウト等含む） | 通知して次回実行で自動再試行                           |
+| 2    | 引数誤り（`--since` 形式不正など）                  | 設定ミス。crontab を修正するまで再試行しても回復しない |
 
 ## 失敗時の診断と再試行
 
@@ -101,16 +101,16 @@ MCP `sync_repo` との同時実行は片方が lock 待ちになり、既定 5 �
 
 ### エラーコード一覧
 
-| code | 原因 | 対処 |
-|---|---|---|
-| `SYNC_SINCE_BEYOND_CHECKPOINT` | `--since` が checkpoint 境界時刻以上 | `--since` を外して再実行。replay したい場合は checkpoint より厳密に古い境界を指定 |
-| `SYNC_BOUNDARY_CONFLICT` | cursor と `--since` の同時指定 | どちらか一方だけを指定 |
-| `SYNC_SINCE_INVALID` | `--since` が ISO-8601 でない（CLI では `CLI_ARGUMENT_INVALID`） | タイムスタンプ形式を修正 |
-| `SYNC_REPOSITORY_MISMATCH` | 解決された repository と ingest 先の repo_id が不一致 | `--repo` 指定と config の workspaceMappings を確認 |
-| `SYNC_CHECKPOINT_REPOSITORY_MISMATCH` | checkpoint が別リポジトリのもの | storage の取り違えを調査。安易に checkpoint を削除しない |
-| `SYNC_CHECKPOINT_INVALID` / `SYNC_CHECKPOINT_VERSION_UNSUPPORTED` | checkpoint 破損または将来 version | バックアップから復旧するか、全期間再同期を許容できる場合のみ checkpoint を退避して初回同期をやり直す |
-| `LOCK_TIMEOUT` | 同時実行による lock 待ちタイムアウト | 放置してよい。次回実行が再開する |
-| `GRAPHQL_REQUEST_FAILED` ほか `GH_*` | `gh` 実行失敗（未認証・ネットワーク等） | `gh auth status` と接続を確認して再実行 |
+| code                                                              | 原因                                                            | 対処                                                                                                 |
+| ----------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `SYNC_SINCE_BEYOND_CHECKPOINT`                                    | `--since` が checkpoint 境界時刻以上                            | `--since` を外して再実行。replay したい場合は checkpoint より厳密に古い境界を指定                    |
+| `SYNC_BOUNDARY_CONFLICT`                                          | cursor と `--since` の同時指定                                  | どちらか一方だけを指定                                                                               |
+| `SYNC_SINCE_INVALID`                                              | `--since` が ISO-8601 でない（CLI では `CLI_ARGUMENT_INVALID`） | タイムスタンプ形式を修正                                                                             |
+| `SYNC_REPOSITORY_MISMATCH`                                        | 解決された repository と ingest 先の repo_id が不一致           | `--repo` 指定と config の workspaceMappings を確認                                                   |
+| `SYNC_CHECKPOINT_REPOSITORY_MISMATCH`                             | checkpoint が別リポジトリのもの                                 | storage の取り違えを調査。安易に checkpoint を削除しない                                             |
+| `SYNC_CHECKPOINT_INVALID` / `SYNC_CHECKPOINT_VERSION_UNSUPPORTED` | checkpoint 破損または将来 version                               | バックアップから復旧するか、全期間再同期を許容できる場合のみ checkpoint を退避して初回同期をやり直す |
+| `LOCK_TIMEOUT`                                                    | 同時実行による lock 待ちタイムアウト                            | 放置してよい。次回実行が再開する                                                                     |
+| `GRAPHQL_REQUEST_FAILED` ほか `GH_*`                              | `gh` 実行失敗（未認証・ネットワーク等）                         | `gh auth status` と接続を確認して再実行                                                              |
 
 ## 動作確認手順
 

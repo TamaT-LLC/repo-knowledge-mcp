@@ -7,12 +7,12 @@
 
 ## 全体像
 
-| 入力 / 出力 | ファイル | 内容 |
-|---|---|---|
-| 入力 | `test/fixtures/golden/m2-anonymized-corpus.json` | 匿名化 50+ スレッド corpus と検索クエリ。期待ラベルはローカル評価専用で、provider へは送らない項目に依存しない |
-| 入力（replay） | `test/fixtures/golden/m2-recorded-predictions.json` | 記録済み provider prediction。replay はネットワークに一切触れない |
-| 出力 | `test/fixtures/golden/m2-provider-baseline.json` | prediction から組み立てた golden fixture + model/prompt/schema/policy provenance |
-| 出力 | `test/fixtures/golden/m2-quality-thresholds.json` | metric ごとの下限閾値（review 済み・version 付き） |
+| 入力 / 出力    | ファイル                                            | 内容                                                                                                           |
+| -------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 入力           | `test/fixtures/golden/m2-anonymized-corpus.json`    | 匿名化 50+ スレッド corpus と検索クエリ。期待ラベルはローカル評価専用で、provider へは送らない項目に依存しない |
+| 入力（replay） | `test/fixtures/golden/m2-recorded-predictions.json` | 記録済み provider prediction。replay はネットワークに一切触れない                                              |
+| 出力           | `test/fixtures/golden/m2-provider-baseline.json`    | prediction から組み立てた golden fixture + model/prompt/schema/policy provenance                               |
+| 出力           | `test/fixtures/golden/m2-quality-thresholds.json`   | metric ごとの下限閾値（review 済み・version 付き）                                                             |
 
 baseline artifact は「期待値のコピー」ではなく **provider prediction の記録**である。
 metric report は artifact 内の記録済み prediction だけから決定的に再計算できるため、
@@ -108,14 +108,14 @@ $ node dist/quality-gate-cli.js \
 gate は次を 1 コマンドで検証し、結果を必ず**機械可読 JSON report**として
 stdout に出力する（`report_kind: "m2_quality_gate_report"`）。
 
-| 検証 | 失敗時の failure code | exit |
-|---|---|---|
-| thresholds / artifact のスキーマ妥当性 | `THRESHOLDS_INVALID` / `ARTIFACT_INVALID` | 2 |
-| thresholds が review 済み測定に束縛されているか | `BASELINE_MISMATCH`（不一致 field 一覧付き） | 2 |
-| corpus + recorded prediction + 現行 prompt/schema/policy 世代から artifact を replay 再現できるか（fixture drift） | `FIXTURE_DRIFT` / `REPLAY_FAILED` | 2 |
-| 全指標が存在するか | `METRIC_MISSING` | 2 |
-| 全指標が下限以上か | `METRIC_BELOW_MINIMUM`（metric / minimum / value 付き） | 1 |
-| 入力ファイルが読めるか | `INPUT_UNREADABLE` | 2 |
+| 検証                                                                                                               | 失敗時の failure code                                   | exit |
+| ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- | ---- |
+| thresholds / artifact のスキーマ妥当性                                                                             | `THRESHOLDS_INVALID` / `ARTIFACT_INVALID`               | 2    |
+| thresholds が review 済み測定に束縛されているか                                                                    | `BASELINE_MISMATCH`（不一致 field 一覧付き）            | 2    |
+| corpus + recorded prediction + 現行 prompt/schema/policy 世代から artifact を replay 再現できるか（fixture drift） | `FIXTURE_DRIFT` / `REPLAY_FAILED`                       | 2    |
+| 全指標が存在するか                                                                                                 | `METRIC_MISSING`                                        | 2    |
+| 全指標が下限以上か                                                                                                 | `METRIC_BELOW_MINIMUM`（metric / minimum / value 付き） | 1    |
+| 入力ファイルが読めるか                                                                                             | `INPUT_UNREADABLE`                                      | 2    |
 
 - exit 0: `status: "pass"`。全指標が下限以上で、drift も世代不一致もない
 - exit 1: `status: "metric_failure"`。指標低下のみ（integrity は健全）
@@ -206,15 +206,15 @@ quality gate の通過は
 
 ## 失敗時の診断
 
-| エラー | 原因 | 対処 |
-|---|---|---|
-| `BASELINE_CLOUD_CONSENT_REQUIRED` | `--live` に opt-in フラグなし | 送信内容を確認のうえ `--consent-cloud-transmission` を付ける |
-| `BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI` | CI 環境で `--live` | 実測はローカルでのみ行う。CI では replay を使う |
-| `BASELINE_SENSITIVE_CONTENT` | corpus か prediction に秘匿情報 | 報告された JSON パスの内容を匿名化してから再実行する |
-| `BASELINE_CORPUS_MISMATCH` | corpus と recorded の世代不一致 | 対になる corpus / recorded ファイルを揃える |
-| `QUALITY_GATE_BASELINE_MISMATCH` | thresholds が別の測定に紐づく（別時刻・別 model・別 prompt/schema/policy 世代、または review 後の prediction 差し替え） | 手順 4 で thresholds を対象 artifact に対して再 review し、`baseline` ブロックを更新する |
-| `BASELINE_RECORDED_PREDICTION_MISSING` | recorded に未収載スレッド | corpus 変更後に recorded prediction を取り直す |
-| `AUTHENTICATION_MISSING` | `ANTHROPIC_API_KEY` 未設定 | operator の鍵を環境変数で設定する |
+| エラー                                 | 原因                                                                                                                    | 対処                                                                                     |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `BASELINE_CLOUD_CONSENT_REQUIRED`      | `--live` に opt-in フラグなし                                                                                           | 送信内容を確認のうえ `--consent-cloud-transmission` を付ける                             |
+| `BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI`  | CI 環境で `--live`                                                                                                      | 実測はローカルでのみ行う。CI では replay を使う                                          |
+| `BASELINE_SENSITIVE_CONTENT`           | corpus か prediction に秘匿情報                                                                                         | 報告された JSON パスの内容を匿名化してから再実行する                                     |
+| `BASELINE_CORPUS_MISMATCH`             | corpus と recorded の世代不一致                                                                                         | 対になる corpus / recorded ファイルを揃える                                              |
+| `QUALITY_GATE_BASELINE_MISMATCH`       | thresholds が別の測定に紐づく（別時刻・別 model・別 prompt/schema/policy 世代、または review 後の prediction 差し替え） | 手順 4 で thresholds を対象 artifact に対して再 review し、`baseline` ブロックを更新する |
+| `BASELINE_RECORDED_PREDICTION_MISSING` | recorded に未収載スレッド                                                                                               | corpus 変更後に recorded prediction を取り直す                                           |
+| `AUTHENTICATION_MISSING`               | `ANTHROPIC_API_KEY` 未設定                                                                                              | operator の鍵を環境変数で設定する                                                        |
 
 ## corpus を変更する場合
 

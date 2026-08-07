@@ -1,0 +1,282 @@
+import {
+  DEFAULT_PILOT_DURATION_DAYS,
+  PILOT_SUMMARY_REPORT_KIND,
+  PilotRecordError,
+  listPilotWindowDates,
+  type ObservedPilotDailyRecord,
+  type PilotDailyRecord,
+  type PilotGateStatus,
+} from "./pilot-daily-record.js";
+
+export interface PilotSummaryWindow {
+  readonly duration_days: number;
+  readonly end_date: string;
+  readonly start_date: string;
+}
+
+export interface PilotSummaryCoverage {
+  /** True when every expected day has an observed or missing record. */
+  readonly complete: boolean;
+  readonly days_expected: number;
+  readonly days_missing: number;
+  readonly days_observed: number;
+  /** Expected days that have neither an observed nor a missing record. */
+  readonly unrecorded_dates: readonly string[];
+}
+
+export interface PilotSummarySync {
+  readonly discovered: number;
+  readonly failed_pull_requests: readonly number[];
+  readonly ingested: number;
+  readonly jobs_created: number;
+  readonly retry_attempts: number;
+  /** `(runs_total - runs_failed) / runs_total`, or null without any run. */
+  readonly run_success_rate: number | null;
+  readonly runs_failed: number;
+  readonly runs_total: number;
+  readonly unchanged: number;
+}
+
+export interface PilotBacklogDayPoint {
+  readonly date: string;
+  readonly pending_jobs: number;
+}
+
+export interface PilotSummaryBacklog {
+  /**
+   * Every window date without an observed record (missing or unrecorded),
+   * including the leading and trailing edges of the window. Any entry here
+   * leaves part of the backlog series unobserved and makes the
+   * monotonicity verdict indeterminate.
+   */
+  readonly backlog_series_gaps: readonly string[];
+  readonly final_failed_jobs: number | null;
+  readonly final_pending_jobs: number | null;
+  readonly max_failed_jobs: number | null;
+  readonly max_pending_jobs: number | null;
+  /** Day-by-day pending backlog in date order, for trend inspection. */
+  readonly pending_jobs_by_day: readonly PilotBacklogDayPoint[];
+  /**
+   * True when the pilot ends on a monotonically increasing backlog: at
+   * least two observed days, no day-over-day decrease, and a final value
+   * strictly above the first. This is the machine check for the pilot
+   * plan's go condition "the backlog did not end monotonically increasing".
+   * The boolean verdict exists only when every window day was observed;
+   * `null` (fail-closed) whenever `backlog_series_gaps` is non-empty — the
+   * backlog may have moved on any unobserved day, edges included, so the
+   * verdict is indeterminate and a human must review the daily records and
+   * incidents instead of treating the run as an automatic go. Mid-pilot
+   * summaries are therefore `null` by design; the machine verdict only
+   * settles once the full window is observed.
+   */
+  readonly pending_jobs_monotonically_increasing: boolean | null;
+}
+
+export interface PilotSummaryQuality {
+  readonly days_by_gate_status: Readonly<Record<PilotGateStatus, number>>;
+  readonly final_canonical_digest: string | null;
+  readonly final_knowledge_total: number | null;
+  readonly final_outcomes_total: number | null;
+}
+
+export interface PilotSummaryMissingDay {
+  readonly date: string;
+  readonly reason: string;
+}
+
+export interface PilotSummaryReport {
+  readonly backlog: PilotSummaryBacklog;
+  readonly coverage: PilotSummaryCoverage;
+  readonly missing_days: readonly PilotSummaryMissingDay[];
+  readonly pilot_id: string;
+  readonly quality: PilotSummaryQuality;
+  readonly report_kind: typeof PILOT_SUMMARY_REPORT_KIND;
+  readonly schema_version: 1;
+  readonly sync: PilotSummarySync;
+  readonly window: PilotSummaryWindow;
+}
+
+export interface SummarizePilotLogRequest {
+  readonly durationDays?: number;
+  readonly records: readonly PilotDailyRecord[];
+  readonly startDate: string;
+}
+
+/**
+ * Aggregates a validated pilot log into the machine-readable summary the
+ * final M2 report quotes. The summary is a pure function of the records and
+ * the declared window, so re-running it never changes the verdict.
+ */
+export function summarizePilotLog(
+  request: SummarizePilotLogRequest,
+): PilotSummaryReport {
+  const durationDays = request.durationDays ?? DEFAULT_PILOT_DURATION_DAYS;
+  const expectedDates = listPilotWindowDates(request.startDate, durationDays);
+  const records = sortByDate(request.records);
+  if (records.length === 0) {
+    throw new PilotRecordError(
+      "PILOT_LOG_EMPTY",
+      "the pilot log has no records to summarize",
+    );
+  }
+  const expected = new Set(expectedDates);
+  for (const record of records) {
+    if (!expected.has(record.date)) {
+      throw new PilotRecordError(
+        "PILOT_DATE_OUT_OF_WINDOW",
+        `record date ${record.date} is outside the declared pilot window ${expectedDates[0]!}..${expectedDates.at(-1)!}`,
+      );
+    }
+  }
+  const observed = records.filter(
+    (record): record is ObservedPilotDailyRecord =>
+      record.status === "observed",
+  );
+  const missingDays = records
+    .filter((record) => record.status === "missing")
+    .map((record) => ({ date: record.date, reason: record.reason }));
+  const recordedDates = new Set(records.map((record) => record.date));
+  const unrecordedDates = expectedDates.filter(
+    (date) => !recordedDates.has(date),
+  );
+  const lastObserved = observed.at(-1) ?? null;
+  const pendingJobsByDay = observed.map((record) => ({
+    date: record.date,
+    pending_jobs: record.backlog.pending_jobs,
+  }));
+  const backlogSeriesGaps = listBacklogSeriesGaps(expectedDates, observed);
+  return {
+    backlog: {
+      backlog_series_gaps: backlogSeriesGaps,
+      final_failed_jobs: lastObserved?.backlog.failed_jobs ?? null,
+      final_pending_jobs: lastObserved?.backlog.pending_jobs ?? null,
+      max_failed_jobs: maxOf(observed, (record) => record.backlog.failed_jobs),
+      max_pending_jobs: maxOf(
+        observed,
+        (record) => record.backlog.pending_jobs,
+      ),
+      pending_jobs_by_day: pendingJobsByDay,
+      // An interrupted series cannot prove or disprove a monotone trend:
+      // the backlog may have moved during the gap, so fail closed to
+      // "indeterminate" instead of judging the spliced samples.
+      pending_jobs_monotonically_increasing:
+        backlogSeriesGaps.length > 0
+          ? null
+          : isMonotonicallyIncreasing(pendingJobsByDay),
+    },
+    coverage: {
+      complete: unrecordedDates.length === 0,
+      days_expected: expectedDates.length,
+      days_missing: missingDays.length,
+      days_observed: observed.length,
+      unrecorded_dates: unrecordedDates,
+    },
+    missing_days: missingDays,
+    pilot_id: records[0]!.pilot_id,
+    quality: {
+      days_by_gate_status: countByGateStatus(observed),
+      final_canonical_digest: lastObserved?.quality.canonical_digest ?? null,
+      final_knowledge_total: lastObserved?.quality.knowledge_total ?? null,
+      final_outcomes_total: lastObserved?.quality.outcomes_total ?? null,
+    },
+    report_kind: PILOT_SUMMARY_REPORT_KIND,
+    schema_version: 1,
+    sync: summarizeSync(observed),
+    window: {
+      duration_days: durationDays,
+      end_date: expectedDates.at(-1)!,
+      start_date: expectedDates[0]!,
+    },
+  };
+}
+
+function summarizeSync(
+  observed: readonly ObservedPilotDailyRecord[],
+): PilotSummarySync {
+  const runsTotal = sumOf(observed, (record) => record.sync.runs_total);
+  const runsFailed = sumOf(observed, (record) => record.sync.runs_failed);
+  const failedPullRequests = [
+    ...new Set(observed.flatMap((record) => record.sync.failed_pull_requests)),
+  ].sort((left, right) => left - right);
+  return {
+    discovered: sumOf(observed, (record) => record.sync.discovered),
+    failed_pull_requests: failedPullRequests,
+    ingested: sumOf(observed, (record) => record.sync.ingested),
+    jobs_created: sumOf(observed, (record) => record.sync.jobs_created),
+    retry_attempts: sumOf(observed, (record) => record.sync.retry_attempts),
+    run_success_rate:
+      runsTotal === 0 ? null : (runsTotal - runsFailed) / runsTotal,
+    runs_failed: runsFailed,
+    runs_total: runsTotal,
+    unchanged: sumOf(observed, (record) => record.sync.unchanged),
+  };
+}
+
+function countByGateStatus(
+  observed: readonly ObservedPilotDailyRecord[],
+): Readonly<Record<PilotGateStatus, number>> {
+  const counts: Record<PilotGateStatus, number> = {
+    integrity_failure: 0,
+    metric_failure: 0,
+    not_run: 0,
+    pass: 0,
+  };
+  for (const record of observed) {
+    counts[record.quality.gate_status] += 1;
+  }
+  return counts;
+}
+
+/**
+ * Every window date without an observed record — whether the day was
+ * excused (missing record) or simply unrecorded, and whether it falls
+ * between observed days or on the window's edges. Each one leaves a day of
+ * backlog movement unobserved, so any gap voids the machine verdict.
+ */
+function listBacklogSeriesGaps(
+  expectedDates: readonly string[],
+  observed: readonly ObservedPilotDailyRecord[],
+): readonly string[] {
+  const observedDates = new Set(observed.map((record) => record.date));
+  return expectedDates.filter((date) => !observedDates.has(date));
+}
+
+/**
+ * Monotonically increasing means the whole observed series never decreases
+ * day over day and strictly grows overall; a flat or dipping series is not
+ * a runaway backlog. Fewer than two observed days cannot establish a trend.
+ */
+function isMonotonicallyIncreasing(
+  series: readonly PilotBacklogDayPoint[],
+): boolean {
+  if (series.length < 2) return false;
+  for (let index = 1; index < series.length; index += 1) {
+    if (series[index]!.pending_jobs < series[index - 1]!.pending_jobs) {
+      return false;
+    }
+  }
+  return series.at(-1)!.pending_jobs > series[0]!.pending_jobs;
+}
+
+function sortByDate(
+  records: readonly PilotDailyRecord[],
+): readonly PilotDailyRecord[] {
+  return [...records].sort((left, right) =>
+    left.date < right.date ? -1 : left.date > right.date ? 1 : 0,
+  );
+}
+
+function sumOf<T>(items: readonly T[], select: (item: T) => number): number {
+  return items.reduce((total, item) => total + select(item), 0);
+}
+
+function maxOf<T>(
+  items: readonly T[],
+  select: (item: T) => number,
+): number | null {
+  if (items.length === 0) return null;
+  return items.reduce(
+    (maximum, item) => Math.max(maximum, select(item)),
+    Number.NEGATIVE_INFINITY,
+  );
+}

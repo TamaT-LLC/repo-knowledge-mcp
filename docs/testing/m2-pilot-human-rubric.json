@@ -1,0 +1,125 @@
+{
+  "checkpoints": [
+    {
+      "day": 1,
+      "description": "pilot 開始直後の baseline。outcome がほぼゼロの状態でのランキングを記録し、以後の比較基準にする",
+      "id": "cp-day-01-baseline"
+    },
+    {
+      "day": 7,
+      "description": "中間時点。1 週間分の outcome 蓄積がランキングを改善または悪化させていないかを baseline と比較する",
+      "id": "cp-day-07-midpoint"
+    },
+    {
+      "day": 14,
+      "description": "最終時点。M2 完了条件「ランキングが体感に合う」の go/no-go 判断に使う評価",
+      "id": "cp-day-14-final"
+    }
+  ],
+  "queries": [
+    {
+      "criteria": [
+        {
+          "description": "fail-closed / 明示的エラー処理に関するルールが上位 3 件以内に現れる",
+          "id": "c-top3-relevant"
+        },
+        {
+          "description": "false_positive が繰り返し記録されたルールが、同程度のテキスト一致のルールより上位に居座っていない",
+          "id": "c-false-positive-demoted"
+        }
+      ],
+      "id": "q-error-handling",
+      "intent": "エラー処理・fail-closed 系のルールを探す典型的なレビュー前検索。severity の高いルールが自然に上に来るか",
+      "query": "error handling fail-closed"
+    },
+    {
+      "criteria": [
+        {
+          "description": "zod schema・入力検証に関するルールが上位 3 件以内に現れる",
+          "id": "c-top3-relevant"
+        },
+        {
+          "description": "applied 実績が蓄積したルールが、outcome ゼロの同種ルールと比べて不当に下がっていない",
+          "id": "c-applied-not-buried"
+        }
+      ],
+      "id": "q-schema-validation",
+      "intent": "スキーマ検証まわりの規約確認。applied の蓄積が適切に反映されるか",
+      "query": "zod schema validation"
+    },
+    {
+      "criteria": [
+        {
+          "description": "lock・同時実行・直列化に関するルールが上位 3 件以内に現れる",
+          "id": "c-top3-relevant"
+        },
+        {
+          "description": "matched_scopes が同時実行に関係するファイル種別と整合している",
+          "id": "c-scopes-consistent"
+        }
+      ],
+      "id": "q-lock-concurrency",
+      "intent": "writer lock / 同時実行契約のルール検索。scope の一致が体感に合うか",
+      "query": "writer lock concurrency"
+    },
+    {
+      "criteria": [
+        {
+          "description": "checkpoint・resume 境界に関するルールが上位 3 件以内に現れる",
+          "id": "c-top3-relevant"
+        },
+        {
+          "description": "violated が記録されたルールが、記録前より不自然に沈んでいない（violation は降格要因ではない）",
+          "id": "c-violated-not-buried"
+        }
+      ],
+      "id": "q-sync-checkpoint",
+      "intent": "sync の境界規則の検索。violation boost と outcome 重みの二重加算がないか",
+      "query": "sync checkpoint resume"
+    },
+    {
+      "criteria": [
+        {
+          "description": "stdout / logging の純度に関するルールが上位 3 件以内に現れる",
+          "id": "c-top3-relevant"
+        },
+        {
+          "description": "outcome がゼロ件のルール同士の相対順位が M1 baseline（テキスト一致 + severity）から説明できる",
+          "id": "c-zero-outcome-stable"
+        }
+      ],
+      "id": "q-stdout-purity",
+      "intent": "stdio 純度規約の検索。outcome ゼロ件の順位が M1 と一致するという不変条件の体感確認",
+      "query": "stdout logging json purity"
+    }
+  ],
+  "rubric_id": "m2-pilot-human-rubric-v1",
+  "rubric_kind": "m2_pilot_human_rubric",
+  "scale": [
+    {
+      "description": "上位の結果が意図と無関係、または明らかに誤ったルールが上位を占める",
+      "label": "体感に反する",
+      "minimum_criteria_met_ratio": 0,
+      "score": 1
+    },
+    {
+      "description": "関連ルールは出るが順位が体感と食い違う",
+      "label": "部分的に合う",
+      "minimum_criteria_met_ratio": 0,
+      "score": 2
+    },
+    {
+      "description": "順位が概ね体感どおり。criteria の半数以上を満たし、明確な違和感がない",
+      "label": "概ね合う",
+      "minimum_criteria_met_ratio": 0.5,
+      "score": 3
+    },
+    {
+      "description": "順位が体感と一致し、すべての criteria を満たす",
+      "label": "完全に合う",
+      "minimum_criteria_met_ratio": 1,
+      "score": 4
+    }
+  ],
+  "schema_version": 1
+}

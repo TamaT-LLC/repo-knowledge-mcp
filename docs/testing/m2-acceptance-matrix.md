@@ -88,7 +88,12 @@ M1 の受け入れ条件 1〜63 は [M1 acceptance matrix](./m1-acceptance-matri
 - **Node 22 / 24**: [CI workflow](../../.github/workflows/ci.yml) が両バージョンで
   `npm run check` / `npm run golden` / `npm run quality:gate` / `npm run package:smoke` を実行する。
 - **2 週間 cron 運用（§19 M2 完了条件）**: 自動化不能の実運用項目。
-  [sync cron runbook](../operations/sync-cron-runbook.md) の手順で運用し、
-  ランキングの体感評価は M2-20 の rubric と
+  [M2 cron pilot 計画](../operations/m2-cron-pilot-plan.md) の固定条件で
+  [sync cron runbook](../operations/sync-cron-runbook.md) の手順により運用し、
+  日次記録は `pilot-daily-record-cli`（[test](../../test/pilot-daily-record-cli.test.ts)）、
+  ランキングの体感評価は
+  [pilot human rubric](./m2-pilot-human-rubric.json) と M2-20 の rubric、
+  最終判定は
+  [pilot report テンプレート](../operations/m2-cron-pilot-report-template.md) と
   [auto activation runbook](../operations/trusted-human-auto-activation-runbook.md) の
   棚卸し手順で記録する。
