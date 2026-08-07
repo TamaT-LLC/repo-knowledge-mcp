@@ -143,6 +143,29 @@ export {
   type SyncSinceBoundary,
 } from "./sync-cursor.js";
 export {
+  SYNC_CHECKPOINT_DIRECTORY,
+  SYNC_CHECKPOINT_FILE_NAME,
+  SYNC_CHECKPOINT_SCHEMA_VERSION,
+  SyncCheckpointError,
+  SyncCheckpointSchema,
+  SyncCheckpointStore,
+  type SyncCheckpoint,
+  type SyncCheckpointErrorCode,
+} from "./sync-checkpoint-store.js";
+export {
+  DEFAULT_SYNC_LOCK_TIMEOUT_MS,
+  SYNC_LOCK_FILE_NAME,
+  SyncRepoError,
+  SyncRepoService,
+  type SyncPullRequestEnumerator,
+  type SyncPullRequestFailure,
+  type SyncPullRequestIngester,
+  type SyncRepoErrorCode,
+  type SyncRepoRequest,
+  type SyncRepoServiceOptions,
+  type SyncRepoSummary,
+} from "./sync-repo-service.js";
+export {
   RAW_COMMENT_RECORD_TYPE,
   RAW_PULL_REQUEST_RECORD_TYPE,
   RAW_THREAD_RECORD_TYPE,
