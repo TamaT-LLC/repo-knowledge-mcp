@@ -15,6 +15,7 @@ import {
   ActorKindSchema,
   CandidateIdSchema,
   DistillJobStateSchema,
+  EventIdSchema,
   EvidenceIdSchema,
   GitHubNodeIdSchema,
   IsoDateTimeSchema,
@@ -60,6 +61,14 @@ import {
   type ModelPlaneUpdateKnowledgeRequest,
   type ModelPlaneUpdateKnowledgeResult,
 } from "./model-plane-knowledge-service.js";
+import {
+  OutcomeKindSchema,
+  RecordOutcomeError,
+  RecordOutcomeMutationService,
+  RecordOutcomeRequestSchema,
+  type RecordOutcomeRequest,
+  type RecordOutcomeResult,
+} from "./record-outcome-mutation-service.js";
 import { RequestIntegrityError } from "./request-integrity.js";
 import {
   RepositoryResolutionError,
@@ -567,6 +576,27 @@ export const UpdateKnowledgeOutputSchema = mutationOutputSchema(
   UpdateKnowledgeResultSchema,
 );
 
+// The canonical request schema is extended, not redefined, so the MCP surface
+// can never accept fields the outcome mutation service would reject.
+export const RecordOutcomeInputSchema = RecordOutcomeRequestSchema.extend(
+  RepositorySelectionShape,
+);
+
+export const RecordOutcomeResultSchema = z
+  .object({
+    applied_count: z.number().int().nonnegative(),
+    event_id: EventIdSchema,
+    knowledge_id: KnowledgeIdSchema,
+    outcome: OutcomeKindSchema,
+    replayed: z.boolean(),
+    violation_count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const RecordOutcomeOutputSchema = mutationOutputSchema(
+  RecordOutcomeResultSchema,
+);
+
 export const MUTATION_TOOL_ANNOTATIONS = Object.freeze({
   add_knowledge: Object.freeze({
     destructiveHint: false,
@@ -583,6 +613,12 @@ export const MUTATION_TOOL_ANNOTATIONS = Object.freeze({
   prepare_distillation: Object.freeze({
     destructiveHint: false,
     idempotentHint: false,
+    openWorldHint: false,
+    readOnlyHint: false,
+  }),
+  record_outcome: Object.freeze({
+    destructiveHint: false,
+    idempotentHint: true,
     openWorldHint: false,
     readOnlyHint: false,
   }),
@@ -621,6 +657,8 @@ export interface KnowledgeMutationOperations {
   prepareDistillation(
     request?: PrepareDistillationRequest,
   ): Promise<PrepareDistillationResult>;
+  /** Appends one idempotent outcome event; knowledge state is never mutated. */
+  recordOutcome(request: RecordOutcomeRequest): Promise<RecordOutcomeResult>;
   submitExtract(request: SubmitExtractRequest): Promise<SubmitExtractResponse>;
   submitFinalize(
     request: SubmitFinalizeRequest,
@@ -645,7 +683,7 @@ export interface KnowledgeMutationServiceResolver {
 
 export type RepositoryMutationPipelineOperations = Omit<
   KnowledgeMutationOperations,
-  "addKnowledge" | "updateKnowledge"
+  "addKnowledge" | "recordOutcome" | "updateKnowledge"
 >;
 
 export interface RepositoryMutationPipelineFactoryContext {
@@ -732,10 +770,16 @@ export class CanonicalKnowledgeMutationServiceResolver implements KnowledgeMutat
       repoId: repository.repoId,
       repository: repositoryStore,
     });
+    const outcomes = new RecordOutcomeMutationService({
+      repo: repository.currentName,
+      repoId: repository.repoId,
+      repository: repositoryStore,
+    });
     return {
       addKnowledge: (request) => knowledge.addKnowledge(request),
       ingestPullRequest: (request) => pipeline.ingestPullRequest(request),
       prepareDistillation: (request) => pipeline.prepareDistillation(request),
+      recordOutcome: (request) => outcomes.recordOutcome(request),
       submitExtract: (request) => pipeline.submitExtract(request),
       submitFinalize: (request) => pipeline.submitFinalize(request),
       syncRepo: (request) => pipeline.syncRepo(request),
@@ -895,6 +939,33 @@ export function registerMutationTools(
             patch: input.patch,
           }),
         summarizeUpdate,
+      );
+    },
+  );
+
+  server.registerTool(
+    "record_outcome",
+    {
+      annotations: MUTATION_TOOL_ANNOTATIONS.record_outcome,
+      description:
+        "Record one idempotent outcome event (applied, violated, not_applicable, or false_positive) for an active knowledge id returned by get_rules. Retrying the same event_id with the identical payload returns the stable original result; this tool can never change knowledge status, rule text, scope, or severity.",
+      inputSchema: RecordOutcomeInputSchema,
+      outputSchema: RecordOutcomeOutputSchema,
+      title: "Record a rule outcome",
+    },
+    async (input) => {
+      return executeMutation(
+        RecordOutcomeResultSchema,
+        async () =>
+          (await resolveMutationService(options, input)).recordOutcome({
+            at: input.at,
+            ...(input.context === undefined ? {} : { context: input.context }),
+            event_id: input.event_id,
+            knowledge_id: input.knowledge_id,
+            ...(input.note === undefined ? {} : { note: input.note }),
+            outcome: input.outcome,
+          }),
+        summarizeRecordOutcome,
       );
     },
   );
@@ -1132,6 +1203,28 @@ export function mapMutationError(error: unknown): MutationToolErrorPayload {
         ...knownError(error, true),
         next_action:
           "Call prepare_distillation again to acquire a fresh finalize handle.",
+      };
+    }
+    return knownError(error, false);
+  }
+
+  if (error instanceof RecordOutcomeError) {
+    if (error.code === "IDEMPOTENCY_CONFLICT") {
+      return {
+        ...knownError(error, false),
+        next_action:
+          "Reuse this event_id only to retry the identical payload; record a different outcome under a new event_id.",
+      };
+    }
+    if (
+      error.code === "KNOWLEDGE_NOT_ACTIVE" ||
+      error.code === "KNOWLEDGE_NOT_FOUND" ||
+      error.code === "KNOWLEDGE_REPOSITORY_MISMATCH"
+    ) {
+      return {
+        ...knownError(error, false),
+        next_action:
+          "Call get_rules for this repository and record outcomes only for the active knowledge ids it returns.",
       };
     }
     return knownError(error, false);
@@ -1385,6 +1478,27 @@ function summarizeUpdate(
       next_action:
         "Review and approve the revision proposal through the admin CLI.",
       retryable: false,
+    },
+  };
+}
+
+function summarizeRecordOutcome(
+  result: z.infer<typeof RecordOutcomeResultSchema>,
+): MutationToolPresentation {
+  const replayNote = result.replayed
+    ? " Replayed the already-recorded event, so no counter changed."
+    : "";
+  return {
+    body: `### Outcome recorded\n\nRecorded \`${result.outcome}\` for \`${result.knowledge_id}\` as event \`${result.event_id}\`.${replayNote}`,
+    summary: {
+      counts: {
+        applied_count: result.applied_count,
+        recorded_events: result.replayed ? 0 : 1,
+        violation_count: result.violation_count,
+      },
+      next_action:
+        "No further action is required; canonical projections now include this outcome.",
+      retryable: true,
     },
   };
 }

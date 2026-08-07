@@ -269,6 +269,7 @@ describe("repo-knowledge MCP read server", () => {
       "submit_distillation",
       "add_knowledge",
       "update_knowledge",
+      "record_outcome",
     ]);
     expect(replies[2]).toMatchObject({
       id: 3,
@@ -358,6 +359,7 @@ function unavailableMutationResolver(): KnowledgeMutationServiceResolver {
         addKnowledge: unavailable,
         ingestPullRequest: unavailable,
         prepareDistillation: unavailable,
+        recordOutcome: unavailable,
         submitExtract: unavailable,
         submitFinalize: unavailable,
         syncRepo: unavailable,

@@ -401,6 +401,7 @@ function fixture(
     addKnowledge: unavailable,
     ingestPullRequest,
     prepareDistillation: unavailable,
+    recordOutcome: unavailable,
     submitExtract: unavailable,
     submitFinalize: unavailable,
     syncRepo,

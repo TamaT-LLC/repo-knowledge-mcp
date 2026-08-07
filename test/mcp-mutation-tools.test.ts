@@ -8,6 +8,8 @@ import {
   IngestPrOutputSchema,
   KnowledgeConflictError,
   PrepareDistillationOutputSchema,
+  RecordOutcomeError,
+  RecordOutcomeOutputSchema,
   RequestIntegrityError,
   RepositoryResolutionError,
   SubmitDistillationError,
@@ -35,6 +37,8 @@ import {
 
 const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const JOB_ID = "job_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const EVENT_ID = "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const OUTCOME_AT = "2026-08-07T00:00:00.000Z";
 const REPOSITORY = "owner/repository";
 const RAW_HASH = "a".repeat(64);
 const PREFIXED_HASH = `sha256:${RAW_HASH}`;
@@ -63,6 +67,7 @@ describe("MCP mutation tools", () => {
         "submit_distillation",
         "add_knowledge",
         "update_knowledge",
+        "record_outcome",
       ].includes(tool.name),
     );
 
@@ -73,6 +78,7 @@ describe("MCP mutation tools", () => {
       "submit_distillation",
       "add_knowledge",
       "update_knowledge",
+      "record_outcome",
     ]);
     expect(
       Object.fromEntries(tools.map((tool) => [tool.name, tool.annotations])),
@@ -92,6 +98,12 @@ describe("MCP mutation tools", () => {
       prepare_distillation: {
         destructiveHint: false,
         idempotentHint: false,
+        openWorldHint: false,
+        readOnlyHint: false,
+      },
+      record_outcome: {
+        destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: false,
         readOnlyHint: false,
       },
@@ -290,6 +302,151 @@ describe("MCP mutation tools", () => {
       },
     });
     expect(fixture.updateKnowledge).toHaveBeenCalledWith(updateRequest);
+
+    const outcomeRequest = {
+      at: OUTCOME_AT,
+      context: { file_paths: ["src/index.ts"], pr_number: 42 },
+      event_id: EVENT_ID,
+      knowledge_id: KNOWLEDGE_ID,
+      note: "guarded the input",
+      outcome: "applied",
+    } as const;
+    const outcome = await callTool(connection.client, "record_outcome", {
+      ...outcomeRequest,
+      repo: REPOSITORY,
+    });
+    expect(
+      RecordOutcomeOutputSchema.safeParse(toolStructuredContent(outcome))
+        .success,
+    ).toBe(true);
+    expect(toolText(outcome)).toContain(`Recorded \`applied\``);
+    expect(toolStructuredContent(outcome)).toMatchObject({
+      result: {
+        applied_count: 1,
+        event_id: EVENT_ID,
+        knowledge_id: KNOWLEDGE_ID,
+        outcome: "applied",
+        replayed: false,
+        violation_count: 0,
+      },
+      summary: {
+        counts: { applied_count: 1, recorded_events: 1, violation_count: 0 },
+        retryable: true,
+      },
+    });
+    expect(fixture.recordOutcome).toHaveBeenCalledWith(outcomeRequest);
+  });
+
+  it("returns the stable original result when the same event_id is retried", async () => {
+    const fixture = createMutationFixture();
+    fixture.recordOutcome.mockResolvedValueOnce({
+      applied_count: 1,
+      event_id: EVENT_ID,
+      knowledge_id: KNOWLEDGE_ID,
+      outcome: "applied",
+      replayed: true,
+      violation_count: 0,
+    });
+    const connection = await connect(fixture.resolver);
+
+    const replay = await callTool(connection.client, "record_outcome", {
+      at: OUTCOME_AT,
+      event_id: EVENT_ID,
+      knowledge_id: KNOWLEDGE_ID,
+      outcome: "applied",
+      repo: REPOSITORY,
+    });
+
+    expect(toolResult(replay)).not.toHaveProperty("isError", true);
+    expect(toolText(replay)).toContain("no counter changed");
+    expect(toolStructuredContent(replay)).toMatchObject({
+      ok: true,
+      result: { applied_count: 1, replayed: true },
+      summary: {
+        counts: { applied_count: 1, recorded_events: 0, violation_count: 0 },
+        retryable: true,
+      },
+    });
+  });
+
+  it("maps outcome idempotency conflicts and knowledge binding failures to operator errors", async () => {
+    const fixture = createMutationFixture();
+    fixture.recordOutcome
+      .mockRejectedValueOnce(
+        new RecordOutcomeError(
+          "IDEMPOTENCY_CONFLICT",
+          `event ${EVENT_ID} is already bound to a different outcome payload`,
+        ),
+      )
+      .mockRejectedValueOnce(
+        new RecordOutcomeError(
+          "KNOWLEDGE_NOT_FOUND",
+          `knowledge ${KNOWLEDGE_ID} was not found in this repository`,
+        ),
+      )
+      .mockRejectedValueOnce(
+        new RecordOutcomeError(
+          "KNOWLEDGE_REPOSITORY_MISMATCH",
+          `knowledge ${KNOWLEDGE_ID} belongs to repository R_other, not R_repository`,
+        ),
+      )
+      .mockRejectedValueOnce(
+        new RecordOutcomeError(
+          "KNOWLEDGE_NOT_ACTIVE",
+          `knowledge ${KNOWLEDGE_ID} is proposed; outcomes require active knowledge`,
+        ),
+      );
+    const connection = await connect(fixture.resolver);
+    const call = async () =>
+      callTool(connection.client, "record_outcome", {
+        at: OUTCOME_AT,
+        event_id: EVENT_ID,
+        knowledge_id: KNOWLEDGE_ID,
+        outcome: "violated",
+        repo: REPOSITORY,
+      });
+
+    const conflict = await call();
+    expect(toolResult(conflict)).toMatchObject({ isError: true });
+    expect(
+      RecordOutcomeOutputSchema.safeParse(toolStructuredContent(conflict))
+        .success,
+    ).toBe(true);
+    expect(toolStructuredContent(conflict)).toMatchObject({
+      error: {
+        code: "IDEMPOTENCY_CONFLICT",
+        next_action: expect.stringContaining("new event_id"),
+        retryable: false,
+      },
+      ok: false,
+    });
+
+    expect(toolStructuredContent(await call())).toMatchObject({
+      error: {
+        code: "KNOWLEDGE_NOT_FOUND",
+        next_action: expect.stringContaining("get_rules"),
+        retryable: false,
+      },
+      ok: false,
+    });
+
+    expect(toolStructuredContent(await call())).toMatchObject({
+      error: {
+        code: "KNOWLEDGE_REPOSITORY_MISMATCH",
+        next_action: expect.stringContaining("get_rules"),
+        retryable: false,
+      },
+      ok: false,
+    });
+
+    expect(toolStructuredContent(await call())).toMatchObject({
+      error: {
+        code: "KNOWLEDGE_NOT_ACTIVE",
+        next_action: expect.stringContaining("active knowledge ids"),
+        retryable: false,
+      },
+      ok: false,
+    });
   });
 
   it("keeps approval and status changes unreachable from MCP schemas", async () => {
@@ -298,17 +455,31 @@ describe("MCP mutation tools", () => {
     const tools = readTools(await connection.client.request("tools/list", {}));
     const add = tools.find((tool) => tool.name === "add_knowledge")!;
     const update = tools.find((tool) => tool.name === "update_knowledge")!;
+    const record = tools.find((tool) => tool.name === "record_outcome")!;
     const addProperties = asRecord(asRecord(add.inputSchema).properties);
     const updateProperties = asRecord(asRecord(update.inputSchema).properties);
     const patchProperties = asRecord(
       asRecord(updateProperties.patch).properties,
     );
+    const recordProperties = asRecord(asRecord(record.inputSchema).properties);
 
     expect(addProperties).not.toHaveProperty("status");
     expect(addProperties).not.toHaveProperty("activation");
     expect(updateProperties).not.toHaveProperty("status");
     expect(patchProperties).not.toHaveProperty("status");
     expect(patchProperties).not.toHaveProperty("activation");
+    // record_outcome only appends events: no knowledge field is writable.
+    for (const field of [
+      "status",
+      "activation",
+      "rule",
+      "detail",
+      "scope",
+      "severity",
+      "patch",
+    ]) {
+      expect(recordProperties).not.toHaveProperty(field);
+    }
     expect(asRecord(update.inputSchema).required).toEqual(
       expect.arrayContaining([
         "expected_etag",
@@ -327,8 +498,19 @@ describe("MCP mutation tools", () => {
       status: "active",
     });
     expect(toolResult(rejected)).toMatchObject({ isError: true });
+
+    const escalated = await callTool(connection.client, "record_outcome", {
+      at: OUTCOME_AT,
+      event_id: EVENT_ID,
+      knowledge_id: KNOWLEDGE_ID,
+      outcome: "applied",
+      status: "active",
+    });
+    expect(toolResult(escalated)).toMatchObject({ isError: true });
+
     expect(fixture.resolve).not.toHaveBeenCalled();
     expect(fixture.addKnowledge).not.toHaveBeenCalled();
+    expect(fixture.recordOutcome).not.toHaveBeenCalled();
   });
 
   it("maps conflicts, stale leases, idempotency, source changes, and resolution failures to structured errors", async () => {
@@ -646,6 +828,9 @@ function createMutationFixture(): {
   readonly prepareDistillation: ReturnType<
     typeof vi.fn<KnowledgeMutationOperations["prepareDistillation"]>
   >;
+  readonly recordOutcome: ReturnType<
+    typeof vi.fn<KnowledgeMutationOperations["recordOutcome"]>
+  >;
   readonly resolve: ReturnType<
     typeof vi.fn<KnowledgeMutationServiceResolver["resolve"]>
   >;
@@ -735,6 +920,16 @@ function createMutationFixture(): {
       status: "pending",
     }),
   );
+  const recordOutcome = vi.fn<KnowledgeMutationOperations["recordOutcome"]>(
+    async () => ({
+      applied_count: 1,
+      event_id: EVENT_ID,
+      knowledge_id: KNOWLEDGE_ID,
+      outcome: "applied",
+      replayed: false,
+      violation_count: 0,
+    }),
+  );
   const syncRepo = vi.fn<KnowledgeMutationOperations["syncRepo"]>(async () => ({
     discovered: 2,
     failed: 0,
@@ -753,6 +948,7 @@ function createMutationFixture(): {
     addKnowledge,
     ingestPullRequest,
     prepareDistillation,
+    recordOutcome,
     submitExtract,
     submitFinalize,
     syncRepo,
@@ -765,6 +961,7 @@ function createMutationFixture(): {
     addKnowledge,
     ingestPullRequest,
     prepareDistillation,
+    recordOutcome,
     resolve,
     resolver: { resolve },
     submitExtract,
