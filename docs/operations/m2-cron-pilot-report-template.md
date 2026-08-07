@@ -27,7 +27,8 @@
 | sync.run_success_rate | | 0.99 以上 | |
 | sync.unchanged（重複 no-op 件数） | | 増殖なしの傍証 | |
 | sync.retry_attempts / failed_pull_requests | | rollback 条件に非該当 | |
-| backlog.final_pending_jobs | | 単調増加で終わっていない | |
+| backlog.pending_jobs_monotonically_increasing | | `false` | |
+| backlog.final_pending_jobs / pending_jobs_by_day | | 系列の目視確認（傍証） | |
 | quality.days_by_gate_status.integrity_failure | | 0 日 | |
 
 欠測日（`missing_days`）:

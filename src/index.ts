@@ -174,6 +174,7 @@ export {
 } from "./pilot-daily-record.js";
 export {
   summarizePilotLog,
+  type PilotBacklogDayPoint,
   type PilotSummaryBacklog,
   type PilotSummaryCoverage,
   type PilotSummaryMissingDay,

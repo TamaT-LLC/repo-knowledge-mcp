@@ -67,7 +67,11 @@ const PASSING_GATE_REPORT = {
 
 function observedRecord(
   date: string,
-  overrides: { gateStatus?: "pass" | "not_run"; failures?: number[] } = {},
+  overrides: {
+    gateStatus?: "pass" | "not_run";
+    failures?: number[];
+    pendingJobs?: number;
+  } = {},
 ): PilotDailyRecord {
   return buildObservedDailyRecord({
     date,
@@ -76,7 +80,11 @@ function observedRecord(
       ? {}
       : { qualityGateReport: PASSING_GATE_REPORT }),
     recordedAt: RECORDED_AT,
-    stats: statsSnapshot(),
+    stats: statsSnapshot(
+      overrides.pendingJobs === undefined
+        ? {}
+        : { pending_jobs: overrides.pendingJobs },
+    ),
     syncSummaries: [
       syncSummaryLine({ discovered: 1, ingested: 1 }),
       ...(overrides.failures ?? []).map((prNumber) =>
@@ -325,6 +333,59 @@ describe("summarizePilotLog", () => {
 
     expect(summary.coverage.complete).toBe(true);
     expect(summary.coverage.unrecorded_dates).toEqual([]);
+  });
+
+  it("exposes the day-by-day backlog and detects a monotonically increasing backlog", () => {
+    const summary = summarizePilotLog({
+      durationDays: 3,
+      records: [
+        observedRecord("2026-08-01", { pendingJobs: 1 }),
+        observedRecord("2026-08-02", { pendingJobs: 3 }),
+        observedRecord("2026-08-03", { pendingJobs: 3 }),
+      ],
+      startDate: "2026-08-01",
+    });
+
+    expect(summary.backlog.pending_jobs_by_day).toEqual([
+      { date: "2026-08-01", pending_jobs: 1 },
+      { date: "2026-08-02", pending_jobs: 3 },
+      { date: "2026-08-03", pending_jobs: 3 },
+    ]);
+    // Never decreases and strictly grows overall: the no-go signal.
+    expect(summary.backlog.pending_jobs_monotonically_increasing).toBe(true);
+  });
+
+  it("does not flag a backlog that dips, stays flat, or has a single sample", () => {
+    const dipping = summarizePilotLog({
+      durationDays: 3,
+      records: [
+        observedRecord("2026-08-01", { pendingJobs: 1 }),
+        observedRecord("2026-08-02", { pendingJobs: 5 }),
+        observedRecord("2026-08-03", { pendingJobs: 2 }),
+      ],
+      startDate: "2026-08-01",
+    });
+    expect(dipping.backlog.pending_jobs_monotonically_increasing).toBe(false);
+
+    const flat = summarizePilotLog({
+      durationDays: 2,
+      records: [
+        observedRecord("2026-08-01", { pendingJobs: 4 }),
+        observedRecord("2026-08-02", { pendingJobs: 4 }),
+      ],
+      startDate: "2026-08-01",
+    });
+    expect(flat.backlog.pending_jobs_monotonically_increasing).toBe(false);
+
+    const single = summarizePilotLog({
+      durationDays: 1,
+      records: [observedRecord("2026-08-01", { pendingJobs: 9 })],
+      startDate: "2026-08-01",
+    });
+    expect(single.backlog.pending_jobs_monotonically_increasing).toBe(false);
+    expect(single.backlog.pending_jobs_by_day).toEqual([
+      { date: "2026-08-01", pending_jobs: 9 },
+    ]);
   });
 
   it("rejects records outside the declared window and empty logs", () => {

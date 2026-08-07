@@ -99,21 +99,25 @@
     {
       "description": "上位の結果が意図と無関係、または明らかに誤ったルールが上位を占める",
       "label": "体感に反する",
+      "minimum_criteria_met_ratio": 0,
       "score": 1
     },
     {
-      "description": "関連ルールは出るが順位が体感と食い違う。criteria の半数未満を満たす",
+      "description": "関連ルールは出るが順位が体感と食い違う",
       "label": "部分的に合う",
+      "minimum_criteria_met_ratio": 0,
       "score": 2
     },
     {
-      "description": "順位が概ね体感どおり。criteria の過半を満たし、明確な違和感がない",
+      "description": "順位が概ね体感どおり。criteria の半数以上を満たし、明確な違和感がない",
       "label": "概ね合う",
+      "minimum_criteria_met_ratio": 0.5,
       "score": 3
     },
     {
       "description": "順位が体感と一致し、すべての criteria を満たす",
       "label": "完全に合う",
+      "minimum_criteria_met_ratio": 1,
       "score": 4
     }
   ],

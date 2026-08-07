@@ -37,11 +37,25 @@ export interface PilotSummarySync {
   readonly unchanged: number;
 }
 
+export interface PilotBacklogDayPoint {
+  readonly date: string;
+  readonly pending_jobs: number;
+}
+
 export interface PilotSummaryBacklog {
   readonly final_failed_jobs: number | null;
   readonly final_pending_jobs: number | null;
   readonly max_failed_jobs: number | null;
   readonly max_pending_jobs: number | null;
+  /** Day-by-day pending backlog in date order, for trend inspection. */
+  readonly pending_jobs_by_day: readonly PilotBacklogDayPoint[];
+  /**
+   * True when the pilot ends on a monotonically increasing backlog: at
+   * least two observed days, no day-over-day decrease, and a final value
+   * strictly above the first. This is the machine check for the pilot
+   * plan's go condition "the backlog did not end monotonically increasing".
+   */
+  readonly pending_jobs_monotonically_increasing: boolean;
 }
 
 export interface PilotSummaryQuality {
@@ -112,6 +126,10 @@ export function summarizePilotLog(
     (date) => !recordedDates.has(date),
   );
   const lastObserved = observed.at(-1) ?? null;
+  const pendingJobsByDay = observed.map((record) => ({
+    date: record.date,
+    pending_jobs: record.backlog.pending_jobs,
+  }));
   return {
     backlog: {
       final_failed_jobs: lastObserved?.backlog.failed_jobs ?? null,
@@ -121,6 +139,9 @@ export function summarizePilotLog(
         observed,
         (record) => record.backlog.pending_jobs,
       ),
+      pending_jobs_by_day: pendingJobsByDay,
+      pending_jobs_monotonically_increasing:
+        isMonotonicallyIncreasing(pendingJobsByDay),
     },
     coverage: {
       complete: unrecordedDates.length === 0,
@@ -183,6 +204,23 @@ function countByGateStatus(
     counts[record.quality.gate_status] += 1;
   }
   return counts;
+}
+
+/**
+ * Monotonically increasing means the whole observed series never decreases
+ * day over day and strictly grows overall; a flat or dipping series is not
+ * a runaway backlog. Fewer than two observed days cannot establish a trend.
+ */
+function isMonotonicallyIncreasing(
+  series: readonly PilotBacklogDayPoint[],
+): boolean {
+  if (series.length < 2) return false;
+  for (let index = 1; index < series.length; index += 1) {
+    if (series[index]!.pending_jobs < series[index - 1]!.pending_jobs) {
+      return false;
+    }
+  }
+  return series.at(-1)!.pending_jobs > series[0]!.pending_jobs;
 }
 
 function sortByDate(

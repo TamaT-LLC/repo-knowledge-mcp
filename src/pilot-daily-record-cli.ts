@@ -10,6 +10,7 @@ import {
   type PilotDailyRecord,
 } from "./pilot-daily-record.js";
 import { summarizePilotLog } from "./pilot-summary.js";
+import { withPosixFileLock } from "./posix-file-lock.js";
 
 const USAGE = [
   "Usage:",
@@ -39,6 +40,8 @@ const USAGE = [
 
 const USAGE_EXIT_CODE = 2;
 const FAILURE_EXIT_CODE = 1;
+/** Same bound the sync CLI uses for its repository lock. */
+const RECORD_LOCK_TIMEOUT_MS = 5000;
 
 interface RecordArguments {
   readonly command: "record";
@@ -85,7 +88,6 @@ try {
 }
 
 async function runRecord(parsed: RecordArguments): Promise<void> {
-  const existing = await readPilotLog(parsed.logPath);
   const recordedAt = parsed.recordedAt ?? new Date().toISOString();
   const record = parsed.missing
     ? buildMissingDailyRecord({
@@ -106,11 +108,18 @@ async function runRecord(parsed: RecordArguments): Promise<void> {
         stats: await readJson(parsed.statsPath!),
         syncSummaries: await readSyncLog(parsed.syncLogPath!),
       });
-  assertAppendable(existing, record);
-  await appendFile(
-    resolve(parsed.logPath),
-    `${JSON.stringify(record)}\n`,
-    "utf8",
+  const logPath = resolve(parsed.logPath);
+  // Read-check-append is one critical section: without the lock, two
+  // concurrent record runs could both pass the duplicate/pilot check and
+  // append conflicting records that later break every summarize.
+  await withPosixFileLock(
+    `${logPath}.lock`,
+    RECORD_LOCK_TIMEOUT_MS,
+    async () => {
+      const existing = await readPilotLog(parsed.logPath);
+      assertAppendable(existing, record);
+      await appendFile(logPath, `${JSON.stringify(record)}\n`, "utf8");
+    },
   );
   process.stdout.write(`${JSON.stringify(record, null, 2)}\n`);
 }

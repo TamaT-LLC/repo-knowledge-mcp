@@ -109,6 +109,11 @@ $ npm run --silent pilot:daily -- summarize \
 - 各 checkpoint で全 query を `get_rules` で実行し、rubric の criteria を判定して
   score を付ける。評価結果は `PilotRubricEvaluationSchema`
   （`src/pilot-human-rubric.ts`）準拠の JSON として保存する
+- score は主観だが下限は機械検証される: 各 scale level の
+  `minimum_criteria_met_ratio` を満たす数の criteria が met でない限り
+  その score は付けられない（score 4 は全 criteria met、score 3 は半数以上 met が必須。
+  低い score を付けるのは常に許容）。不整合な評価は
+  `validatePilotRubricEvaluation` が fail-closed で拒否する
 - query 集合と criteria は pilot 期間中変更しない（変更は rubric の新 version と
   pilot 再開始を意味する）
 - 判定の go 基準: **day 14 の全 query が score 3 以上**、かつ day 1 → day 14 で
@@ -126,6 +131,6 @@ follow-up Issue・M2 go/no-go 判断を記録する。判定材料は次のと�
 | 14 日間の記録完全性 | summarize の `coverage` | `complete: true`（欠測は理由付きのみ） |
 | sync 成功率 | summarize の `sync.run_success_rate` | 0.99 以上、かつ rollback 条件に非該当 |
 | 重複・冪等性 | summarize の `sync.unchanged` と再実行確認 | canonical state の増殖なし |
-| job backlog | summarize の `backlog` | `final_pending_jobs` が単調増加で終わっていない |
+| job backlog | summarize の `backlog` | `pending_jobs_monotonically_increasing: false`（`pending_jobs_by_day` の日次系列で確認） |
 | quality gate | summarize の `quality.days_by_gate_status` | `integrity_failure` 0 日 |
 | ランキング体感 | rubric 評価（day 14） | 全 query score 3 以上かつ悪化なし |

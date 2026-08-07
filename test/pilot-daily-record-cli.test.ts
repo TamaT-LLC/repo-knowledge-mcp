@@ -205,6 +205,40 @@ describe("pilot daily record CLI", () => {
     expect(incompleteSummary.coverage.unrecorded_dates).toHaveLength(12);
   });
 
+  it("serializes concurrent record runs on one log via the lock file", async () => {
+    const contendedLogPath = join(workingDirectory, "contended-log.jsonl");
+    const recordArgv = (reason: string): readonly string[] => [
+      "record",
+      "--log",
+      contendedLogPath,
+      "--pilot",
+      PILOT_ID,
+      "--date",
+      "2026-08-05",
+      "--missing",
+      "--reason",
+      reason,
+      "--recorded-at",
+      "2026-08-06T00:05:00.000Z",
+    ];
+
+    const [first, second] = await Promise.all([
+      runCli(recordArgv("writer a")),
+      runCli(recordArgv("writer b")),
+    ]);
+
+    // The lock turns the race into a deterministic outcome: exactly one
+    // append wins and the loser fails the duplicate-date check.
+    const exitCodes = [first.exitCode, second.exitCode].sort();
+    expect(exitCodes).toEqual([0, 1]);
+    const loser = first.exitCode === 0 ? second : first;
+    expect(loser.stderr).toContain("PILOT_DUPLICATE_DATE");
+    const persisted = (await readFile(contendedLogPath, "utf8"))
+      .trim()
+      .split("\n");
+    expect(persisted).toHaveLength(1);
+  });
+
   it("reports an unreadable input with exit code 1", async () => {
     const { exitCode } = await runCli([
       "record",

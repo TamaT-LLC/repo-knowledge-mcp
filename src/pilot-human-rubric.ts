@@ -9,6 +9,14 @@ const PilotRubricScaleLevelSchema = z
   .object({
     description: z.string().min(1),
     label: z.string().min(1),
+    /**
+     * Deterministic floor binding the subjective score to the criteria
+     * judgements: a query result may only carry this score when at least
+     * `minimum_criteria_met_ratio * criteria_count` criteria are met.
+     * Lower scores stay allowed (an evaluator may judge strictly), but a
+     * high score without the backing criteria is rejected fail-closed.
+     */
+    minimum_criteria_met_ratio: z.number().min(0).max(1),
     score: z.number().int(),
   })
   .strict();
@@ -93,6 +101,24 @@ export const PilotHumanRubricSchema = z
         message: "scale scores must be unique",
         path: ["scale"],
       });
+      return;
+    }
+    const byScore = [...value.scale].sort(
+      (left, right) => left.score - right.score,
+    );
+    for (let index = 1; index < byScore.length; index += 1) {
+      if (
+        byScore[index]!.minimum_criteria_met_ratio <
+        byScore[index - 1]!.minimum_criteria_met_ratio
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "minimum_criteria_met_ratio must not decrease as the score increases",
+          path: ["scale"],
+        });
+        return;
+      }
     }
   });
 
@@ -132,7 +158,10 @@ export type PilotRubricEvaluation = z.infer<typeof PilotRubricEvaluationSchema>;
 /**
  * Cross-validates one evaluation against its rubric: the evaluation must
  * reference the same rubric, an existing checkpoint, every query exactly
- * once with every criterion exactly once, and scores on the declared scale.
+ * once with every criterion exactly once, scores on the declared scale,
+ * and every score consistent with its level's `minimum_criteria_met_ratio`
+ * (an unmet criterion never backs a high score; missing judgements count
+ * as not met, fail-closed).
  * Returns human-readable issues; an empty list means the evaluation counts.
  */
 export function validatePilotRubricEvaluation(
@@ -152,7 +181,9 @@ export function validatePilotRubricEvaluation(
   ) {
     issues.push(`unknown checkpoint ${evaluation.checkpoint_id}`);
   }
-  const validScores = new Set(rubric.scale.map((level) => level.score));
+  const levelsByScore = new Map(
+    rubric.scale.map((level) => [level.score, level]),
+  );
   const queriesById = new Map(rubric.queries.map((query) => [query.id, query]));
   const evaluatedQueryIds = new Set<string>();
   for (const result of evaluation.results) {
@@ -166,12 +197,28 @@ export function validatePilotRubricEvaluation(
       issues.push(`unknown query ${result.query_id}`);
       continue;
     }
-    if (!validScores.has(result.score)) {
+    const level = levelsByScore.get(result.score);
+    if (level === undefined) {
       issues.push(
         `query ${result.query_id} has score ${String(result.score)} outside the rubric scale`,
       );
     }
-    validateCriterionResults(query.id, query.criteria, result.criteria, issues);
+    const metCount = validateCriterionResults(
+      query.id,
+      query.criteria,
+      result.criteria,
+      issues,
+    );
+    if (level !== undefined) {
+      const requiredMet = Math.ceil(
+        level.minimum_criteria_met_ratio * query.criteria.length,
+      );
+      if (metCount < requiredMet) {
+        issues.push(
+          `query ${query.id} has score ${String(result.score)} but only ${String(metCount)} of ${String(query.criteria.length)} criteria met (score ${String(result.score)} requires at least ${String(requiredMet)})`,
+        );
+      }
+    }
   }
   for (const query of rubric.queries) {
     if (!evaluatedQueryIds.has(query.id)) {
@@ -181,14 +228,16 @@ export function validatePilotRubricEvaluation(
   return issues;
 }
 
+/** Returns how many known criteria were judged met exactly once. */
 function validateCriterionResults(
   queryId: string,
   criteria: readonly { readonly id: string }[],
-  results: readonly { readonly criterion_id: string }[],
+  results: readonly { readonly criterion_id: string; readonly met: boolean }[],
   issues: string[],
-): void {
+): number {
   const expected = new Set(criteria.map((criterion) => criterion.id));
   const seen = new Set<string>();
+  let metCount = 0;
   for (const result of results) {
     if (seen.has(result.criterion_id)) {
       issues.push(
@@ -201,13 +250,16 @@ function validateCriterionResults(
       issues.push(
         `query ${queryId} judges unknown criterion ${result.criterion_id}`,
       );
+      continue;
     }
+    if (result.met) metCount += 1;
   }
   for (const criterionId of expected) {
     if (!seen.has(criterionId)) {
       issues.push(`query ${queryId} does not judge criterion ${criterionId}`);
     }
   }
+  return metCount;
 }
 
 function assertUniqueIds(

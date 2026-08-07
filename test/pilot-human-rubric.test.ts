@@ -73,6 +73,21 @@ describe("pilot human rubric fixture", () => {
       false,
     );
   });
+
+  it("rejects a scale whose met-ratio floors decrease as the score increases", async () => {
+    const rubric = await loadCommittedRubric();
+    const inverted = {
+      ...rubric,
+      scale: rubric.scale.map((level, index) => ({
+        ...level,
+        minimum_criteria_met_ratio: index === 0 ? 1 : 0,
+      })),
+    };
+
+    const parsed = PilotHumanRubricSchema.safeParse(inverted);
+
+    expect(parsed.success).toBe(false);
+  });
 });
 
 describe("validatePilotRubricEvaluation", () => {
@@ -144,6 +159,70 @@ describe("validatePilotRubricEvaluation", () => {
         issue.includes("more than once"),
       ),
     ).toBe(true);
+  });
+
+  it("rejects a top score whose criteria are not all met", async () => {
+    const rubric = await loadCommittedRubric();
+    const topScore = Math.max(...rubric.scale.map((level) => level.score));
+    const evaluation = completeEvaluation(rubric);
+    const firstResult = evaluation.results[0]!;
+    const inconsistent: PilotRubricEvaluation = {
+      ...evaluation,
+      results: [
+        {
+          ...firstResult,
+          // Every criterion judged not met, yet the top score is claimed.
+          criteria: firstResult.criteria.map((criterion) => ({
+            ...criterion,
+            met: false,
+          })),
+          score: topScore,
+        },
+        ...evaluation.results.slice(1),
+      ],
+    };
+
+    const issues = validatePilotRubricEvaluation(rubric, inconsistent);
+
+    expect(
+      issues.some(
+        (issue) =>
+          issue.includes(`score ${String(topScore)}`) &&
+          issue.includes("criteria met"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts a strict low score even when every criterion is met, but rejects an unbacked mid score", async () => {
+    const rubric = await loadCommittedRubric();
+    const scores = rubric.scale
+      .map((level) => level.score)
+      .sort((left, right) => left - right);
+    const evaluation = completeEvaluation(rubric);
+    const firstResult = evaluation.results[0]!;
+
+    // All criteria met with the lowest score: judging strictly is allowed.
+    expect(validatePilotRubricEvaluation(rubric, evaluation)).toEqual([]);
+
+    // Score 3 requires at least half of the criteria met; none are.
+    const unbacked: PilotRubricEvaluation = {
+      ...evaluation,
+      results: [
+        {
+          ...firstResult,
+          criteria: firstResult.criteria.map((criterion) => ({
+            ...criterion,
+            met: false,
+          })),
+          score: scores[2]!,
+        },
+        ...evaluation.results.slice(1),
+      ],
+    };
+    const issues = validatePilotRubricEvaluation(rubric, unbacked);
+    expect(issues.some((issue) => issue.includes("requires at least"))).toBe(
+      true,
+    );
   });
 
   it("flags a rubric id mismatch", async () => {
