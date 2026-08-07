@@ -2,13 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  CLIENT_CAPABILITIES_META_KEY,
-  CLIENT_INFO_META_KEY,
-  InMemoryTransport,
-  PROTOCOL_VERSION_META_KEY,
-  type JSONRPCMessage,
-} from "@modelcontextprotocol/server";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -18,9 +12,22 @@ import {
   REPO_KNOWLEDGE_SERVER_INSTRUCTIONS,
   SearchKnowledgeOutputSchema,
   serveRepoKnowledgeStdio,
+  type KnowledgeMutationServiceResolver,
   type KnowledgeReadOperations,
   type KnowledgeReadServiceResolver,
 } from "../src/index.js";
+import {
+  WireClient,
+  asRecord,
+  callTool,
+  modernParameters,
+  readTools,
+  toolResult,
+  toolStructuredContent,
+  toolText,
+  type JsonRpcReply,
+  type McpParameters,
+} from "./support/mcp-test-client.js";
 
 const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const REPOSITORY = "owner/repository";
@@ -52,7 +59,9 @@ describe("repo-knowledge MCP read server", () => {
     });
 
     const listed = await connection.client.request("tools/list", {});
-    const tools = readTools(listed);
+    const tools = readTools(listed).filter((tool) =>
+      ["get_rules", "search_knowledge", "get_knowledge"].includes(tool.name),
+    );
     expect(tools.map((tool) => tool.name)).toEqual([
       "get_rules",
       "search_knowledge",
@@ -224,6 +233,15 @@ describe("repo-knowledge MCP read server", () => {
         params: {},
       },
       { id: 2, jsonrpc: "2.0", method: "tools/list", params: {} },
+      {
+        id: 3,
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: {
+          arguments: { pr_number: 1, repo: REPOSITORY },
+          name: "ingest_pr",
+        },
+      },
     ];
     const result = await execa(process.execPath, ["dist/stdio-bin.js"], {
       cwd: process.cwd(),
@@ -236,12 +254,31 @@ describe("repo-knowledge MCP read server", () => {
       .split(/\r?\n/u)
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as JsonRpcReply);
-    expect(replies).toHaveLength(2);
+    expect(replies).toHaveLength(3);
     expect(replies[0]).toMatchObject({
       id: 1,
       result: { serverInfo: { name: "repo-knowledge" } },
     });
-    expect(readTools(replies[1]!)).toHaveLength(3);
+    expect(readTools(replies[1]!).map((tool) => tool.name)).toEqual([
+      "get_rules",
+      "search_knowledge",
+      "get_knowledge",
+      "ingest_pr",
+      "prepare_distillation",
+      "submit_distillation",
+      "add_knowledge",
+      "update_knowledge",
+    ]);
+    expect(replies[2]).toMatchObject({
+      id: 3,
+      result: {
+        isError: true,
+        structuredContent: {
+          error: { code: "MUTATION_RUNTIME_UNAVAILABLE" },
+          ok: false,
+        },
+      },
+    });
   });
 });
 
@@ -253,9 +290,7 @@ interface ConnectOptions {
 interface Connection {
   readonly client: WireClient;
   readonly initializeResult?: Record<string, unknown>;
-  readonly parameters: (
-    params: Record<string, unknown>,
-  ) => Record<string, unknown>;
+  readonly parameters: McpParameters;
 }
 
 async function connect(
@@ -277,6 +312,7 @@ async function connect(
         errors.push(error instanceof Error ? error : new Error(String(error)));
       },
     },
+    mutationServiceResolver: unavailableMutationResolver(),
     readServiceResolver: resolver,
     ...(options.startupRepo === undefined
       ? {}
@@ -311,30 +347,22 @@ async function connect(
   return { client, parameters };
 }
 
-function modernParameters(): Connection["parameters"] {
-  return (params) => ({
-    ...params,
-    _meta: {
-      [CLIENT_CAPABILITIES_META_KEY]: {},
-      [CLIENT_INFO_META_KEY]: {
-        name: "repo-knowledge-modern-test",
-        version: "1.0.0",
-      },
-      [PROTOCOL_VERSION_META_KEY]: "2026-07-28",
+function unavailableMutationResolver(): KnowledgeMutationServiceResolver {
+  const unavailable = async (): Promise<never> => {
+    throw new Error("mutation operation is unavailable in read-server tests");
+  };
+  return {
+    async resolve() {
+      return {
+        addKnowledge: unavailable,
+        ingestPullRequest: unavailable,
+        prepareDistillation: unavailable,
+        submitExtract: unavailable,
+        submitFinalize: unavailable,
+        updateKnowledge: unavailable,
+      };
     },
-  });
-}
-
-async function callTool(
-  client: WireClient,
-  name: string,
-  toolArguments: Record<string, unknown>,
-  parameters: Connection["parameters"] = (params) => params,
-): Promise<JsonRpcReply> {
-  return client.request(
-    "tools/call",
-    parameters({ arguments: toolArguments, name }),
-  );
+  };
 }
 
 function createReadFixture(): {
@@ -431,115 +459,4 @@ function createReadFixture(): {
     resolver: { resolve },
     searchKnowledge,
   };
-}
-
-interface JsonRpcReply {
-  readonly error?: unknown;
-  readonly id: number | string;
-  readonly result?: unknown;
-}
-
-class WireClient {
-  private nextId = 0;
-  private readonly pending = new Map<
-    number | string,
-    {
-      readonly reject: (error: Error) => void;
-      readonly resolve: (reply: JsonRpcReply) => void;
-      readonly timer: ReturnType<typeof setTimeout>;
-    }
-  >();
-
-  constructor(private readonly transport: InMemoryTransport) {
-    this.transport.onmessage = (message) => {
-      const reply = message as JsonRpcReply;
-      if (!("id" in reply)) return;
-      const pending = this.pending.get(reply.id);
-      if (pending === undefined) return;
-      clearTimeout(pending.timer);
-      this.pending.delete(reply.id);
-      pending.resolve(reply);
-    };
-  }
-
-  start(): Promise<void> {
-    return this.transport.start();
-  }
-
-  async close(): Promise<void> {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error("MCP test client closed"));
-    }
-    this.pending.clear();
-    await this.transport.close();
-  }
-
-  async notify(method: string, params: Record<string, unknown>): Promise<void> {
-    await this.transport.send({
-      jsonrpc: "2.0",
-      method,
-      params,
-    } as JSONRPCMessage);
-  }
-
-  async request(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<JsonRpcReply> {
-    const id = ++this.nextId;
-    const response = new Promise<JsonRpcReply>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Timed out waiting for ${method}`));
-      }, 2_000);
-      this.pending.set(id, { reject, resolve, timer });
-    });
-    await this.transport.send({
-      id,
-      jsonrpc: "2.0",
-      method,
-      params,
-    } as JSONRPCMessage);
-    return response;
-  }
-}
-
-interface ListedTool {
-  readonly annotations: Record<string, unknown>;
-  readonly inputSchema: Record<string, unknown>;
-  readonly name: string;
-  readonly outputSchema: Record<string, unknown>;
-}
-
-function readTools(reply: JsonRpcReply): ListedTool[] {
-  const tools = asRecord(reply.result).tools;
-  if (!Array.isArray(tools))
-    throw new TypeError("tools/list returned no tools");
-  return tools.map((tool) => asRecord(tool) as unknown as ListedTool);
-}
-
-function toolResult(reply: JsonRpcReply): Record<string, unknown> {
-  return asRecord(reply.result);
-}
-
-function toolStructuredContent(reply: JsonRpcReply): unknown {
-  return toolResult(reply).structuredContent;
-}
-
-function toolText(reply: JsonRpcReply): string {
-  const content = toolResult(reply).content;
-  if (!Array.isArray(content)) throw new TypeError("tool returned no content");
-  const first = asRecord(content[0]);
-  if (typeof first.text !== "string") {
-    throw new TypeError("tool returned no text content");
-  }
-  return first.text;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new TypeError("expected an object");
-  }
-  return value as Record<string, unknown>;
 }

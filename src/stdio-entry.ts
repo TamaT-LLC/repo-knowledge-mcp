@@ -6,6 +6,7 @@ import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 
 import { initializeStorage } from "./config.js";
 import { GhRunner, type GhRunnerLike } from "./gh-runner.js";
+import type { KnowledgeMutationServiceResolver } from "./mcp-mutation-tools.js";
 import {
   CanonicalKnowledgeReadServiceResolver,
   serveRepoKnowledgeStdio,
@@ -21,11 +22,12 @@ export interface StdioEntrySelection {
 export interface ServeDefaultRepoKnowledgeStdioOptions {
   readonly argv?: readonly string[];
   readonly ghRunner?: GhRunnerLike;
+  readonly mutationServiceResolver?: KnowledgeMutationServiceResolver;
   readonly storageRoot?: string;
   readonly transport?: Transport;
 }
 
-/** Builds the production read-service resolver and starts the stdio server. */
+/** Builds the default read runtime and starts the stdio server. */
 export async function serveDefaultRepoKnowledgeStdio(
   options: ServeDefaultRepoKnowledgeStdioOptions = {},
 ): Promise<StdioServerHandle> {
@@ -45,6 +47,8 @@ export async function serveDefaultRepoKnowledgeStdio(
   });
 
   return serveRepoKnowledgeStdio({
+    mutationServiceResolver:
+      options.mutationServiceResolver ?? unavailableMutationServiceResolver(),
     readServiceResolver,
     ...(selection.startupRepo === undefined
       ? {}
@@ -56,6 +60,25 @@ export async function serveDefaultRepoKnowledgeStdio(
       ? {}
       : { transport: options.transport }),
   });
+}
+
+function unavailableMutationServiceResolver(): KnowledgeMutationServiceResolver {
+  return {
+    async resolve() {
+      throw new MutationRuntimeUnavailableError();
+    },
+  };
+}
+
+class MutationRuntimeUnavailableError extends Error {
+  readonly code = "MUTATION_RUNTIME_UNAVAILABLE";
+
+  constructor() {
+    super(
+      "Mutation services require an application runtime; inject mutationServiceResolver when starting this stdio entry",
+    );
+    this.name = "MutationRuntimeUnavailableError";
+  }
 }
 
 /** Parses the two startup selectors supported by the dedicated stdio entry. */
