@@ -77,31 +77,47 @@ describe("golden baseline CLI", () => {
     const result = await execa(
       process.execPath,
       [CLI, "--corpus", CORPUS, "--live", "--model", "claude-example"],
-      { cwd: repositoryRoot, env: { CI: "" }, reject: false },
+      {
+        cwd: repositoryRoot,
+        // The CI block outranks the consent check, so the inherited CI
+        // variables must be cleared for this test to be deterministic on
+        // GitHub Actions and local machines alike.
+        env: { CI: "", GITHUB_ACTIONS: "" },
+        reject: false,
+      },
     );
 
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("BASELINE_CLOUD_CONSENT_REQUIRED");
   });
 
-  it("blocks live capture in CI even when consent is passed", async () => {
-    const result = await execa(
-      process.execPath,
-      [
-        CLI,
-        "--corpus",
-        CORPUS,
-        "--live",
-        "--model",
-        "claude-example",
-        "--consent-cloud-transmission",
-      ],
-      { cwd: repositoryRoot, env: { CI: "true" }, reject: false },
-    );
+  it.each([
+    { name: "CI", overrides: { CI: "true", GITHUB_ACTIONS: "" } },
+    {
+      name: "GITHUB_ACTIONS",
+      overrides: { CI: "", GITHUB_ACTIONS: "true" },
+    },
+  ])(
+    "blocks live capture when $name is set even with consent",
+    async ({ overrides }) => {
+      const result = await execa(
+        process.execPath,
+        [
+          CLI,
+          "--corpus",
+          CORPUS,
+          "--live",
+          "--model",
+          "claude-example",
+          "--consent-cloud-transmission",
+        ],
+        { cwd: repositoryRoot, env: overrides, reject: false },
+      );
 
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain("BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI");
-  });
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain("BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI");
+    },
+  );
 
   it("rejects recorded predictions from a different corpus", async () => {
     const recorded = JSON.parse(await readFile(RECORDED, "utf8")) as {
