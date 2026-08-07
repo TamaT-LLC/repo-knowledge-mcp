@@ -1586,6 +1586,25 @@ async function inspectSqliteProjection(
       );
     }
 
+    if (pendingWalBytes > 0 || walInspectionError !== null) {
+      report.add({
+        details: {
+          pending_wal_bytes: pendingWalBytes,
+          ...(walInspectionError === null
+            ? {}
+            : { wal_error: walInspectionError }),
+        },
+        id: "sqlite.projection",
+        message:
+          "Projection comparison was skipped because the main database snapshot may not include WAL frames.",
+        path,
+        remedy:
+          "Stop repository writers, allow SQLite to checkpoint, then rerun doctor before deciding whether reindex is necessary.",
+        status: "warn",
+      });
+      return;
+    }
+
     const meta = readProjectionMeta(database);
     const mismatches: Array<Record<string, unknown>> = [];
     if (meta.schema_version !== "2") {
@@ -1613,6 +1632,31 @@ async function inspectSqliteProjection(
       });
     }
     if (canonical !== null) {
+      const checkpointFloor = latestCanonicalTransactionId(canonical.capture);
+      const checkpoint = meta.last_committed_transaction_id ?? null;
+      const hasCanonicalState =
+        canonical.capture.knowledge.length > 0 ||
+        canonical.capture.records.length > 0;
+      if (hasCanonicalState && checkpoint === null) {
+        mismatches.push({
+          actual: null,
+          expected:
+            checkpointFloor === null
+              ? "a committed transaction id"
+              : `at least ${checkpointFloor}`,
+          field: "last_committed_transaction_id",
+        });
+      } else if (
+        checkpointFloor !== null &&
+        checkpoint !== null &&
+        compareCodeUnits(checkpoint, checkpointFloor) < 0
+      ) {
+        mismatches.push({
+          actual: checkpoint,
+          expected: `at least ${checkpointFloor}`,
+          field: "last_committed_transaction_id",
+        });
+      }
       compareProjectionCounts(database, canonical, mismatches);
       compareProjectedKnowledge(database, canonical.domain, repoId, mismatches);
     }
@@ -1667,6 +1711,17 @@ function readProjectionMeta(
       values.get("last_committed_transaction_id") ?? null,
     schema_version: values.get("schema_version") ?? null,
   };
+}
+
+function latestCanonicalTransactionId(
+  capture: ReadOnlyCanonicalStateCapture,
+): string | null {
+  return capture.records.reduce<string | null>((latest, entry) => {
+    const transactionId = entry.record.transaction_id;
+    return latest === null || compareCodeUnits(latest, transactionId) < 0
+      ? transactionId
+      : latest;
+  }, null);
 }
 
 function compareProjectionCounts(
