@@ -21,6 +21,7 @@ const expectedTools = [
   "get_rules",
   "ingest_pr",
   "prepare_distillation",
+  "record_outcome",
   "search_knowledge",
   "submit_distillation",
   "sync_repo",

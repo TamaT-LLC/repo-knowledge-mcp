@@ -36,6 +36,7 @@ describe("M1 real stdio MCP E2E", () => {
       "get_rules",
       "ingest_pr",
       "prepare_distillation",
+      "record_outcome",
       "search_knowledge",
       "submit_distillation",
       "sync_repo",
@@ -55,6 +56,13 @@ describe("M1 real stdio MCP E2E", () => {
       get_rules: { file_paths: ["src/index.ts"], repo: REPOSITORY },
       ingest_pr: { pr_number: 7, repo: REPOSITORY },
       prepare_distillation: { repo: REPOSITORY },
+      record_outcome: {
+        at: "2026-08-07T00:00:00.000Z",
+        event_id: "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        knowledge_id: KNOWLEDGE_ID,
+        outcome: "applied",
+        repo: REPOSITORY,
+      },
       search_knowledge: { query: "stdio", repo: REPOSITORY },
       submit_distillation: {
         candidates: [],
@@ -337,6 +345,16 @@ const mutation = {
         "hostAssistedDistillation.enabled": true,
       },
       state: "disabled",
+    };
+  },
+  async recordOutcome() {
+    return {
+      applied_count: 1,
+      event_id: "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      knowledge_id: knowledgeId,
+      outcome: "applied",
+      replayed: false,
+      violation_count: 0,
     };
   },
   async submitExtract() {
