@@ -37,16 +37,21 @@ export interface SyncPullRequestEnumerator {
 }
 
 export interface SyncPullRequestIngester {
-  /**
-   * The repository name the ingester is bound to. Before any mutation it is
-   * resolved to its stable repo_id and compared with the sync target, so an
-   * alias and the canonical name of the same repository both pass.
-   */
+  /** The repository name the ingester is bound to (diagnostics only). */
   readonly repo: string;
 
   ingestPullRequest(request: {
     readonly pr_number: number;
   }): Promise<IngestPullRequestResult>;
+
+  /**
+   * Resolves the ingester's own binding — through the ingester's own
+   * resolver — to a stable repo_id, without performing any mutation. Sync
+   * compares this against its resolved target before the first ingest, so an
+   * alias and the canonical name of the same repository both pass while a
+   * divergent resolver behind an identical name still fails closed.
+   */
+  resolveBoundRepoId(): Promise<string>;
 }
 
 export interface SyncRepoRequest {
@@ -154,21 +159,19 @@ export class SyncRepoService {
 
   /**
    * Fails closed before any mutation when the injected ingester is bound to
-   * a different repository. Bindings are compared by the resolver's stable
-   * repo_id, never by raw name, so an alias and the canonical name of the
-   * same repository are both accepted.
+   * a different repository. The comparison always uses stable repo_ids that
+   * each side resolved through its own resolver: matching raw names are no
+   * proof of the same repository, and differing names may be aliases of one,
+   * so no name-based shortcut is taken.
    */
   private async assertIngesterBinding(
     repository: RepositoryResolution,
   ): Promise<void> {
-    if (this.ingester.repo === this.repo) return;
-    const ingesterRepository = await this.repositoryResolver.resolve({
-      repo: this.ingester.repo,
-    });
-    if (ingesterRepository.repoId !== repository.repoId) {
+    const ingesterRepoId = await this.ingester.resolveBoundRepoId();
+    if (ingesterRepoId !== repository.repoId) {
       throw new SyncRepoError(
         "SYNC_REPOSITORY_MISMATCH",
-        `ingester is bound to ${this.ingester.repo} (${ingesterRepository.repoId}), not ${this.repo} (${repository.repoId})`,
+        `ingester is bound to ${this.ingester.repo} (${ingesterRepoId}), not ${this.repo} (${repository.repoId})`,
       );
     }
   }

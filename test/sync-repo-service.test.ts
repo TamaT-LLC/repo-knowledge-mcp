@@ -283,16 +283,15 @@ describe("SyncRepoService", () => {
   it("accepts an ingester bound to an alias of the same repository", async () => {
     const repository = await createRepository();
     const canonical = resolutionOf(repository, REPO_ID, REPOSITORY);
-    const resolver = new MappedRepositoryResolver(
+    // The ingester's own resolver maps the historical alias to the same
+    // stable repo_id the service resolves for the canonical name.
+    const aliasResolver = new MappedRepositoryResolver(
       new Map([
-        [REPOSITORY, canonical],
-        // A historical alias resolves to the same stable repo_id.
         ["owner/old-name", { ...canonical, aliases: ["owner/old-name"] }],
       ]),
     );
     const service = syncService(repository, {
-      ingester: buildIngester(repository, "owner/old-name"),
-      repositoryResolver: resolver,
+      ingester: buildIngester(repository, "owner/old-name", aliasResolver),
     });
 
     await expect(service.sync()).resolves.toMatchObject({
@@ -309,9 +308,8 @@ describe("SyncRepoService", () => {
 
   it("rejects an ingester bound to a truly different repository before any mutation", async () => {
     const repository = await createRepository();
-    const resolver = new MappedRepositoryResolver(
+    const foreignResolver = new MappedRepositoryResolver(
       new Map([
-        [REPOSITORY, resolutionOf(repository, REPO_ID, REPOSITORY)],
         [
           "other/repository",
           resolutionOf(repository, "R_other_node", "other/repository"),
@@ -319,18 +317,44 @@ describe("SyncRepoService", () => {
       ]),
     );
     const recorder = new FlakyIngester(
-      buildIngester(repository, "other/repository"),
+      buildIngester(repository, "other/repository", foreignResolver),
       new Set(),
     );
-    const service = syncService(repository, {
-      ingester: recorder,
-      repositoryResolver: resolver,
-    });
+    const service = syncService(repository, { ingester: recorder });
 
     await expect(service.sync()).rejects.toMatchObject({
       code: "SYNC_REPOSITORY_MISMATCH",
     });
     // The run fails closed before a single ingest is attempted.
+    expect(recorder.calls).toEqual([]);
+    const snapshot = await new CanonicalTransactionStore(
+      repository,
+    ).readSnapshot();
+    expect(snapshot.records).toHaveLength(0);
+    await expect(
+      new SyncCheckpointStore(repository).read(),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects a same-named ingester whose own resolver targets a different repository", async () => {
+    const repository = await createRepository();
+    // Identical repo strings, but the ingester's resolver binds the name to
+    // another stable repo_id — the repo_id comparison must not be skipped.
+    const divergentResolver = new MappedRepositoryResolver(
+      new Map([
+        [REPOSITORY, resolutionOf(repository, "R_other_node", REPOSITORY)],
+      ]),
+    );
+    const recorder = new FlakyIngester(
+      buildIngester(repository, REPOSITORY, divergentResolver),
+      new Set(),
+    );
+    const service = syncService(repository, { ingester: recorder });
+
+    await expect(service.sync()).rejects.toMatchObject({
+      code: "SYNC_REPOSITORY_MISMATCH",
+    });
+    // No mutation is committed even though the raw names match.
     expect(recorder.calls).toEqual([]);
     const snapshot = await new CanonicalTransactionStore(
       repository,
@@ -461,6 +485,10 @@ class CrashAfterIngestIngester implements SyncPullRequestIngester {
     return this.inner.repo;
   }
 
+  async resolveBoundRepoId(): Promise<string> {
+    return this.inner.resolveBoundRepoId();
+  }
+
   async ingestPullRequest(request: {
     readonly pr_number: number;
   }): Promise<IngestPullRequestResult> {
@@ -484,6 +512,10 @@ class FlakyIngester implements SyncPullRequestIngester {
     return this.inner.repo;
   }
 
+  async resolveBoundRepoId(): Promise<string> {
+    return this.inner.resolveBoundRepoId();
+  }
+
   async ingestPullRequest(request: {
     readonly pr_number: number;
   }): Promise<IngestPullRequestResult> {
@@ -505,6 +537,10 @@ class GuardedIngester implements SyncPullRequestIngester {
 
   get repo(): string {
     return this.inner.repo;
+  }
+
+  async resolveBoundRepoId(): Promise<string> {
+    return this.inner.resolveBoundRepoId();
   }
 
   async ingestPullRequest(request: {
@@ -557,6 +593,7 @@ function syncService(
 function buildIngester(
   repository: string,
   repo = REPOSITORY,
+  resolver: IngestRepositoryResolver = new FixedRepositoryResolver(repository),
 ): IngestPrMutationService {
   return new IngestPrMutationService({
     config: RepoKnowledgeConfigSchema.parse({}),
@@ -564,7 +601,7 @@ function buildIngester(
       outputSchemaDigest: computeOutputSchemaDigest({ type: "object" }),
       promptDigest: computePromptDigest("distill-v1\n"),
       repositoryContext: { language: "TypeScript" },
-      repositoryResolver: new FixedRepositoryResolver(repository),
+      repositoryResolver: resolver,
       snapshotClient: new FixturePullRequestFetcher(),
       trust: TRUST,
     }),

@@ -159,7 +159,10 @@ describe("IngestPrMutationService", () => {
     };
     const service = new IngestPrMutationService({
       config: RepoKnowledgeConfigSchema.parse({}),
-      ingester: { ingest: ingester },
+      ingester: {
+        ingest: ingester,
+        resolveRepoId: vi.fn(async () => REPOSITORY_ID),
+      },
       providerRunner: provider,
       repo: REPOSITORY,
     });
@@ -187,7 +190,10 @@ describe("IngestPrMutationService", () => {
           model: "test-model",
         },
       }),
-      ingester: { ingest: vi.fn(async () => initial) },
+      ingester: {
+        ingest: vi.fn(async () => initial),
+        resolveRepoId: vi.fn(async () => REPOSITORY_ID),
+      },
       providerRunner: provider,
       repo: REPOSITORY,
     });
@@ -210,7 +216,10 @@ describe("IngestPrMutationService", () => {
           model: null,
         },
       }),
-      ingester: { ingest: vi.fn(async () => ingestResult(1)) },
+      ingester: {
+        ingest: vi.fn(async () => ingestResult(1)),
+        resolveRepoId: vi.fn(async () => REPOSITORY_ID),
+      },
       repo: REPOSITORY,
     });
 
