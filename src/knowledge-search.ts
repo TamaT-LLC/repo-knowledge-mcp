@@ -140,17 +140,95 @@ export function violationBoost(violationCount: number): number {
   return Math.min(0.15, 0.05 * Math.log1p(violationCount));
 }
 
+export const OUTCOME_RANKING_POLICY_VERSION = "m2-outcome-v1";
+
+/**
+ * Machine-trackable M2 outcome ranking policy (design doc §11).
+ * Changing any constant is a policy change and must bump the version.
+ */
+export const OUTCOME_RANKING_POLICY = Object.freeze({
+  appliedBoostCap: 0.2,
+  appliedBoostWeight: 0.1,
+  falsePositivePenaltyCap: 0.25,
+  falsePositivePenaltyWeight: 0.125,
+  minAppliedSample: 3,
+  notApplicablePenaltyCap: 0.1,
+  notApplicablePenaltyWeight: 0.05,
+  version: OUTCOME_RANKING_POLICY_VERSION,
+});
+
+export const MAX_OUTCOME_SCORE = OUTCOME_RANKING_POLICY.appliedBoostCap;
+export const MIN_OUTCOME_SCORE = -(
+  OUTCOME_RANKING_POLICY.notApplicablePenaltyCap +
+  OUTCOME_RANKING_POLICY.falsePositivePenaltyCap
+);
+
+export interface KnowledgeOutcomeCounts {
+  readonly appliedCount: number;
+  readonly falsePositiveCount: number;
+  readonly notApplicableCount: number;
+  readonly violationCount: number;
+}
+
+/**
+ * Positive `applied` signal. Disabled below the minimum sample so a couple of
+ * self-reported events cannot start a self-reinforcing loop.
+ */
+export function appliedBoost(appliedCount: number): number {
+  assertCount(appliedCount, "appliedCount");
+  if (appliedCount < OUTCOME_RANKING_POLICY.minAppliedSample) return 0;
+  return Math.min(
+    OUTCOME_RANKING_POLICY.appliedBoostCap,
+    OUTCOME_RANKING_POLICY.appliedBoostWeight * Math.log1p(appliedCount),
+  );
+}
+
+/** Bounded dampening for `not_applicable`; never contributes a positive term. */
+export function notApplicablePenalty(notApplicableCount: number): number {
+  assertCount(notApplicableCount, "notApplicableCount");
+  return Math.min(
+    OUTCOME_RANKING_POLICY.notApplicablePenaltyCap,
+    OUTCOME_RANKING_POLICY.notApplicablePenaltyWeight *
+      Math.log1p(notApplicableCount),
+  );
+}
+
+/** Bounded penalty for `false_positive`; never contributes a positive term. */
+export function falsePositivePenalty(falsePositiveCount: number): number {
+  assertCount(falsePositiveCount, "falsePositiveCount");
+  return Math.min(
+    OUTCOME_RANKING_POLICY.falsePositivePenaltyCap,
+    OUTCOME_RANKING_POLICY.falsePositivePenaltyWeight *
+      Math.log1p(falsePositiveCount),
+  );
+}
+
+/**
+ * Bounded M2 outcome score in [MIN_OUTCOME_SCORE, MAX_OUTCOME_SCORE].
+ * `violated` is intentionally excluded: it stays in the M1 violation boost so
+ * it is never double counted. Zero outcomes always yield exactly 0, which
+ * keeps the ranking identical to M1.
+ */
+export function outcomeScore(counts: KnowledgeOutcomeCounts): number {
+  return (
+    appliedBoost(counts.appliedCount) -
+    notApplicablePenalty(counts.notApplicableCount) -
+    falsePositivePenalty(counts.falsePositiveCount)
+  );
+}
+
 export function computeKnowledgeSearchScore(
   textRank: number,
   severity: Severity,
   evidenceCount: number,
-  violationCount: number,
+  outcomeCounts: KnowledgeOutcomeCounts,
 ): number {
   return (
     reciprocalRank(textRank) +
     severityBoost(severity) +
     evidenceBoost(evidenceCount) +
-    violationBoost(violationCount)
+    violationBoost(outcomeCounts.violationCount) +
+    outcomeScore(outcomeCounts)
   );
 }
 

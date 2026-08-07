@@ -109,7 +109,9 @@ export interface ProjectedKnowledge {
   readonly detail: string;
   readonly etag: string;
   readonly evidenceCount: number;
+  readonly falsePositiveCount: number;
   readonly id: string;
+  readonly notApplicableCount: number;
   readonly path: string;
   readonly repoId: string;
   readonly revision: number;
@@ -334,7 +336,13 @@ export function projectKnowledgeDocuments(
         evidenceCount: matchingEvidence.filter(
           (item) => item.eligible_for_count,
         ).length,
+        falsePositiveCount: matchingOutcomes.filter(
+          (item) => item.outcome === "false_positive",
+        ).length,
         id: parsed.data.id,
+        notApplicableCount: matchingOutcomes.filter(
+          (item) => item.outcome === "not_applicable",
+        ).length,
         path: document.path,
         repoId: parsed.data.repo_id,
         revision: parsed.data.revision,

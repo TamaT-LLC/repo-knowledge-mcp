@@ -66,7 +66,7 @@
     "docs:check": "node check-markdown-links.mjs",
     "format": "prettier --write '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.mjs' 'test/**/*.json' 'docs/**/*.json' '*.json' '*.mjs'",
     "format:check": "prettier --check '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.mjs' 'test/**/*.json' 'docs/**/*.json' '*.json' '*.mjs'",
-    "golden": "npm run build && node dist/golden-cli.js test/fixtures/golden/m1-golden.json",
+    "golden": "npm run build && node dist/golden-cli.js test/fixtures/golden/m1-golden.json && node dist/golden-cli.js test/fixtures/golden/m2-outcome-ranking-golden.json",
     "lint": "eslint src test scripts --max-warnings=0",
     "package:smoke": "node scripts/package-smoke.mjs",
     "prepack": "npm run --silent build",

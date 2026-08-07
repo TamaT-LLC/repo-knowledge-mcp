@@ -403,7 +403,7 @@ function rerankAfterScopeFilter(
         textRank,
         hit.severity,
         hit.evidenceCount,
-        hit.violationCount,
+        hit,
       ),
       textRank,
     }))

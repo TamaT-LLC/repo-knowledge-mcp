@@ -2589,3 +2589,88 @@ M1-B、M1-C、M1-D の実装状況はロードマップ上の状態であり、�
 ### 10.5 テストで固定した性質
 
 固定 fixture の全集計、空 repository の 0 埋め、期間境界（境界 instant の包含 / 排他、`+09:00` offset の UTC day 割り当て）、reindex 前後の全集計一致、cross-repository 非混入と checkpoint mismatch の fail-closed は、[stats read service の受け入れテスト](../../test/stats-read-service.test.ts) で固定する。
+
+<a id="outcome-ranking-policy"></a>
+
+## 11. M2 outcome ランキング policy
+
+この節は M2 の `record_outcome`（§6.4）が蓄積する 4 種類の outcome を検索ランキング（§13）へ反映する正規 policy を定義する。
+実装は [knowledge-search.ts](../../src/knowledge-search.ts) の `OUTCOME_RANKING_POLICY` / `outcomeScore` であり、evidence（§6.3）と outcome を混同しないこと、自己強化ループを bounded signal として抑えることを目的とする。
+
+<a id="outcome-ranking-semantics"></a>
+
+### 11.1 outcome 種別のランキング上の意味
+
+| outcome | 意味 | ランキング効果 |
+| --- | --- | --- |
+| `applied` | エージェントがルールを適用して成功した | bounded な正の boost。最小 sample 未満は無効 |
+| `violated` | ルール違反が実際に観測された（ルールが現実の問題を捉えている証拠） | M1 の violation boost（weight 0.05 / 上限 0.15）を維持し、outcome score では二重計上しない |
+| `not_applicable` | ルールが提示されたが状況に適合しなかった | bounded な負の減衰。正の項には決してならない |
+| `false_positive` | ルールの指摘自体が誤りだった | bounded な負の penalty。正の項には決してならない |
+
+outcome は evidence とは独立のシグナルであり、`evidence_count` 由来の boost（weight 0.15 / 上限 0.3）とは項を分離する。
+
+<a id="outcome-ranking-score"></a>
+
+### 11.2 outcome score の定義
+
+第 2 段再ランキング（§13）のスコアへ、独立項として bounded な outcome score を加算する。
+
+```typescript
+score =
+  reciprocalRank(textRank) +
+  severityBoost(severity) +
+  evidenceBoost(evidenceCount) +
+  violationBoost(violationCount) +   // M1 と同一
+  outcomeScore(counts);              // M2 追加項
+
+outcomeScore(counts) =
+  appliedBoost(counts.appliedCount) -
+  notApplicablePenalty(counts.notApplicableCount) -
+  falsePositivePenalty(counts.falsePositiveCount);
+
+appliedBoost(n)        = n < minAppliedSample ? 0 : min(0.2, 0.1 * log1p(n))
+notApplicablePenalty(n) = min(0.1, 0.05 * log1p(n))
+falsePositivePenalty(n) = min(0.25, 0.125 * log1p(n))
+```
+
+固定する性質:
+
+- **M1 互換**: outcome が 0 件のとき `outcomeScore = 0` であり、順位は M1 と完全に一致する。
+- **最小 sample（無効化規則）**: `applied` は `minAppliedSample = 3` 件未満では boost にならない。少数の自己申告 event が自己強化ループを開始できないための下限であり、penalty 側は 1 件目から作用させる（早期に下げる方向は fail-safe、早期に上げる方向は fail-unsafe）。
+- **上限**: 各項は log1p + cap で飽和し、outcome score 全体は `[-0.35, +0.2]` に収まる。大量の同種 outcome を投入しても定義上限を超えない。隣接 text rank 間の reciprocal rank 差（先頭は 0.5）を無条件には超えられない設計とする。
+- **単調性**: `not_applicable` / `false_positive` の追加は score を増加させず、`applied` の追加は score を減少させない。
+- **決定性と減衰不採用**: score は outcome 件数のみの純関数であり、壁時計に依存する時間減衰は採用しない（同じ event 集合から常に同一の score と順位が得られる。stats の決定性原則 §10.1 と同じ理由）。時間減衰は policy version を上げて将来検討する。
+
+count の導出は projection（[domain-projection.ts](../../src/domain-projection.ts) の `appliedCount` / `violationCount` / `notApplicableCount` / `falsePositiveCount`）が行い、`event_id` 冪等化（§6.4）を経た OutcomeRecorded のみを数える。
+
+<a id="outcome-ranking-policy-version"></a>
+
+### 11.3 policy version と定数の追跡
+
+- 定数一式は `OUTCOME_RANKING_POLICY`（frozen object）として単一定義し、`version: "m2-outcome-v1"` を持つ。定数・式・最小 sample のいずれかを変える変更は policy 変更であり、version を必ず更新する。
+- SQLite 側は derived 列（`not_applicable_count` / `false_positive_count`）を追加したため `PROJECTION_SCHEMA_VERSION = "3"` へ更新し、旧 schema の index.sqlite は open 時に drop → 完全再構築される（正本は変更しない）。
+- golden report（§11.4）は `policy` オブジェクトをそのまま埋め込むため、policy の変更は report の diff と version 差分として機械的に現れる。
+
+<a id="outcome-ranking-golden"></a>
+
+### 11.4 golden 評価と report
+
+`applied` / `violated` / `false_positive` / `not_applicable` が混在する ranking golden fixture を
+[m2-outcome-ranking-golden.json](../../test/fixtures/golden/m2-outcome-ranking-golden.json) に固定し、
+[outcome-ranking-golden.ts](../../src/outcome-ranking-golden.ts) の `evaluateOutcomeRankingFixture` が
+同一候補集合を **M1 baseline policy** と **M2 outcome policy** の双方で決定的に順位付けして比較 report を生成する（`npm run golden` の 2 本目として [golden-cli.ts](../../src/golden-cli.ts) から実行する）。
+
+report には次を含める:
+
+- 双方の `search_mrr` / `search_ndcg`（§18.1 と同じ定義）と delta
+- human ranking rubric（「applied 実績のあるルールは false_positive 連発ルールより上」等の pairwise 期待）の policy 別 pass/fail と pass rate
+- `policy`（version + 全定数）と query ごとの両 ranking
+
+固定する受け入れ性質（[outcome-ranking-golden.test.ts](../../test/outcome-ranking-golden.test.ts)、[knowledge-search.test.ts](../../test/knowledge-search.test.ts)）:
+
+1. outcome 0 件の query は両 policy で同一順位
+2. `false_positive` / `not_applicable` はルール順位を無条件に押し上げない
+3. 大量の同種 outcome でも boost / penalty が定義上限で飽和する
+4. 同じ event 集合から決定的な score と順位が得られる（再検索・reindex 後も一致）
+5. policy 変更が golden report と version 差分に現れる

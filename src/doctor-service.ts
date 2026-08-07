@@ -32,6 +32,7 @@ import {
   resolveAllowedWorkspacePath,
 } from "./repository-resolver.js";
 import {
+  PROJECTION_SCHEMA_VERSION,
   captureCanonicalStateReadOnly,
   type ReadOnlyCanonicalStateCapture,
 } from "./sqlite-projection.js";
@@ -1607,10 +1608,10 @@ async function inspectSqliteProjection(
 
     const meta = readProjectionMeta(database);
     const mismatches: Array<Record<string, unknown>> = [];
-    if (meta.schema_version !== "2") {
+    if (meta.schema_version !== PROJECTION_SCHEMA_VERSION) {
       mismatches.push({
         actual: meta.schema_version,
-        expected: "2",
+        expected: PROJECTION_SCHEMA_VERSION,
         field: "schema_version",
       });
     }
@@ -1761,13 +1762,16 @@ function compareProjectedKnowledge(
 ): void {
   const rows = database
     .prepare(
-      `SELECT id, repo_id, evidence_count, violation_count, applied_count
+      `SELECT id, repo_id, evidence_count, violation_count, applied_count,
+              not_applicable_count, false_positive_count
        FROM knowledge WHERE repo_id = ? ORDER BY id`,
     )
     .all(repoId) as Array<{
     applied_count: number;
     evidence_count: number;
+    false_positive_count: number;
     id: string;
+    not_applicable_count: number;
     repo_id: string;
     violation_count: number;
   }>;
@@ -1776,7 +1780,9 @@ function compareProjectedKnowledge(
     .map((item) => ({
       applied_count: item.appliedCount,
       evidence_count: item.evidenceCount,
+      false_positive_count: item.falsePositiveCount,
       id: item.id,
+      not_applicable_count: item.notApplicableCount,
       repo_id: item.repoId,
       violation_count: item.violationCount,
     }));
