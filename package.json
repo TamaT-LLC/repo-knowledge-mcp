@@ -70,6 +70,7 @@
     "golden:baseline:replay": "npm run build && node dist/golden-baseline-cli.js --corpus test/fixtures/golden/m2-anonymized-corpus.json --replay test/fixtures/golden/m2-recorded-predictions.json --out test/fixtures/golden/m2-provider-baseline.json",
     "lint": "eslint src test scripts --max-warnings=0",
     "package:smoke": "node scripts/package-smoke.mjs",
+    "pilot:daily": "npm run build && node dist/pilot-daily-record-cli.js",
     "prepack": "npm run --silent build",
     "quality:gate": "npm run build && node dist/quality-gate-cli.js",
     "smoke:m1": "npm run build && node dist/m1-smoke-cli.js",
