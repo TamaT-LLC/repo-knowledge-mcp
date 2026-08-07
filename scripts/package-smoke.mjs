@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import {
   access,
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -11,10 +12,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const smokeRepository = "owner/repository";
 const expectedTools = [
   "add_knowledge",
   "get_knowledge",
@@ -28,6 +30,8 @@ const expectedTools = [
   "sync_repo",
   "update_knowledge",
 ];
+// M2 commands the installed CLI help must document for cron operators.
+const expectedHelpCommands = ["sync [repo]", "stats [repo]", "distill [repo]"];
 
 async function main() {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "rkm-package-smoke-"));
@@ -35,11 +39,16 @@ async function main() {
     const packDirectory = join(temporaryRoot, "pack");
     const installDirectory = join(temporaryRoot, "install");
     const runtimeDirectory = join(temporaryRoot, "runtime");
+    const binDirectory = join(temporaryRoot, "bin");
     await Promise.all([
       mkdir(packDirectory, { recursive: true }),
       mkdir(installDirectory, { recursive: true }),
       mkdir(runtimeDirectory, { recursive: true }),
+      mkdir(binDirectory, { recursive: true }),
     ]);
+    const fakeGhPath = join(binDirectory, "gh");
+    await writeFile(fakeGhPath, fakeGhSource(), "utf8");
+    await chmod(fakeGhPath, 0o755);
 
     const packed = await runNpm(
       ["pack", "--json", "--pack-destination", packDirectory],
@@ -88,6 +97,7 @@ async function main() {
     await access(executable, constants.X_OK);
     const environment = {
       ...process.env,
+      PATH: `${binDirectory}${delimiter}${process.env.PATH ?? ""}`,
       REPO_KNOWLEDGE_HOME: join(runtimeDirectory, ".repo-knowledge"),
     };
     const help = await run(executable, ["--help"], {
@@ -99,6 +109,12 @@ async function main() {
       help.stdout.startsWith("Usage: repo-knowledge <command> [options]"),
       "installed CLI help was not available",
     );
+    for (const command of expectedHelpCommands) {
+      assert(
+        help.stdout.includes(command),
+        `installed CLI help does not document ${command}`,
+      );
+    }
 
     const client = new JsonRpcProcess(
       executable,
@@ -134,6 +150,38 @@ async function main() {
         JSON.stringify(toolNames) === JSON.stringify(expectedTools),
         "installed MCP exposed an unexpected tool set",
       );
+
+      // The M2 surfaces stay callable end to end through the packaged
+      // artifact: sync_repo resolves the repository through the local gh
+      // stand-in, and stats plus get_rules read the freshly created store.
+      const synced = await callTool(client, "sync_repo", {
+        repo: smokeRepository,
+      });
+      const syncStructured = asRecord(synced.structuredContent);
+      assert(
+        syncStructured.ok === true &&
+          asRecord(syncStructured.result).discovered === 0,
+        "installed sync_repo did not report an empty incremental window",
+      );
+      const stats = await callTool(client, "stats", { repo: smokeRepository });
+      const statsStructured = asRecord(stats.structuredContent);
+      assert(
+        statsStructured.stats_schema_version === 1 &&
+          asRecord(statsStructured.knowledge).total === 0 &&
+          asRecord(statsStructured.outcomes).total === 0,
+        "installed stats did not return versioned zero aggregates",
+      );
+      const rules = await callTool(client, "get_rules", {
+        file_paths: ["src/index.ts"],
+        repo: smokeRepository,
+      });
+      const rulesStructured = asRecord(rules.structuredContent);
+      assert(
+        rulesStructured.matched_count === 0 &&
+          Array.isArray(rulesStructured.rules) &&
+          rulesStructured.rules.length === 0,
+        "installed get_rules did not return an empty active rule set",
+      );
     } finally {
       await client.close();
     }
@@ -151,6 +199,7 @@ async function main() {
       `${JSON.stringify(
         {
           cli_help: true,
+          m2_tool_calls: ["sync_repo", "stats", "get_rules"],
           mcp_tools: expectedTools.length,
           package: `${packResult.name}@${packResult.version}`,
           package_files: packResult.files.length,
@@ -168,6 +217,61 @@ async function main() {
   } finally {
     await rm(temporaryRoot, { force: true, recursive: true });
   }
+}
+
+async function callTool(client, name, toolArguments) {
+  const reply = await client.request("tools/call", {
+    arguments: toolArguments,
+    name,
+  });
+  assert(reply.error === undefined, `installed MCP ${name} call failed`);
+  const result = asRecord(reply.result);
+  assert(result.isError !== true, `installed MCP ${name} returned an error`);
+  return result;
+}
+
+/**
+ * Deterministic `gh` stand-in for the packaged smoke: it resolves the smoke
+ * repository and reports an empty updated-PR window, so the M2 tool calls
+ * complete without any network access or GitHub credential.
+ */
+function fakeGhSource() {
+  return `#!/usr/bin/env node
+const REPOSITORY = ${JSON.stringify(smokeRepository)};
+const REPO_ID = "R_package_smoke_repository";
+const args = process.argv.slice(2);
+if (args[0] !== "api" || args[1] !== "graphql") {
+  process.stderr.write("fake gh: unsupported invocation\\n");
+  process.exit(1);
+}
+let query = "";
+for (let index = 2; index < args.length; index += 1) {
+  const flag = args[index];
+  if (flag !== "-f" && flag !== "-F") continue;
+  const pair = args[index + 1] ?? "";
+  index += 1;
+  if (pair.startsWith("query=")) query = pair.slice("query=".length);
+}
+let data;
+if (query.includes("query ResolveRepository")) {
+  data = { repository: { id: REPO_ID, nameWithOwner: REPOSITORY } };
+} else if (query.includes("query ListUpdatedPullRequests")) {
+  data = {
+    repository: {
+      id: REPO_ID,
+      nameWithOwner: REPOSITORY,
+      pullRequests: {
+        nodes: [],
+        pageInfo: { endCursor: null, hasNextPage: false },
+      },
+    },
+  };
+} else {
+  process.stderr.write("fake gh: unsupported query\\n");
+  process.exit(1);
+}
+process.stdout.write(JSON.stringify({ data }) + "\\n");
+`;
 }
 
 function parsePackResult(stdout) {

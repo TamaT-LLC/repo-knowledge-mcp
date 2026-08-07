@@ -194,8 +194,10 @@ M1 に secret scanner はないため、review や diff に secret が含まれ�
 |---|---|
 | `get_rules` | file path と task に合う active rule を返す |
 | `search_knowledge` | active knowledge を literal-safe に検索する |
-| `get_knowledge` | active knowledge と paginated evidence を読む |
+| `get_knowledge` | active knowledge、コード例（ある場合）、paginated evidence を読む |
 | `ingest_pr` | complete PR snapshot を取得し、raw observation と distillation job を canonical commit する |
+| `sync_repo` | checkpoint から増分同期する。CLI `sync` と同一サービス・同一 summary schema |
+| `record_outcome` | agent が観測した rule の outcome を `event_id` 冪等で記録する |
 | `add_knowledge` | manual knowledge を `proposed` で追加する |
 | `update_knowledge` | ETag / revision を使い、変更 proposal を作る。active 化はできない |
 | `prepare_distillation` | 明示 opt-in 時だけ host-assisted job data を返す |
@@ -210,6 +212,7 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 | command | 用途 |
 |---|---|
 | `serve [--repo owner/name]` | stdio MCP server を明示起動 |
+| `sync [repo] [--since <iso>]` | checkpoint から更新 PR を増分同期（cron 用、下記「cron 同期の運用」参照） |
 | `stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]` | versioned repository 集計を JSON 1 document で出力 |
 | `ingest [repo] <pr>` | 一つの complete PR snapshot を取り込む |
 | `distill [repo]` | Provider Adapter で pending job を処理 |
@@ -222,9 +225,108 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 | `add --active <fields>` | TTY-only で human-authored active knowledge を追加 |
 | `doctor [repo]` | runtime、GitHub auth、config、storage、canonical data、projection を read-only 診断 |
 
-`sync`、`sync_repo`、`record_outcome` は M1 の対象外で、M2 で追加されました。
-`stats` も M2 で追加され、MCP tool と CLI command が同じ schema version と集計値を返します（下記「stats の読み方と運用」参照）。
+`sync` / `sync_repo`、`record_outcome`、`stats` は M2 で追加されました。
+`stats` は MCP tool と CLI command が同じ schema version と集計値を返します（下記「stats の読み方と運用」参照）。
 引数なしで TTY から起動すると help、pipe から起動すると stdio server になります。
+
+## cron 同期の運用
+
+`repo-knowledge sync` は保存済み checkpoint の直後から更新 PR だけを取り込みます。
+初回は `--since` で開始境界を宣言でき、以後は引数なしの定期実行だけで増分同期が続きます。
+同じ window を CLI と MCP `sync_repo` から重複同期しても、ingest は冪等なので canonical state は変化しません。
+
+cron へ載せる前に、同じユーザー・同じ環境変数で非対話実行を確認します。
+
+```console
+gh auth status
+repo-knowledge sync owner/repository </dev/null
+echo "exit=$?"
+```
+
+15 分ごとに同期し、summary JSONL をログへ追記し、失敗時のみ通知する crontab 例です。
+
+```crontab
+MAILTO=ops@example.com
+PATH=/opt/homebrew/bin:/usr/bin:/bin
+*/15 * * * * repo-knowledge sync owner/repository >> "$HOME/log/repo-knowledge-sync.jsonl" 2>> "$HOME/log/repo-knowledge-sync.err" || echo "repo-knowledge sync failed with exit $?"
+```
+
+exit code の契約は cron 監視用に固定されています。
+
+| exit | 意味 | cron での扱い |
+|---|---|---|
+| 0 | 発見した PR をすべて同期（0 件含む） | 正常。通知不要 |
+| 1 | 部分失敗またはエラー（lock 待ちタイムアウト含む） | 通知して次回実行で自動再試行 |
+| 2 | 引数誤り（`--since` 形式不正など） | crontab を修正するまで回復しない |
+
+部分失敗時は最初に失敗した PR で停止し、checkpoint は最後に連続成功した PR に留まるため、
+失敗より新しい PR が先に取り込まれて穴が生まれることはありません。
+`--since` が checkpoint 境界時刻以上の場合は `SYNC_SINCE_BEYOND_CHECKPOINT` で拒否されます（fail-closed）。
+lock contention、エラーコード一覧、失敗時の診断は
+[sync cron 運用 runbook](./docs/operations/sync-cron-runbook.md) を参照してください。
+
+## outcome の記録とランキング
+
+`get_rules` の応答には rule `id` が含まれるため、agent は rule を適用・違反した際に
+`record_outcome` tool で観測結果を返せます。
+
+- `event_id`（`evt_<ULID>`）が冪等キーです。MCP retry で同じ payload が再送されても
+  二重加算されず、同じ `event_id` に異なる payload を送ると fail-closed で拒否されます。
+- `outcome` は `applied` / `violated` / `not_applicable` / `false_positive` の 4 種で、
+  evidence（レビューで観測された回数）とは混ぜずに別カウントとして集計されます。
+- outcome は対象 rule が active のときだけ記録でき、canonical event として保存されるため
+  `reindex` 後も同じ集計へ再構築されます。
+
+記録された outcome は検索ランキングへ上限付きで反映されます。
+
+- `violated` は違反 boost として順位を上げます（M1 から継続、上限あり）。
+- `applied` は最小 sample 数（3 件）未満では効かず、少数の自己報告が
+  自己強化ループを作らないよう設計されています。
+- `not_applicable` / `false_positive` は上限付きの減点で、outcome ゼロ件の rule の順位は
+  M1 とまったく同じです。
+
+## detail のコード例（根拠制約付き）
+
+M2 の蒸留は、review thread に根拠がある場合だけ detail に構造化コード例を付けます。
+
+- 例は常に `generated_example: true` を持ち、引用した evidence comment ID を必ず伴います。
+- 例が使う API・型・package 名は、cited comment 本文または diff hunk に実在する token に
+  限定され、根拠のない API を含む例は commit 前に拒否されます（幻覚 API の混入防止）。
+- 根拠が取れない場合は例を省略し、detail は概念的な記述のままになります。
+- 保存先は canonical Markdown 本文で、`get_knowledge` が `code_example` として返します。
+  M1 時代の document は `code_example: null` のまま有効で、migration は不要です。
+
+## quality gate の運用
+
+M2 の抽出・分類・マージ・検索品質は、匿名化 corpus と記録済み provider prediction から
+オフラインで再計算できる quality gate で管理します。network も API key も不要です。
+
+```console
+npm run quality:gate
+```
+
+- exit 0（`status: "pass"`）: 全指標が review 済み下限以上で、fixture drift もなし
+- exit 1（`status: "metric_failure"`）: いずれかの指標が下限未満
+- exit 2（`status: "integrity_failure"`）: 入力不正、閾値と baseline の束縛不一致、fixture drift
+
+quality report は機械可読 JSON として stdout に出力され、同じ入力からは
+Node 22 / 24 で同一 byte の report が得られます。指標だけを再計算する場合は次を使います。
+
+```console
+npm run golden
+```
+
+prompt や schema、trust policy の世代を意図して変更した場合は、記録済み prediction から
+baseline artifact を再生成してから gate を再実行します。
+
+```console
+npm run golden:baseline:replay
+npm run quality:gate
+```
+
+実 provider での閾値実測（operator のみ・明示 opt-in）、閾値更新の合意手続き、
+失敗時の診断は [golden baseline 測定 runbook](./docs/operations/golden-baseline-runbook.md) を、
+要件と test の対応は [M2 acceptance matrix](./docs/testing/m2-acceptance-matrix.md) を参照してください。
 
 ## stats の読み方と運用
 
@@ -313,10 +415,13 @@ structured diagnostic と provider log は stderr に書きます。
 ```console
 npm ci
 npm run check
+npm run golden
+npm run quality:gate
 npm run package:smoke
 ```
 
-`package:smoke` は `npm pack` の tarball だけを一時 project へ install し、公開 file、CLI help、stdio initialize、全 tool の list、stdout の JSON-RPC 純度を検証します。
-CI は Node 22 と 24 の両方で同じ check と package smoke を実行します。
+`package:smoke` は `npm pack` の tarball だけを一時 project へ install し、公開 file、M2 command を含む CLI help、stdio initialize、全 11 tool の list、ローカル `gh` stand-in 経由の `sync_repo` / `stats` / `get_rules` call、stdout の JSON-RPC 純度を検証します。
+CI は Node 22 と 24 の両方で同じ check、golden、quality gate、package smoke を実行します。
+M2 要件から test・運用手順への追跡は [M2 acceptance matrix](./docs/testing/m2-acceptance-matrix.md) を参照してください。
 
 脅威モデル、admin plane、直接編集、外部送信の詳細は [SECURITY.md](./SECURITY.md) を参照してください。
