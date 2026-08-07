@@ -249,6 +249,33 @@ describe("GitHubPullRequestEnumerator", () => {
     },
   );
 
+  it("fails closed when the boundary-reaching page reports hasNextPage without an endCursor", async () => {
+    const boundaryMs = timestampMs(5);
+    // #4 is strictly older than the cursor boundary, so this page exhausts
+    // the traversal; its malformed pageInfo must still be rejected.
+    const runner = pagedRunner([
+      page(
+        [
+          node(6, boundaryMs + ONE_MINUTE_MS),
+          node(4, boundaryMs - ONE_MINUTE_MS),
+        ],
+        null,
+        {
+          hasNextPageWithoutCursor: true,
+        },
+      ),
+    ]);
+
+    await expect(
+      new GitHubPullRequestEnumerator({
+        ghRunner: runner,
+      }).enumerateUpdatedPullRequests({
+        cursor: cursorAt(5, boundaryMs),
+        repo: REPO_NAME,
+      }),
+    ).rejects.toMatchObject({ code: "GRAPHQL_PAGINATION_INVALID" });
+  });
+
   it("discards data when GraphQL reports errors", async () => {
     const runner = new FixtureGhRunner(() => ({
       data: page([node(1)], null),

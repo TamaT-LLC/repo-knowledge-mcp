@@ -192,9 +192,13 @@ export class GitHubPullRequestEnumerator {
       const page = requireGraphqlRepository(data.repository, operation);
       repository = mergeRepositoryIdentity(repository, page, operation);
       const exhausted = !traversal.append(page.pullRequests.nodes, operation);
-      cursor = exhausted
-        ? null
-        : nextConnectionCursor(page.pullRequests.pageInfo, operation);
+      // Validate pageInfo even on the boundary-reaching page so a malformed
+      // pagination response never passes as a successful enumeration.
+      const nextPageCursor = nextConnectionCursor(
+        page.pullRequests.pageInfo,
+        operation,
+      );
+      cursor = exhausted ? null : nextPageCursor;
     } while (cursor !== null);
 
     if (repository === null) {
