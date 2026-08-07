@@ -426,6 +426,67 @@ describe("M2 code example fixtures", () => {
     ).toEqual({ grounded: false, ungrounded_tokens: ["@scope/pkg"] });
   });
 
+  it("verifies dynamic import specifiers and Unicode identifiers", () => {
+    const example = (content: string): GeneratedCodeExample => ({
+      content,
+      evidence_comment_ids: ["comment-1"],
+      generated_example: true,
+      language: "typescript",
+    });
+
+    // Dynamic import specifiers are extracted whole, never as fragments.
+    const dynamicTokens = extractCodeExampleReferenceTokens(
+      'await import("@scope/fabricated");',
+    );
+    expect(dynamicTokens.identifiers).toEqual([]);
+    expect(dynamicTokens.specifiers).toEqual(["@scope/fabricated"]);
+
+    // Fragments of the package name in evidence do not ground the whole
+    // specifier; only an exact boundary match does.
+    const dynamicImport = example(
+      'const mod = await import("@scope/fabricated");',
+    );
+    expect(
+      evaluateCodeExampleGrounding(dynamicImport, [
+        {
+          body: "The scope of this loader is fabricated bundles from the documented mod registry.",
+          id: "comment-1",
+        },
+      ]),
+    ).toEqual({ grounded: false, ungrounded_tokens: ["@scope/fabricated"] });
+    expect(
+      evaluateCodeExampleGrounding(dynamicImport, [
+        {
+          body: 'Lazy-load the mod bundle from "@scope/fabricated".',
+          id: "comment-1",
+        },
+      ]),
+    ).toEqual({ grounded: true, ungrounded_tokens: [] });
+
+    // Unicode identifiers are tokenized with the same rules on both sides,
+    // and short non-ASCII tokens are never exempt.
+    const unicodeExample = example("const Δx = réponse.envoyer();");
+    expect(
+      evaluateCodeExampleGrounding(unicodeExample, [
+        {
+          body: "Track Δx and send the réponse through envoyer().",
+          id: "comment-1",
+        },
+      ]),
+    ).toEqual({ grounded: true, ungrounded_tokens: [] });
+    expect(
+      evaluateCodeExampleGrounding(unicodeExample, [
+        {
+          body: "Send the result through the documented channel.",
+          id: "comment-1",
+        },
+      ]),
+    ).toEqual({
+      grounded: false,
+      ungrounded_tokens: ["envoyer", "réponse", "Δx"],
+    });
+  });
+
   it("binds the M2 schema change into the output schema digest and distillation key", () => {
     const schemaJson = JSON.stringify(DISTILLATION_OUTPUT_JSON_SCHEMA);
     const legacySchema = JSON.parse(schemaJson) as {

@@ -160,18 +160,22 @@ const GENERIC_TOKEN_SET: ReadonlySet<string> = new Set(
   CODE_EXAMPLE_GENERIC_TOKENS,
 );
 
-const IDENTIFIER = "[A-Za-z_$][A-Za-z0-9_$]*";
+const IDENTIFIER_START = "[\\p{L}\\p{Nl}_$]";
+const IDENTIFIER_CONTINUE = "[\\p{L}\\p{Nl}\\p{Mn}\\p{Mc}\\p{Nd}\\p{Pc}_$]";
+const IDENTIFIER = `${IDENTIFIER_START}${IDENTIFIER_CONTINUE}*`;
 const MODULE_SPECIFIER = "[A-Za-z_$@][A-Za-z0-9_$@:./-]*";
 const IDENTIFIER_TOKEN_REGEX = new RegExp(IDENTIFIER, "gu");
 const MODULE_KEYWORD_TOKEN_REGEX = new RegExp(
-  `(?<![A-Za-z0-9_$])(?:import|from|use)\\s+(${MODULE_SPECIFIER})`,
+  `(?<!${IDENTIFIER_CONTINUE})(?:import|from|use)\\s+(${MODULE_SPECIFIER})`,
   "gu",
 );
 const QUOTED_MODULE_SPECIFIER_REGEX =
-  /(?:\bfrom\s*|\bimport\s*|\brequire\s*\(\s*)["']([^"'\n]+)["']/gu;
+  /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["']([^"'\n]+)["']/gu;
+const QUOTED_STRING_REGEX = /["']([^"'\n]+)["']/gu;
 const SPECIFIER_RUN_REGEX = new RegExp(MODULE_SPECIFIER, "gu");
 const QUOTED_EVIDENCE_STRING_REGEX = /["']([^"'\n]+)["']/gu;
 const TRAILING_SPECIFIER_PUNCTUATION_REGEX = /[.:/-]+$/u;
+const MAX_ASCII_CODE_POINT = 0x7f;
 
 export interface CodeExampleEvidenceSource {
   readonly body: string;
@@ -199,13 +203,18 @@ export interface CodeExampleGroundingResult {
 }
 
 /**
- * Extracts every identifier token from the content, including tokens inside
- * string literals and comments (quoted bracket members and error messages are
- * data too). Excluded deterministically: tokens shorter than the minimum
- * length, generic tokens, and the interior of quoted module specifiers,
- * which are validated separately as whole specifiers. Declared names,
- * function parameters, destructuring bindings, and import-bound names are
- * intentionally not excluded; they fail closed toward requiring grounding.
+ * Extracts every identifier token from the content — Unicode identifiers
+ * included — and every module specifier. Tokens inside string literals and
+ * comments count too (quoted bracket members and error messages are data).
+ * Specifiers come from static and dynamic import positions (`from` /
+ * `import` / `import(` / `require(`) plus any quoted string that is
+ * specifier-shaped (starts with `@` or contains `/`); their interiors are
+ * blanked from the identifier pass so package-name fragments cannot be
+ * grounded word-by-word. Excluded deterministically: generic tokens and
+ * ASCII-only tokens shorter than the minimum length (non-ASCII tokens always
+ * require grounding). Declared names, function parameters, destructuring
+ * bindings, and import-bound names are intentionally not excluded; they fail
+ * closed toward requiring grounding.
  */
 export function extractCodeExampleReferenceTokens(
   content: string,
@@ -214,6 +223,7 @@ export function extractCodeExampleReferenceTokens(
     [
       ...captureAll(content, MODULE_KEYWORD_TOKEN_REGEX),
       ...captureAll(content, QUOTED_MODULE_SPECIFIER_REGEX),
+      ...captureAll(content, QUOTED_STRING_REGEX).filter(isSpecifierShaped),
     ]
       .map((specifier) =>
         specifier.replace(TRAILING_SPECIFIER_PUNCTUATION_REGEX, ""),
@@ -224,16 +234,19 @@ export function extractCodeExampleReferenceTokens(
           !GENERIC_TOKEN_SET.has(specifier.toLowerCase()),
       ),
   );
-  // Quoted module specifiers are validated as whole specifiers; blank their
-  // interiors so their fragments are not reported twice.
-  const tokenizable = content.replaceAll(
-    QUOTED_MODULE_SPECIFIER_REGEX,
-    (match) => " ".repeat(match.length),
-  );
+  // Quoted specifiers are validated as whole specifiers; blank their
+  // interiors so their fragments are not reported or grounded separately.
+  const tokenizable = content
+    .replaceAll(QUOTED_MODULE_SPECIFIER_REGEX, (match) =>
+      " ".repeat(match.length),
+    )
+    .replaceAll(QUOTED_STRING_REGEX, (match, value: string) =>
+      isSpecifierShaped(value) ? " ".repeat(match.length) : match,
+    );
   const identifiers = sortAndDedupeStrings(
     (tokenizable.match(IDENTIFIER_TOKEN_REGEX) ?? []).filter(
       (token) =>
-        token.length >= CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH &&
+        !isExemptShortToken(token) &&
         !GENERIC_TOKEN_SET.has(token.toLowerCase()),
     ),
   );
@@ -302,6 +315,40 @@ function collectEvidenceSpecifiers(text: string): ReadonlySet<string> {
     add(match[0]);
   }
   return specifiers;
+}
+
+/**
+ * A quoted string is treated as a module specifier regardless of syntax
+ * position when it starts with `@` or contains `/`. This keeps dynamic
+ * imports and computed loaders on the whole-specifier match instead of
+ * letting their path fragments be grounded word-by-word.
+ */
+function isSpecifierShaped(value: string): boolean {
+  return value.startsWith("@") || value.includes("/");
+}
+
+/**
+ * The minimum-length exemption exists for ubiquitous short ASCII idioms
+ * (`id`, `db`, `fs`). Tokens containing any non-ASCII code point require
+ * grounding regardless of length, so short Unicode names such as `Δx` cannot
+ * bypass verification. Lengths are counted in code points.
+ */
+function isExemptShortToken(token: string): boolean {
+  return (
+    isAsciiOnly(token) &&
+    codePointLength(token) < CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH
+  );
+}
+
+function isAsciiOnly(value: string): boolean {
+  for (const character of value) {
+    if (character.codePointAt(0)! > MAX_ASCII_CODE_POINT) return false;
+  }
+  return true;
+}
+
+function codePointLength(value: string): number {
+  return [...value].length;
 }
 
 function captureAll(content: string, pattern: RegExp): string[] {

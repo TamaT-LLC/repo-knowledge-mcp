@@ -286,6 +286,14 @@ describe("distillation prompt and output boundary", () => {
         content: "const fabricatedCache = loadCache();",
         ungrounded: "fabricatedCache",
       },
+      {
+        content: 'await import("@scope/fabricated");',
+        ungrounded: "@scope/fabricated",
+      },
+      {
+        content: "réponse.envoyer();",
+        ungrounded: "envoyer, réponse",
+      },
     ];
 
     for (const pattern of patterns) {

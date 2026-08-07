@@ -2776,16 +2776,21 @@ Architecture §6.2 が M2 に課す「入力 diff またはレビュー本文に
 
 構文位置を列挙するホワイトリスト方式は optional chaining（`fabricatedApi?.()`）・複合型（`Map<string, FabricatedType>`、union）・`satisfies` 等の抜け道が構造的に残るため、**網羅方式**を採用する。構文位置に依存せず、content 内のすべての識別子が検証対象になる。
 
-1. **候補**: `code_example.content` 内のすべての識別子トークン（`[A-Za-z_$][A-Za-z0-9_$]*`）。**文字列リテラル・コメント内のトークンも含む**（`client["fabricatedApi"]` の引用符内メンバー名やエラーメッセージ文字列もデータとして扱う）。唯一の例外は次項 3 の引用符付き module specifier の内部で、specifier 全体として照合するため識別子パスからは除外し二重報告を避ける
+1. **候補**: `code_example.content` 内のすべての識別子トークン。識別子は Unicode property escapes で定義する（開始 `[\p{L}\p{Nl}_$]`、継続 `[\p{L}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}_$]`、`u` フラグ）。`réponse` や `Δx` のような Unicode 識別子も対象であり、content 側と根拠側の tokenize は同一規則で行う。**文字列リテラル・コメント内のトークンも含む**（`client["fabricatedApi"]` の引用符内メンバー名やエラーメッセージ文字列もデータとして扱う）。唯一の例外は次項 3 で specifier 扱いになる引用符内文字列の内部で、specifier 全体として照合するため識別子パスからは除外し、package 名の断片が単語単位で根拠化される抜け道と二重報告を避ける
 2. **決定的除外**: 次のいずれかに該当するトークンは grounding を要求しない
-   - 長さが `CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH = 3` 未満
+   - **ASCII のみで構成され**、code point 数が `CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH = 3` 未満のトークン。この免除は `id` / `db` / `fs` のような遍在する短い ASCII 慣用名のためのものであり、**非 ASCII を含むトークンは長さに関わらず照合対象**（`Δx` は免除されない）
    - frozen リスト `CODE_EXAMPLE_GENERIC_TOKENS`（言語横断キーワード・汎用 builtin・標準ライブラリ型名。`Promise` / `Result` / `Vec` / `satisfies` 等を小文字表記で収載し case-insensitive に照合。リスト全体はテスト [code-example-distillation.test.ts](../../test/code-example-distillation.test.ts) で完全固定し、追加・削除は仕様変更として扱う）
 
    **宣言による除外は存在しない**: content 内で宣言された名前（`interface` / `type` / `const` 等による宣言、関数パラメータ、分割代入、import 局所名）も照合対象に含める。宣言 + 使用の形で架空の型・API 名を通す抜け道を構造的に塞ぐためであり、正当な例のローカル変数名が根拠に現れない場合も拒否側に倒す
-3. **モジュール参照**: `import` / `from` / `use` 直後の識別子・パス、および `from` / `import` / `require(` に続く引用符付き specifier（いずれも末尾の `.` `:` `/` `-` を除去）は、**境界付き完全一致**で照合する。根拠テキストから specifier 候補集合 — 引用符内文字列と、specifier パターン（`[A-Za-z_$@][A-Za-z0-9_$@:./-]*`）の最大一致（それぞれ末尾句読点 `.` `:` `/` `-` を除去した変形も含める）— を抽出し、specifier 全体が集合の要素と **case-sensitive に完全一致**する場合のみ根拠ありとする。部分文字列照合は行わない（根拠が `@scope/pkg-utils` のとき `@scope/pkg` は拒否される）
+3. **モジュール参照**: 次のものを module specifier として扱う（いずれも末尾の `.` `:` `/` `-` を除去）
+   - `import` / `from` / `use` 直後の識別子・パス
+   - `from` / `import` / `import(` / `require(` に続く引用符付き文字列（**動的 import を含む**）
+   - 構文位置に関わらず、**specifier 形状**の引用符内文字列 — `@` で始まる、または `/` を含むもの（`import("@scope/fabricated")` のような動的 import や loader 引数を漏れなく捕捉する決定的規則）
+
+   specifier は**境界付き完全一致**で照合する。根拠テキストから specifier 候補集合 — 引用符内文字列と、specifier パターン（`[A-Za-z_$@][A-Za-z0-9_$@:./-]*`）の最大一致（それぞれ末尾句読点 `.` `:` `/` `-` を除去した変形も含める）— を抽出し、specifier 全体が集合の要素と **case-sensitive に完全一致**する場合のみ根拠ありとする。部分文字列照合は行わない（根拠が `@scope/pkg-utils` のとき `@scope/pkg` は拒否される）
 4. **照合**: 残った全トークンを根拠テキストと照合し、**未照合が 1 つでもあれば fail-closed で拒否**する
 
-識別子トークンの判定は **case-insensitive**（根拠テキストの識別子トークン集合への完全一致）、モジュール specifier の判定は **case-sensitive**（前項の境界付き完全一致）で行う。根拠テキストは `code_example.evidence_comment_ids` が引用する comment の body + diff_hunk の連結に限定する（thread の他コメントは根拠にならない）。引用 comment が現存しない場合は根拠テキストが空になり、同様に拒否される。
+識別子トークンの判定は **case-insensitive**（`String.prototype.toLowerCase` の Unicode 既定挙動で両辺を小文字化し、根拠テキストの識別子トークン集合への完全一致）、モジュール specifier の判定は **case-sensitive**（前項の境界付き完全一致）で行う。根拠テキストは `code_example.evidence_comment_ids` が引用する comment の body + diff_hunk の連結に限定する（thread の他コメントは根拠にならない）。引用 comment が現存しない場合は根拠テキストが空になり、同様に拒否される。
 
 **誤検知の扱い**: 網羅方式では、根拠に現れないローカル慣用名（宣言名・パラメータ名・文字列内の単語等）も拒否側に倒れる。これは fail-closed 設計として仕様上許容する。緩和は generic リストへの追加（= 仕様変更としてテスト固定を更新）でのみ行う。
 
@@ -2798,6 +2803,8 @@ Architecture §6.2 が M2 に課す「入力 diff またはレビュー本文に
 - 構文位置に依存しない: `fabricatedApi?.()` / `client?.fabricatedMethod()` / `Map<string, FabricatedType>` / `RealType | FabricatedType` / `value satisfies FabricatedType` がいずれも拒否される（fixture `optional-chaining-and-compound-types` と回帰テスト）
 - 宣言による回避が拒否される: `interface FabricatedService {}` / `type FabricatedPayload = …` / `const fabricatedCache = …` のように content 内で宣言しても、根拠に現れない名前は拒否される
 - モジュール specifier は境界付き完全一致: 根拠が `@scope/pkg-utils` のとき `@scope/pkg` の import は拒否され、完全一致する specifier は受理される
+- 動的 import も specifier 全体で照合される: `import("@scope/fabricated")` は、根拠に `scope` と `fabricated` が別々の単語として存在しても拒否され、specifier 完全一致の根拠がある場合のみ受理される
+- Unicode 識別子も照合される: `réponse` / `Δx` は根拠になければ拒否され、根拠にあれば受理される（`Δx` は非 ASCII のため最小長免除の対象外）
 - diff_hunk のみに現れる API は根拠として有効
-- 3 文字未満・generic トークンは grounding を要求しない
+- ASCII のみ 3 文字未満・generic トークンは grounding を要求しない
 - `CODE_EXAMPLE_GENERIC_TOKENS` と最小長はテストで完全固定
