@@ -243,6 +243,58 @@ describe("SyncRepoService", () => {
     ).resolves.toMatchObject({ cursor: cursorAt(3) });
   });
 
+  it("rejects --since at or beyond the stored checkpoint boundary", async () => {
+    const repository = await createRepository();
+    const service = syncService(repository);
+    // Leave the checkpoint mid-history at PR 1 so PRs 2 and 3 are unsynced.
+    await syncService(repository, {
+      ingester: new FlakyIngester(buildIngester(repository), new Set([2])),
+    }).sync();
+    const before = await new CanonicalTransactionStore(
+      repository,
+    ).readSnapshot();
+
+    // A --since equal to or newer than the checkpoint boundary would let the
+    // checkpoint advance past never-synced PRs, so both fail closed.
+    await expect(service.sync({ since: isoAt(1) })).rejects.toMatchObject({
+      code: "SYNC_SINCE_BEYOND_CHECKPOINT",
+    });
+    await expect(service.sync({ since: isoAt(2) })).rejects.toMatchObject({
+      code: "SYNC_SINCE_BEYOND_CHECKPOINT",
+    });
+    const after = await new CanonicalTransactionStore(
+      repository,
+    ).readSnapshot();
+
+    expect(after.canonicalDigest).toBe(before.canonicalDigest);
+    await expect(
+      new SyncCheckpointStore(repository).read(),
+    ).resolves.toMatchObject({ cursor: cursorAt(1) });
+
+    // Resuming without --since still reaches PRs 2 and 3 afterwards.
+    await expect(service.sync()).resolves.toMatchObject({
+      discovered: 2,
+      failed: 0,
+      next_cursor: cursorAt(3),
+    });
+  });
+
+  it("rejects an ingester bound to a different repository before any mutation", async () => {
+    const repository = await createRepository();
+    const foreign = buildIngester(repository, "other/repository");
+
+    expect(() => syncService(repository, { ingester: foreign })).toThrowError(
+      /SYNC_REPOSITORY_MISMATCH/,
+    );
+    const snapshot = await new CanonicalTransactionStore(
+      repository,
+    ).readSnapshot();
+    expect(snapshot.records).toHaveLength(0);
+    await expect(
+      new SyncCheckpointStore(repository).read(),
+    ).resolves.toBeNull();
+  });
+
   it("rejects a stored checkpoint that belongs to a different repository", async () => {
     const repository = await createRepository();
     await new SyncCheckpointStore(repository).write({
@@ -341,6 +393,10 @@ class CrashAfterIngestIngester implements SyncPullRequestIngester {
     private readonly crashOnPrNumber: number,
   ) {}
 
+  get repo(): string {
+    return this.inner.repo;
+  }
+
   async ingestPullRequest(request: {
     readonly pr_number: number;
   }): Promise<IngestPullRequestResult> {
@@ -360,6 +416,10 @@ class FlakyIngester implements SyncPullRequestIngester {
     private readonly failOnPrNumbers: ReadonlySet<number>,
   ) {}
 
+  get repo(): string {
+    return this.inner.repo;
+  }
+
   async ingestPullRequest(request: {
     readonly pr_number: number;
   }): Promise<IngestPullRequestResult> {
@@ -378,6 +438,10 @@ class GuardedIngester implements SyncPullRequestIngester {
   private active = 0;
 
   constructor(private readonly inner: SyncPullRequestIngester) {}
+
+  get repo(): string {
+    return this.inner.repo;
+  }
 
   async ingestPullRequest(request: {
     readonly pr_number: number;
@@ -411,7 +475,10 @@ function syncService(
   });
 }
 
-function buildIngester(repository: string): IngestPrMutationService {
+function buildIngester(
+  repository: string,
+  repo = REPOSITORY,
+): IngestPrMutationService {
   return new IngestPrMutationService({
     config: RepoKnowledgeConfigSchema.parse({}),
     ingester: new GitHubIngestService({
@@ -422,7 +489,7 @@ function buildIngester(repository: string): IngestPrMutationService {
       snapshotClient: new FixturePullRequestFetcher(),
       trust: TRUST,
     }),
-    repo: REPOSITORY,
+    repo,
   });
 }
 

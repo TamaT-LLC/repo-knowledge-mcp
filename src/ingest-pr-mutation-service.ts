@@ -46,10 +46,12 @@ export class IngestPrMutationError extends Error {
 
 /** Ingests first, then runs provider work only behind its explicit policy opt-in. */
 export class IngestPrMutationService {
+  /** The repository this mutation service is bound to. */
+  readonly repo: string;
+
   private readonly config: RepoKnowledgeConfig;
   private readonly ingester: Pick<GitHubIngestService, "ingest">;
   private readonly providerRunner: ProviderPostIngestRunner | undefined;
-  private readonly repo: string;
 
   constructor(options: IngestPrMutationServiceOptions) {
     this.config = RepoKnowledgeConfigSchema.parse(options.config);

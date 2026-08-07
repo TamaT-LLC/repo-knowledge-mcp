@@ -22,6 +22,7 @@ import {
   compareSyncOrder,
   nextSyncCursor,
   parseIsoTimestampMs,
+  resolveSyncBoundary,
   type SyncCursor,
   type SyncOrderKey,
 } from "./sync-cursor.js";
@@ -36,6 +37,9 @@ export interface SyncPullRequestEnumerator {
 }
 
 export interface SyncPullRequestIngester {
+  /** The repository the ingester is bound to; checked before any mutation. */
+  readonly repo: string;
+
   ingestPullRequest(request: {
     readonly pr_number: number;
   }): Promise<IngestPullRequestResult>;
@@ -73,7 +77,9 @@ export interface SyncRepoServiceOptions {
 }
 
 export type SyncRepoErrorCode =
-  "SYNC_CHECKPOINT_REPOSITORY_MISMATCH" | "SYNC_REPOSITORY_MISMATCH";
+  | "SYNC_CHECKPOINT_REPOSITORY_MISMATCH"
+  | "SYNC_REPOSITORY_MISMATCH"
+  | "SYNC_SINCE_BEYOND_CHECKPOINT";
 
 export class SyncRepoError extends Error {
   constructor(
@@ -100,6 +106,10 @@ export class SyncRepoError extends Error {
  *   failed PR and the checkpoint stays at the last contiguous success, so no
  *   PR behind a failure is ever skipped. Re-ingesting already-synced PRs on
  *   retry is an idempotent no-op in the ingest pipeline.
+ * - `--since` may only replay history strictly older than the stored
+ *   checkpoint boundary; a narrower window is rejected fail-closed because
+ *   advancing the checkpoint past never-synced PRs would exclude them from
+ *   every future incremental run.
  */
 export class SyncRepoService {
   private readonly checkpointStoreFactory: (
@@ -120,6 +130,14 @@ export class SyncRepoService {
     this.ingester = options.ingester;
     this.now = options.now ?? (() => new Date());
     this.repo = RepositoryNameSchema.parse(options.repo);
+    // Fail closed before any mutation: an ingester bound to another
+    // repository must never commit a single PR into this sync run.
+    if (this.ingester.repo !== this.repo) {
+      throw new SyncRepoError(
+        "SYNC_REPOSITORY_MISMATCH",
+        `ingester is bound to ${this.ingester.repo}, not ${this.repo}`,
+      );
+    }
     this.repositoryResolver = options.repositoryResolver;
     this.syncLockTimeoutMs =
       options.syncLockTimeoutMs ?? DEFAULT_SYNC_LOCK_TIMEOUT_MS;
@@ -154,8 +172,9 @@ export class SyncRepoService {
         `stored checkpoint belongs to ${checkpoint.cursor.repo_id}, not ${repository.repoId}`,
       );
     }
-    // An explicit --since is an operator override of the stored checkpoint;
-    // replaying older PRs is safe because ingest is idempotent.
+    assertSinceWithinCheckpoint(request, checkpoint);
+    // An explicit --since replays history at or before the stored checkpoint;
+    // replaying already-synced PRs is safe because ingest is idempotent.
     const enumeration = await this.enumerator.enumerateUpdatedPullRequests({
       repo: repository.currentName,
       ...(request.since !== undefined
@@ -191,6 +210,8 @@ export class SyncRepoService {
         });
         break;
       }
+      // Defense in depth behind the constructor binding check: a diverging
+      // resolver still stops the run before the checkpoint advances.
       if (result.repo_id !== repository.repoId) {
         throw new SyncRepoError(
           "SYNC_REPOSITORY_MISMATCH",
@@ -248,6 +269,31 @@ export class SyncRepoService {
       schema_version: SYNC_CHECKPOINT_SCHEMA_VERSION,
       updated_at: this.now().toISOString(),
     });
+  }
+}
+
+/**
+ * `--since` may only replay history that is strictly older than the stored
+ * checkpoint boundary. A boundary at or beyond the checkpoint timestamp
+ * would enumerate past PRs that were never synced (or past same-timestamp
+ * PRs above the cursor's PR number), and a later monotonic checkpoint
+ * advance would then exclude them from every future incremental run — so
+ * this fails closed instead. Without a stored checkpoint, `--since` is the
+ * operator-declared initial boundary and is accepted as-is (§16).
+ */
+function assertSinceWithinCheckpoint(
+  request: SyncRepoRequest,
+  checkpoint: SyncCheckpoint | null,
+): void {
+  if (request.since === undefined || checkpoint === null) return;
+  const boundary = resolveSyncBoundary({ since: request.since });
+  if (boundary.kind !== "since") return;
+  const checkpointMs = parseIsoTimestampMs(checkpoint.cursor.last_updated_at);
+  if (boundary.sinceMs >= checkpointMs) {
+    throw new SyncRepoError(
+      "SYNC_SINCE_BEYOND_CHECKPOINT",
+      `--since ${request.since} is not strictly older than the stored checkpoint boundary (${checkpoint.cursor.last_updated_at}, #${String(checkpoint.cursor.last_pr_number)}); PRs between them would be skipped permanently. Run without --since to resume from the checkpoint.`,
+    );
   }
 }
 
