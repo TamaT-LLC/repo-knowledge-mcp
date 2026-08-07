@@ -1,0 +1,79 @@
+{
+  "baseline": {
+    "artifact_digest": "sha256:213ac25251f00871d75e4313446609666bc7f3581080a77c4fe95a6440c51a42",
+    "artifact_kind": "provider_golden_baseline",
+    "corpus_digest": "sha256:8ed07ed9274397a6d9b5b7cbbc19bc1d01476218c8157c1649a00be0e050b3b0",
+    "corpus_id": "m2-anonymized-corpus-2026-08-07",
+    "measured_at": "2026-08-07T00:00:00.000Z"
+  },
+  "metrics": {
+    "category_macro_f1": {
+      "margin": 0.05,
+      "measured": 0.883903,
+      "minimum": 0.83,
+      "rationale": "Macro F1 over 9 categories with a 3-case confusion budget; 0.05 margin absorbs one additional per-label confusion."
+    },
+    "extraction_precision": {
+      "margin": 0.05,
+      "measured": 0.97561,
+      "minimum": 0.92,
+      "rationale": "40/41 predicted-knowledge threads were true knowledge; 0.05 margin allows roughly two extra false positives at this corpus size."
+    },
+    "extraction_recall": {
+      "margin": 0.05,
+      "measured": 0.952381,
+      "minimum": 0.9,
+      "rationale": "40/42 knowledge threads were extracted; 0.05 margin allows roughly two additional missed threads."
+    },
+    "merge_pairwise_precision": {
+      "margin": 0.05,
+      "measured": 0.833333,
+      "minimum": 0.78,
+      "rationale": "5/6 predicted merge pairs were correct over 6 expected pairs; the small pair count makes each error worth 0.17, so the floor sits one designed error below measurement."
+    },
+    "merge_pairwise_recall": {
+      "margin": 0.05,
+      "measured": 0.833333,
+      "minimum": 0.78,
+      "rationale": "5/6 expected merge pairs were recovered; same small-sample reasoning as merge precision."
+    },
+    "scope_expected_file_match_rate": {
+      "margin": 0.05,
+      "measured": 0.975,
+      "minimum": 0.92,
+      "rationale": "78/80 scope checks matched; 0.05 margin allows two further failing checks."
+    },
+    "scope_valid_glob_rate": {
+      "margin": 0.02,
+      "measured": 1,
+      "minimum": 0.98,
+      "rationale": "All 40 predicted globs were valid; the structured output schema makes invalid globs rare, so only a 0.02 margin is granted."
+    },
+    "search_mrr": {
+      "margin": 0.1,
+      "measured": 1,
+      "minimum": 0.9,
+      "rationale": "Every query ranked a relevant thread first; 0.1 margin tolerates one query dropping its first relevant hit to rank two."
+    },
+    "search_ndcg": {
+      "margin": 0.1,
+      "measured": 0.972332,
+      "minimum": 0.87,
+      "rationale": "One query ranked graded relevance out of order; 0.1 margin tolerates one additional swapped pair."
+    },
+    "severity_weighted_accuracy": {
+      "margin": 0.05,
+      "measured": 0.908163,
+      "minimum": 0.85,
+      "rationale": "89/98 weighted severity points with a 3-case error budget; 0.05 margin absorbs one further must-level miss."
+    }
+  },
+  "reviewed": {
+    "at": "2026-08-07T00:00:00.000Z",
+    "by": "TamaT-LLC repo-knowledge-mcp maintainers"
+  },
+  "schema_version": 1,
+  "source": "fixture_replay",
+  "thresholds_version": "m2-thresholds-v1",
+  "update_procedure": "Thresholds derive from the recorded fixture-replay baseline, not a live provider run. To replace them with live measurements, follow docs/operations/golden-baseline-runbook.md, re-review every metric, bump thresholds_version, and update the baseline binding."
+}

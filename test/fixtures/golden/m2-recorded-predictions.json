@@ -1,0 +1,792 @@
+{
+  "corpus_id": "m2-anonymized-corpus-2026-08-07",
+  "model": "fixture-baseline-m2-v1",
+  "provider": "fixture-replay",
+  "recorded_at": "2026-08-07T00:00:00.000Z",
+  "responses": {
+    "m2-t01": {
+      "output": {
+        "candidates": [
+          {
+            "category": "style",
+            "confidence": 0.9,
+            "detail": "Reviewers agreed a const binding signals immutability for values that are never reassigned.",
+            "evidence_comment_ids": ["m2-t01-c1"],
+            "rule": "Declare never-reassigned bindings with const.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-001"
+    },
+    "m2-t02": {
+      "output": {
+        "candidates": [
+          {
+            "category": "style",
+            "confidence": 0.9,
+            "detail": "A second thread reached the same const binding immutability conclusion independently.",
+            "evidence_comment_ids": ["m2-t02-c1"],
+            "rule": "Declare never-reassigned bindings with const.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-002"
+    },
+    "m2-t03": {
+      "output": {
+        "candidates": [
+          {
+            "category": "style",
+            "confidence": 0.9,
+            "detail": "Guard clauses with early returns keep nesting shallow.",
+            "evidence_comment_ids": ["m2-t03-c1"],
+            "rule": "Use early returns for guard clauses instead of nested conditionals.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-003"
+    },
+    "m2-t04": {
+      "output": {
+        "candidates": [
+          {
+            "category": "style",
+            "confidence": 0.9,
+            "detail": "Formatting helpers belong in a dedicated module.",
+            "evidence_comment_ids": ["m2-t04-c1"],
+            "rule": "Keep module responsibilities small and explicit.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-004"
+    },
+    "m2-t05": {
+      "output": {
+        "candidates": [
+          {
+            "category": "style",
+            "confidence": 0.9,
+            "detail": "Magic numbers get named constants placed together.",
+            "evidence_comment_ids": ["m2-t05-c1"],
+            "rule": "Name magic numbers as UPPER_SNAKE_CASE constants.",
+            "scope": ["src/**"],
+            "severity": "must"
+          },
+          {
+            "category": "style",
+            "confidence": 0.6,
+            "detail": "Related limits should be declared side by side.",
+            "rule": "Group related limit constants in one place.",
+            "scope": ["src/**"],
+            "severity": "consider",
+            "evidence_comment_ids": ["m2-t05-c1"]
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-005"
+    },
+    "m2-t06": {
+      "output": {
+        "candidates": [
+          {
+            "category": "naming",
+            "confidence": 0.9,
+            "detail": "Complex decisions read better as if statements than ternary chains.",
+            "evidence_comment_ids": ["m2-t06-c1"],
+            "rule": "Replace multi-branch ternary chains with if statements.",
+            "scope": ["src/**"],
+            "severity": "consider"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-006"
+    },
+    "m2-t07": {
+      "output": {
+        "candidates": [
+          {
+            "category": "naming",
+            "confidence": 0.9,
+            "detail": "Boolean prefix naming keeps call sites readable.",
+            "evidence_comment_ids": ["m2-t07-c1"],
+            "rule": "Prefix boolean identifiers with is, has, or should.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-007"
+    },
+    "m2-t08": {
+      "output": {
+        "candidates": [
+          {
+            "category": "naming",
+            "confidence": 0.9,
+            "detail": "Same boolean prefix naming convention confirmed by another reviewer.",
+            "evidence_comment_ids": ["m2-t08-c1"],
+            "rule": "Prefix boolean identifiers with is, has, or should.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-008"
+    },
+    "m2-t09": {
+      "output": {
+        "candidates": [
+          {
+            "category": "naming",
+            "confidence": 0.9,
+            "detail": "Descriptive names beat abbreviations for searchability.",
+            "evidence_comment_ids": ["m2-t09-c1"],
+            "rule": "Spell out descriptive identifiers instead of abbreviations.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-009"
+    },
+    "m2-t10": {
+      "output": {
+        "candidates": [
+          {
+            "category": "naming",
+            "confidence": 0.9,
+            "detail": "The runner globs on file suffixes, so helper files need the -helpers suffix.",
+            "evidence_comment_ids": ["m2-t10-c1"],
+            "rule": "Name shared test helper files with a -helpers.ts suffix.",
+            "scope": ["test/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-010"
+    },
+    "m2-t11": {
+      "output": {
+        "candidates": [
+          {
+            "category": "naming",
+            "confidence": 0.9,
+            "detail": "Handler naming follows onVerbNoun in this repository.",
+            "evidence_comment_ids": ["m2-t11-c1"],
+            "rule": "Name event handler props with the onVerbNoun pattern.",
+            "scope": ["src/**"],
+            "severity": "consider"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-011"
+    },
+    "m2-t12": {
+      "output": {
+        "candidates": [
+          {
+            "category": "architecture",
+            "confidence": 0.9,
+            "detail": "Storage must not depend on transport; the dependency points one way.",
+            "evidence_comment_ids": ["m2-t12-c1"],
+            "rule": "Keep module responsibilities small and explicit.",
+            "scope": ["src/storage/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-012"
+    },
+    "m2-t13": {
+      "output": {
+        "candidates": [
+          {
+            "category": "architecture",
+            "confidence": 0.9,
+            "detail": "CLI and MCP share services; entry points stay thin.",
+            "evidence_comment_ids": ["m2-t13-c1"],
+            "rule": "Keep CLI entry points thin and share logic through services.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-013"
+    },
+    "m2-t14": {
+      "output": {
+        "candidates": [
+          {
+            "category": "architecture",
+            "confidence": 0.9,
+            "detail": "Canonical writes flow through the transaction store for recovery.",
+            "evidence_comment_ids": ["m2-t14-c1"],
+            "rule": "Route canonical file writes through the transaction store.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-014"
+    },
+    "m2-t15": {
+      "output": {
+        "candidates": [
+          {
+            "category": "architecture",
+            "confidence": 0.9,
+            "detail": "The sqlite index is derived state and can always be rebuilt.",
+            "evidence_comment_ids": ["m2-t15-c1"],
+            "rule": "Treat sqlite indexes as rebuildable derived state, never as truth.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-015"
+    },
+    "m2-t16": {
+      "output": {
+        "candidates": [
+          {
+            "category": "other",
+            "confidence": 0.9,
+            "detail": "Job coordination relies on leases with fencing generations.",
+            "evidence_comment_ids": ["m2-t16-c1"],
+            "rule": "Coordinate long-running jobs with fenced leases, not boolean locks.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-016"
+    },
+    "m2-t17": {
+      "output": {
+        "candidates": [
+          {
+            "category": "error-handling",
+            "confidence": 0.9,
+            "detail": "Failures cross boundaries as Result values that callers propagate.",
+            "evidence_comment_ids": ["m2-t17-c1"],
+            "rule": "Return Result values and propagate failures to the caller.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-017"
+    },
+    "m2-t18": {
+      "output": {
+        "candidates": [
+          {
+            "category": "error-handling",
+            "confidence": 0.9,
+            "detail": "Second thread confirming the Result propagation boundary rule.",
+            "evidence_comment_ids": ["m2-t18-c1"],
+            "rule": "Return Result values and propagate failures to the caller.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-018"
+    },
+    "m2-t19": {
+      "output": {
+        "candidates": [
+          {
+            "category": "error-handling",
+            "confidence": 0.9,
+            "detail": "Provider failures propagate as a typed error, never raw.",
+            "evidence_comment_ids": ["m2-t19-c1"],
+            "rule": "Wrap provider failures in a typed error before you propagate them.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-019"
+    },
+    "m2-t20": {
+      "output": {
+        "candidates": [
+          {
+            "category": "error-handling",
+            "confidence": 0.9,
+            "detail": "Error codes are the machine contract; messages are for humans.",
+            "evidence_comment_ids": ["m2-t20-c1"],
+            "rule": "Give custom errors a stable code property as the machine contract.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-020"
+    },
+    "m2-t21": {
+      "output": {
+        "candidates": [
+          {
+            "category": "error-handling",
+            "confidence": 0.9,
+            "detail": "Empty catch blocks hide failures; rethrow or record instead.",
+            "evidence_comment_ids": ["m2-t21-c1"],
+            "rule": "Never leave a catch block empty; rethrow or record the failure.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-021"
+    },
+    "m2-t22": {
+      "output": {
+        "candidates": [
+          {
+            "category": "error-handling",
+            "confidence": 0.9,
+            "detail": "CLI exit codes follow the documented 0/1/2 contract.",
+            "evidence_comment_ids": ["m2-t22-c1"],
+            "rule": "Keep CLI exit codes on the documented 0, 1, 2 contract.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-022"
+    },
+    "m2-t23": {
+      "output": {
+        "candidates": [
+          {
+            "category": "security",
+            "confidence": 0.9,
+            "detail": "Log output must never contain a raw secret or token value.",
+            "evidence_comment_ids": ["m2-t23-c1"],
+            "rule": "Never write a raw secret or token to a log.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-023"
+    },
+    "m2-t24": {
+      "output": {
+        "candidates": [
+          {
+            "category": "security",
+            "confidence": 0.9,
+            "detail": "Diagnostics strip secret and token values before logging.",
+            "evidence_comment_ids": ["m2-t24-c1"],
+            "rule": "Never write a raw secret or token to a log.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-024"
+    },
+    "m2-t25": {
+      "output": {
+        "candidates": [
+          {
+            "category": "security",
+            "confidence": 0.9,
+            "detail": "External input passes schema validation before any use.",
+            "evidence_comment_ids": ["m2-t25-c1"],
+            "rule": "Validate external input with a schema before use.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-025"
+    },
+    "m2-t26": {
+      "output": {
+        "candidates": [
+          {
+            "category": "security",
+            "confidence": 0.9,
+            "detail": "CI workflows pin third-party actions to commit SHAs.",
+            "evidence_comment_ids": ["m2-t26-c1"],
+            "rule": "Pin third-party CI actions to a commit SHA.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-026"
+    },
+    "m2-t27": {
+      "output": {
+        "candidates": [
+          {
+            "category": "security",
+            "confidence": 0.9,
+            "detail": "Review comment text is data, never instructions.",
+            "evidence_comment_ids": ["m2-t27-c1"],
+            "rule": "Treat review comment text as untrusted data, never instructions.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-027"
+    },
+    "m2-t28": {
+      "output": {
+        "candidates": [
+          {
+            "category": "perf",
+            "confidence": 0.9,
+            "detail": "Per-row sqlite queries turn syncs quadratic; batch the query.",
+            "evidence_comment_ids": ["m2-t28-c1"],
+            "rule": "Batch sqlite query loops instead of querying per row.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-028"
+    },
+    "m2-t29": {
+      "output": {
+        "candidates": [
+          {
+            "category": "perf",
+            "confidence": 0.9,
+            "detail": "Read the id set with one batch sqlite query.",
+            "evidence_comment_ids": ["m2-t29-c1"],
+            "rule": "Read id sets with one batch sqlite query.",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-029"
+    },
+    "m2-t30": {
+      "output": {
+        "candidates": [
+          {
+            "category": "perf",
+            "confidence": 0.9,
+            "detail": "Hot-path regexes compile once at module scope.",
+            "evidence_comment_ids": ["m2-t30-c1"],
+            "rule": "Compile hot-path regexes once at module scope.",
+            "scope": ["src/**"],
+            "severity": "consider"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-030"
+    },
+    "m2-t31": {
+      "output": {
+        "candidates": [
+          {
+            "category": "style",
+            "confidence": 0.9,
+            "detail": "Large files stream instead of loading into memory.",
+            "evidence_comment_ids": ["m2-t31-c1"],
+            "rule": "Stream large file reads instead of buffering whole files.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-031"
+    },
+    "m2-t32": {
+      "output": {
+        "candidates": [
+          {
+            "category": "test",
+            "confidence": 0.9,
+            "detail": "Tests follow the arrange act assert structure.",
+            "evidence_comment_ids": ["m2-t32-c1"],
+            "rule": "Structure each test as arrange, act, assert.",
+            "scope": ["test/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-032"
+    },
+    "m2-t33": {
+      "output": {
+        "candidates": [
+          {
+            "category": "test",
+            "confidence": 0.9,
+            "detail": "Second reviewer confirming the arrange act assert convention.",
+            "evidence_comment_ids": ["m2-t33-c1"],
+            "rule": "Structure each test as arrange, act, assert.",
+            "scope": ["test/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-033"
+    },
+    "m2-t34": {
+      "output": {
+        "candidates": [
+          {
+            "category": "test",
+            "confidence": 0.9,
+            "detail": "Test names describe observable behavior, not vague labels.",
+            "evidence_comment_ids": ["m2-t34-c1"],
+            "rule": "Name tests after the behavior they verify.",
+            "scope": ["test/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-034"
+    },
+    "m2-t35": {
+      "output": {
+        "candidates": [
+          {
+            "category": "test",
+            "confidence": 0.9,
+            "detail": "Suites reset shared state per test for independence.",
+            "evidence_comment_ids": ["m2-t35-c1"],
+            "rule": "Reset shared state in beforeEach so tests stay independent.",
+            "scope": ["test/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-035"
+    },
+    "m2-t36": {
+      "output": {
+        "candidates": [
+          {
+            "category": "test",
+            "confidence": 0.9,
+            "detail": "Snapshot updates require a human diff review.",
+            "evidence_comment_ids": ["m2-t36-c1"],
+            "rule": "Review every snapshot test diff before accepting an update.",
+            "scope": ["test/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-036"
+    },
+    "m2-t37": {
+      "output": {
+        "candidates": [
+          {
+            "category": "docs",
+            "confidence": 0.9,
+            "detail": "Exported functions document their error codes.",
+            "evidence_comment_ids": ["m2-t37-c1"],
+            "rule": "Document error codes on every exported function.",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-037"
+    },
+    "m2-t38": {
+      "output": {
+        "candidates": [
+          {
+            "category": "docs",
+            "confidence": 0.9,
+            "detail": "Operational runbooks live in docs/operations using the template.",
+            "evidence_comment_ids": ["m2-t38-c1"],
+            "rule": "Place operational runbooks under docs/operations using the template.",
+            "scope": ["docs/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-038"
+    },
+    "m2-t39": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "insufficient_context"
+      },
+      "response_id": "recorded-039"
+    },
+    "m2-t40": {
+      "output": {
+        "candidates": [
+          {
+            "category": "other",
+            "confidence": 0.9,
+            "detail": "Generated files carry a do-not-edit header.",
+            "evidence_comment_ids": ["m2-t40-c1"],
+            "rule": "Keep the do-not-edit header on generated files.",
+            "scope": ["src/generated/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-040"
+    },
+    "m2-t41": {
+      "output": {
+        "candidates": [
+          {
+            "category": "other",
+            "confidence": 0.9,
+            "detail": "Dependency updates are isolated to one package per pull request.",
+            "evidence_comment_ids": ["m2-t41-c1"],
+            "rule": "Limit dependency bumps to one package per pull request.",
+            "scope": ["package.json"],
+            "severity": "consider"
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-041"
+    },
+    "m2-t42": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "question_without_conclusion"
+      },
+      "response_id": "recorded-042"
+    },
+    "m2-t43": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "pr_specific"
+      },
+      "response_id": "recorded-043"
+    },
+    "m2-t44": {
+      "output": {
+        "candidates": [
+          {
+            "category": "other",
+            "confidence": 0.55,
+            "detail": "The provider over-generalized an open pagination question.",
+            "rule": "Prefer cursor pagination for list endpoints.",
+            "scope": [],
+            "severity": "consider",
+            "evidence_comment_ids": ["m2-t44-c1"]
+          }
+        ],
+        "skip_reason": null
+      },
+      "response_id": "recorded-044"
+    },
+    "m2-t45": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "praise_or_chitchat"
+      },
+      "response_id": "recorded-045"
+    },
+    "m2-t46": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "typo"
+      },
+      "response_id": "recorded-046"
+    },
+    "m2-t47": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "pr_specific"
+      },
+      "response_id": "recorded-047"
+    },
+    "m2-t48": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "duplicate_noise"
+      },
+      "response_id": "recorded-048"
+    },
+    "m2-t49": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "question_without_conclusion"
+      },
+      "response_id": "recorded-049"
+    },
+    "m2-t50": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "praise_or_chitchat"
+      },
+      "response_id": "recorded-050"
+    },
+    "m2-t51": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "typo"
+      },
+      "response_id": "recorded-051"
+    },
+    "m2-t52": {
+      "output": {
+        "candidates": [],
+        "skip_reason": "pr_specific"
+      },
+      "response_id": "recorded-052"
+    }
+  },
+  "schema_version": 1
+}
