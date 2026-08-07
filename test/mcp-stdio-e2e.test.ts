@@ -38,6 +38,7 @@ describe("M1 real stdio MCP E2E", () => {
       "prepare_distillation",
       "record_outcome",
       "search_knowledge",
+      "stats",
       "submit_distillation",
       "sync_repo",
       "update_knowledge",
@@ -64,6 +65,7 @@ describe("M1 real stdio MCP E2E", () => {
         repo: REPOSITORY,
       },
       search_knowledge: { query: "stdio", repo: REPOSITORY },
+      stats: { repo: REPOSITORY },
       submit_distillation: {
         candidates: [],
         job_id: JOB_ID,
@@ -292,6 +294,69 @@ const read = {
         sources: ["human"],
         violation_count: 0,
       }],
+    };
+  },
+  async getStats() {
+    return {
+      buckets: null,
+      canonical_digest: "a".repeat(64),
+      evidence: {
+        by_source: { bugbot: 0, devin: 0, greptile: 0, human: 1, other: 0 },
+        by_status: { active: 1, superseded: 0, withdrawn: 0 },
+        eligible_for_count: 1,
+        total: 1,
+      },
+      jobs: {
+        by_state: {
+          awaiting_finalize: 0,
+          done: 0,
+          failed: 0,
+          pending: 1,
+          processing: 0,
+          skipped: 0,
+        },
+        total: 1,
+      },
+      knowledge: {
+        by_category: {
+          architecture: 1,
+          docs: 0,
+          "error-handling": 0,
+          naming: 0,
+          other: 0,
+          perf: 0,
+          security: 0,
+          style: 0,
+          test: 0,
+        },
+        by_severity: { consider: 0, must: 1, should: 0 },
+        by_status: {
+          active: 1,
+          deprecated: 0,
+          proposed: 0,
+          rejected: 0,
+          stale: 0,
+        },
+        total: 1,
+      },
+      operations: {
+        failed_jobs: 0,
+        last_sync_checkpoint_at: null,
+        pending_jobs: 1,
+      },
+      outcomes: {
+        by_type: {
+          applied: 0,
+          false_positive: 0,
+          not_applicable: 0,
+          violated: 0,
+        },
+        total: 0,
+      },
+      repo,
+      stats_schema_version: 1,
+      sync: { last_checkpoint: null },
+      window: { bucket: "total", since: null, timezone: "UTC", until: null },
     };
   },
   async getKnowledge() {

@@ -102,8 +102,15 @@ export interface CanonicalCliRepositoryServiceOptions {
   readonly repositoryContext: unknown;
 }
 
-/** Canonical CLI-only operations; MCP mutations continue through their services. */
-export class CanonicalCliRepositoryService implements CliRepositoryOperations {
+/**
+ * Canonical CLI-only operations; MCP mutations continue through their
+ * services, and `stats` is provided by the repository application graph
+ * through the shared read-only StatsReadService.
+ */
+export class CanonicalCliRepositoryService implements Omit<
+  CliRepositoryOperations,
+  "stats"
+> {
   readonly admin: AdminPlaneService;
 
   private readonly config: RepoKnowledgeConfig;

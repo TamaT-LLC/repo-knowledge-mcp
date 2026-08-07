@@ -39,7 +39,9 @@ import { ProviderDistillationService } from "./provider-distillation-service.js"
 import { CanonicalProviderPostIngestRunner } from "./provider-post-ingest-runner.js";
 import type { RepositoryResolution } from "./repository-resolver.js";
 import { RuntimeFinalizeContextStore } from "./runtime-finalize-context-store.js";
+import { StatsReadService } from "./stats-read-service.js";
 import { SubmitDistillationService } from "./submit-distillation-service.js";
+import { SyncCheckpointStore } from "./sync-checkpoint-store.js";
 import {
   SyncRepoService,
   type SyncPullRequestEnumerator,
@@ -241,6 +243,15 @@ export class DefaultRepositoryApplicationFactory
       repoId: repository.repoId,
       repository: repositoryStore,
     });
+    // CLI stats reads through the same canonical projection and checkpoint
+    // inputs as the MCP stats tool, so both surfaces return the identical
+    // versioned aggregation for one canonical state.
+    const statsReads = new StatsReadService({
+      repo: repository.currentName,
+      repoId: repository.repoId,
+      repository: repositoryStore,
+      syncCheckpoints: new SyncCheckpointStore(repository.absolutePath),
+    });
     const cli = new CanonicalCliRepositoryService({
       config: this.config,
       outputSchemaDigest: DISTILLATION_OUTPUT_SCHEMA_DIGEST,
@@ -252,7 +263,7 @@ export class DefaultRepositoryApplicationFactory
       repository: repositoryStore,
       repositoryContext: this.repositoryContext,
     });
-    return combineOperations(cli, {
+    return combineOperations(cli, statsReads, {
       ingestPullRequest: (request) => ingest.ingestPullRequest(request),
       prepareDistillation: (request) => host.prepare(request),
       submitExtract: (request) => submit.submitExtract(request),
@@ -264,6 +275,7 @@ export class DefaultRepositoryApplicationFactory
 
 function combineOperations(
   cli: CanonicalCliRepositoryService,
+  statsReads: StatsReadService,
   mutation: RepositoryMutationPipelineOperations,
 ): RepositoryApplicationOperations {
   return {
@@ -275,6 +287,7 @@ function combineOperations(
     reconcileDerivedMetadata: () => cli.reconcileDerivedMetadata(),
     redistill: (request) => cli.redistill(request),
     reindex: () => cli.reindex(),
+    stats: (request) => statsReads.getStats(request),
     submitExtract: (request) => mutation.submitExtract(request),
     submitFinalize: (request) => mutation.submitFinalize(request),
     syncRepo: (request) => mutation.syncRepo(request),

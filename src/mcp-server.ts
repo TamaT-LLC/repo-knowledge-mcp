@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
 import {
+  DistillJobStateSchema,
   EvidenceActorSchema,
   EvidenceIdSchema,
   EvidenceStatusSchema,
@@ -19,6 +20,8 @@ import {
   IsoDateTimeSchema,
   KnowledgeCategorySchema,
   KnowledgeIdSchema,
+  KnowledgeOutcomeSchema,
+  KnowledgeStatusSchema,
   NonEmptyStringSchema,
   RepositoryIdSchema,
   RepositoryNameSchema,
@@ -46,6 +49,16 @@ import {
   type RepositoryResolutionInput,
   type RepositoryResolverOptions,
 } from "./repository-resolver.js";
+import {
+  RepositoryStatsRequestSchema,
+  STATS_SCHEMA_VERSION,
+  STATS_TIMEZONE,
+  StatsBucketSchema,
+  StatsReadService,
+  type RepositoryStats,
+  type RepositoryStatsRequest,
+} from "./stats-read-service.js";
+import { SyncCheckpointStore } from "./sync-checkpoint-store.js";
 
 export const REPO_KNOWLEDGE_SERVER_NAME = "repo-knowledge";
 export const REPO_KNOWLEDGE_SERVER_VERSION = "0.1.0";
@@ -222,9 +235,97 @@ export const GetKnowledgeOutputSchema = z
   })
   .strict();
 
+// The canonical request schema is extended, not redefined, so the MCP surface
+// can never accept window fields the stats read service would reject.
+export const StatsInputSchema = RepositoryStatsRequestSchema.extend(
+  RepositorySelectionSchema,
+);
+
+const StatsCountSchema = z.number().int().nonnegative();
+const RawSha256DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+const UtcDayKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);
+const OutcomeByTypeSchema = z.record(
+  KnowledgeOutcomeSchema.shape.outcome,
+  StatsCountSchema,
+);
+
+export const StatsOutputSchema = z
+  .object({
+    buckets: z
+      .array(
+        z
+          .object({
+            day: UtcDayKeySchema,
+            evidence_total: StatsCountSchema,
+            outcome_by_type: OutcomeByTypeSchema,
+            outcome_total: StatsCountSchema,
+          })
+          .strict(),
+      )
+      .nullable(),
+    canonical_digest: RawSha256DigestSchema,
+    evidence: z
+      .object({
+        by_source: z.record(SourceProviderSchema, StatsCountSchema),
+        by_status: z.record(EvidenceStatusSchema, StatsCountSchema),
+        eligible_for_count: StatsCountSchema,
+        total: StatsCountSchema,
+      })
+      .strict(),
+    jobs: z
+      .object({
+        by_state: z.record(DistillJobStateSchema, StatsCountSchema),
+        total: StatsCountSchema,
+      })
+      .strict(),
+    knowledge: z
+      .object({
+        by_category: z.record(KnowledgeCategorySchema, StatsCountSchema),
+        by_severity: z.record(SeveritySchema, StatsCountSchema),
+        by_status: z.record(KnowledgeStatusSchema, StatsCountSchema),
+        total: StatsCountSchema,
+      })
+      .strict(),
+    operations: z
+      .object({
+        failed_jobs: StatsCountSchema,
+        last_sync_checkpoint_at: IsoDateTimeSchema.nullable(),
+        pending_jobs: StatsCountSchema,
+      })
+      .strict(),
+    outcomes: z
+      .object({ by_type: OutcomeByTypeSchema, total: StatsCountSchema })
+      .strict(),
+    repo: RepositoryNameSchema,
+    stats_schema_version: z.literal(STATS_SCHEMA_VERSION),
+    sync: z
+      .object({
+        last_checkpoint: z
+          .object({
+            last_pr_number: z.number().int().positive(),
+            last_updated_at: IsoDateTimeSchema,
+            updated_at: IsoDateTimeSchema,
+          })
+          .strict()
+          .nullable(),
+      })
+      .strict(),
+    window: z
+      .object({
+        bucket: StatsBucketSchema,
+        since: IsoDateTimeSchema.nullable(),
+        timezone: z.literal(STATS_TIMEZONE),
+        until: IsoDateTimeSchema.nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
 export interface KnowledgeReadOperations {
   getKnowledge(request: GetKnowledgeRequest): Promise<GetKnowledgeResult>;
   getRules(request?: GetRulesRequest): Promise<GetRulesResult>;
+  /** Versioned read-only aggregation over the same canonical projection. */
+  getStats(request?: RepositoryStatsRequest): Promise<RepositoryStats>;
   searchKnowledge(
     request: SearchKnowledgeRequest,
   ): Promise<SearchKnowledgeResult>;
@@ -273,11 +374,26 @@ export class CanonicalKnowledgeReadServiceResolver implements KnowledgeReadServi
         : { workspacePath: input.workspacePath }),
     });
 
-    return new KnowledgeReadService({
+    const repositoryStore = new CanonicalTransactionStore(
+      resolution.absolutePath,
+    );
+    const knowledgeReads = new KnowledgeReadService({
       repo: resolution.currentName,
       repoId: resolution.repoId,
-      repository: new CanonicalTransactionStore(resolution.absolutePath),
+      repository: repositoryStore,
     });
+    const statsReads = new StatsReadService({
+      repo: resolution.currentName,
+      repoId: resolution.repoId,
+      repository: repositoryStore,
+      syncCheckpoints: new SyncCheckpointStore(resolution.absolutePath),
+    });
+    return {
+      getKnowledge: (request) => knowledgeReads.getKnowledge(request),
+      getRules: (request) => knowledgeReads.getRules(request),
+      getStats: (request) => statsReads.getStats(request),
+      searchKnowledge: (request) => knowledgeReads.searchKnowledge(request),
+    };
   }
 }
 
@@ -384,6 +500,32 @@ export function buildServer(options: BuildServerOptions): McpServer {
     },
   );
 
+  server.registerTool(
+    "stats",
+    {
+      annotations: READ_TOOL_ANNOTATIONS,
+      description:
+        'Return versioned repository aggregates over knowledge, evidence, outcomes, distill jobs, and sync state. The optional half-open window [since, until) filters only time-stamped observations; bucket "day" additionally requires since and until and returns zero-filled UTC day buckets. This tool never modifies canonical data.',
+      inputSchema: StatsInputSchema,
+      outputSchema: StatsOutputSchema,
+      title: "Get repository stats",
+    },
+    async (input) => {
+      const readService = await resolveReadService(options, input);
+      const output = StatsOutputSchema.parse(
+        await readService.getStats({
+          ...(input.bucket === undefined ? {} : { bucket: input.bucket }),
+          ...(input.since === undefined ? {} : { since: input.since }),
+          ...(input.until === undefined ? {} : { until: input.until }),
+        }),
+      );
+      return {
+        content: [{ type: "text", text: summarizeStats(output) }],
+        structuredContent: output,
+      };
+    },
+  );
+
   registerMutationTools(server, {
     mutationServiceResolver: options.mutationServiceResolver,
     ...(options.startupRepo === undefined
@@ -476,6 +618,14 @@ function summarizeSearch(
   output: z.infer<typeof SearchKnowledgeOutputSchema>,
 ): string {
   return `### Knowledge search\n\nFound **${output.results.length}** active result(s) for \`${output.repo}\` using ${output.mode.toUpperCase()} search.`;
+}
+
+function summarizeStats(output: z.infer<typeof StatsOutputSchema>): string {
+  const windowNote =
+    output.window.since === null && output.window.until === null
+      ? "over the full history"
+      : `in [${output.window.since ?? "beginning"}, ${output.window.until ?? "now"})`;
+  return `### Repository stats\n\n\`${output.repo}\` has **${output.knowledge.total}** knowledge item(s), **${output.evidence.total}** evidence item(s), and **${output.outcomes.total}** outcome(s) ${windowNote} (stats schema v${output.stats_schema_version}).`;
 }
 
 function summarizeKnowledge(
