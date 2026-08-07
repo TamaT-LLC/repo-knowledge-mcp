@@ -10,6 +10,7 @@ import {
   type CanonicalFileWriteRequest,
   type CanonicalTransactionRequest,
 } from "./canonical-transaction-store.js";
+import { evaluateCodeExampleGrounding } from "./code-example-grounding.js";
 import {
   ExtractCandidateSchema,
   FinalizeStableResponseSchema,
@@ -23,6 +24,7 @@ import {
   SkippedStableResponseSchema,
   type CommentObservation,
   type DistillJob,
+  type DistilledCandidate,
   type EvidenceActor,
   type ExtractCandidate,
   type FinalizeStableResponse,
@@ -930,10 +932,31 @@ function validateCandidateEvidenceComments(
   comments: readonly CommentObservation[],
 ): void {
   validateEvidenceCommentIds(
-    candidates.flatMap((candidate) => candidate.candidate.evidence_comment_ids),
+    candidates.flatMap((candidate) => [
+      ...candidate.candidate.evidence_comment_ids,
+      ...(candidate.candidate.code_example?.evidence_comment_ids ?? []),
+    ]),
     thread,
     comments,
   );
+  const sources = comments.map((comment) => ({
+    body: comment.body,
+    ...(comment.diff_hunk === undefined ? {} : { diffHunk: comment.diff_hunk }),
+    id: comment.comment_id,
+  }));
+  for (const candidate of candidates) {
+    const example = candidate.candidate.code_example;
+    if (example === undefined) continue;
+    const grounding = evaluateCodeExampleGrounding(example, sources);
+    if (!grounding.grounded) {
+      throw new CanonicalFinalizeError(
+        "EVIDENCE_COMMENTS_INVALID",
+        `code_example content references tokens absent from its cited evidence: ${grounding.ungrounded_tokens.join(
+          ", ",
+        )}`,
+      );
+    }
+  }
 }
 
 function validateEvidenceCommentIds(
@@ -994,11 +1017,51 @@ function newKnowledgeFileWrite(
         status: "proposed",
         updated_at: recordedAt,
       },
-      candidate.detail,
+      renderDistilledCandidateBody(candidate),
     ),
     expectedSha256: null,
     targetPath: path,
   };
+}
+
+const MINIMUM_CODE_FENCE_LENGTH = 3;
+
+/**
+ * Renders the canonical Markdown body for a distilled candidate. A grounded
+ * code example is appended below the detail with its `generated_example: true`
+ * flag and evidence comment IDs, so the knowledge file keeps the §6.2 M2
+ * grounding constraints visible after finalize.
+ */
+export function renderDistilledCandidateBody(
+  candidate: DistilledCandidate,
+): string {
+  if (candidate.code_example === undefined) return candidate.detail;
+  const example = candidate.code_example;
+  const fence = "`".repeat(
+    Math.max(
+      MINIMUM_CODE_FENCE_LENGTH,
+      longestBacktickRun(example.content) + 1,
+    ),
+  );
+  return [
+    candidate.detail.trimEnd(),
+    "",
+    `<!-- generated_example: true; evidence_comment_ids: ${example.evidence_comment_ids.join(
+      ", ",
+    )} -->`,
+    "",
+    `${fence}${example.language}`,
+    example.content.replace(/\n+$/u, ""),
+    fence,
+  ].join("\n");
+}
+
+function longestBacktickRun(value: string): number {
+  let longest = 0;
+  for (const run of value.matchAll(/`+/gu)) {
+    longest = Math.max(longest, run[0].length);
+  }
+  return longest;
 }
 
 function revisionPatch(
@@ -1006,13 +1069,14 @@ function revisionPatch(
   target: CanonicalProjectionSnapshot["domain"]["knowledge"][number],
 ): KnowledgeRevisionPatch | null {
   const candidate = entry.candidate;
+  const renderedDetail = renderDistilledCandidateBody(candidate);
   const patch: Record<string, unknown> = {};
   if (candidate.category !== target.category)
     patch.category = candidate.category;
   if (
-    comparableMarkdown(candidate.detail) !== comparableMarkdown(target.detail)
+    comparableMarkdown(renderedDetail) !== comparableMarkdown(target.detail)
   ) {
-    patch.detail = candidate.detail;
+    patch.detail = renderedDetail;
   }
   if (candidate.rule !== target.rule) patch.rule = candidate.rule;
   if (canonicalizeJson(candidate.scope) !== canonicalizeJson(target.scope)) {

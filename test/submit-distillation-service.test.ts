@@ -194,6 +194,38 @@ describe("SubmitDistillationService extract", () => {
     await expect(
       invalidSubmitter.submitExtract({
         ...extractRequest(invalidFixture),
+        candidates: [
+          {
+            ...candidate(invalidFixture.commentId),
+            code_example: codeExample("comment-outside-current-thread"),
+          },
+        ],
+        submission_id: "code-example-outside-thread",
+      }),
+    ).rejects.toMatchObject({ code: "EVIDENCE_COMMENTS_INVALID" });
+    await expect(
+      invalidSubmitter.submitExtract({
+        ...extractRequest(invalidFixture),
+        candidates: [
+          {
+            ...candidate(invalidFixture.commentId),
+            code_example: {
+              ...codeExample(invalidFixture.commentId),
+              content: "superMagicFramework.doEverything();",
+            },
+          },
+        ],
+        submission_id: "code-example-ungrounded-content",
+      }),
+    ).rejects.toMatchObject({
+      code: "EVIDENCE_COMMENTS_INVALID",
+      message: expect.stringContaining(
+        "code_example content references tokens absent from its cited evidence: doEverything, superMagicFramework",
+      ),
+    });
+    await expect(
+      invalidSubmitter.submitExtract({
+        ...extractRequest(invalidFixture),
         skip_reason: "typo",
       }),
     ).rejects.toMatchObject({ code: "EXTRACT_REQUEST_INVALID" });
@@ -207,6 +239,54 @@ describe("SubmitDistillationService extract", () => {
     const invalidSnapshot = await invalidFixture.store.readSnapshot();
     expect(invalidSnapshot.domain.submissionReceipts).toHaveLength(0);
     expect(invalidSnapshot.domain.distillJobs[0]?.state).toBe("processing");
+  });
+
+  it("commits a candidate whose grounded code example cites current comments", async () => {
+    const fixture = await createFixture({ offset: 900_000 });
+    const submitter = service(
+      fixture.store,
+      runtimeContexts(["grounded-example-token"], START + 902_000),
+      START + 902_000,
+    );
+
+    const response = await submitter.submitExtract({
+      ...extractRequest(fixture),
+      candidates: [
+        {
+          ...candidate(fixture.commentId),
+          code_example: codeExample(fixture.commentId),
+        },
+      ],
+      submission_id: "submission-grounded-example",
+    });
+
+    expect(response).toMatchObject({
+      candidates: [
+        {
+          candidate: {
+            code_example: {
+              content: "await store.commit(transaction);",
+              evidence_comment_ids: [fixture.commentId],
+              generated_example: true,
+              language: "typescript",
+            },
+          },
+        },
+      ],
+      state: "merge_decision_required",
+    });
+    const snapshot = await fixture.store.readSnapshot();
+    const receipt = snapshot.domain.submissionReceipts[0]!;
+    expect(receipt.stable_response).toMatchObject({
+      candidates: [
+        {
+          candidate: {
+            code_example: { generated_example: true },
+          },
+        },
+      ],
+      state: "merge_decision_required",
+    });
   });
 
   it("preserves evidence for insufficient_context and emits no finalize token", async () => {
@@ -381,7 +461,8 @@ async function createFixture(options: FixtureOptions = {}): Promise<Fixture> {
   const jobId = createDomainId("job", timestamp);
   const threadId = `thread-submit-${String(offset)}`;
   const commentId = `comment-submit-${String(offset)}`;
-  const body = "Prefer deterministic canonical writes for every submission.";
+  const body =
+    "Route every write through store.commit(transaction) so canonical writes stay deterministic.";
   const normalizedComment = {
     body,
     createdAt: observedAt,
@@ -573,6 +654,17 @@ function candidate(
     rule,
     scope: ["src/**"],
     severity: "must",
+  };
+}
+
+function codeExample(
+  commentId: string,
+): NonNullable<DistilledCandidate["code_example"]> {
+  return {
+    content: "await store.commit(transaction);",
+    evidence_comment_ids: [commentId],
+    generated_example: true,
+    language: "typescript",
   };
 }
 
