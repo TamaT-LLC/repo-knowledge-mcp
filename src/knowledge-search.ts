@@ -222,7 +222,32 @@ export function computeKnowledgeSearchScore(
   severity: Severity,
   evidenceCount: number,
   outcomeCounts: KnowledgeOutcomeCounts,
+): number;
+/**
+ * Backward-compatible M1 form: the fourth argument is the violation count and
+ * every other outcome count is treated as zero, so the score matches M1.
+ */
+export function computeKnowledgeSearchScore(
+  textRank: number,
+  severity: Severity,
+  evidenceCount: number,
+  violationCount: number,
+): number;
+export function computeKnowledgeSearchScore(
+  textRank: number,
+  severity: Severity,
+  evidenceCount: number,
+  outcomes: KnowledgeOutcomeCounts | number,
 ): number {
+  const outcomeCounts: KnowledgeOutcomeCounts =
+    typeof outcomes === "number"
+      ? {
+          appliedCount: 0,
+          falsePositiveCount: 0,
+          notApplicableCount: 0,
+          violationCount: outcomes,
+        }
+      : outcomes;
   return (
     reciprocalRank(textRank) +
     severityBoost(severity) +

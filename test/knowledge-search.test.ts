@@ -337,6 +337,19 @@ describe("M2 outcome ranking policy", () => {
     }
   });
 
+  it("accepts the legacy numeric form as the M1 violation count", () => {
+    expect(computeKnowledgeSearchScore(0, "consider", 0, 0)).toBe(1);
+    expect(computeKnowledgeSearchScore(1, "must", 10_000, 10_000)).toBe(
+      computeKnowledgeSearchScore(1, "must", 10_000, {
+        ...ZERO_OUTCOMES,
+        violationCount: 10_000,
+      }),
+    );
+    expect(computeKnowledgeSearchScore(2, "should", 3, 5)).toBe(
+      1 / 3 + 0.2 + evidenceBoost(3) + violationBoost(5),
+    );
+  });
+
   it("publishes a frozen machine-trackable policy version", () => {
     expect(OUTCOME_RANKING_POLICY.version).toBe("m2-outcome-v1");
     expect(Object.isFrozen(OUTCOME_RANKING_POLICY)).toBe(true);
