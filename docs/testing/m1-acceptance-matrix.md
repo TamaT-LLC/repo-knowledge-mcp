@@ -95,6 +95,6 @@ M1 の完了条件と受け入れテスト 1〜63 を、実行可能な test ま
 
 - 匿名化 50 fixture と抽出・category・severity・merge・scope・search 指標は [golden runbook](./m1-golden-runbook.md) と [golden evaluator test](../../test/golden-evaluator.test.ts) で再現する。
 - provider disabled、fake Anthropic adapter、host-assisted の 3 経路は [product E2E](../../test/m1-product-e2e.test.ts) で canonical ingest から approval、get_rules まで確認する。
-- real stdio child process は [stdio E2E](../../test/mcp-stdio-e2e.test.ts) で全 8 tool の list/call と stdout の JSON-RPC 純度を確認する。
+- real stdio child process は [stdio E2E](../../test/mcp-stdio-e2e.test.ts) で全 tool（M2 追加分を含む 11 tool）の list/call と stdout の JSON-RPC 純度を確認する。
 - LLM 待機中の lock 解放、lease expiry、遅延 worker fencing は [provider service test](../../test/provider-distillation-service.test.ts) と [job coordinator test](../../test/distill-job-coordinator.test.ts) で確認する。
 - Markdown 手編集、kill-point recovery、MCP + CLI concurrent write は上表の 13〜15、34、53、11 で明示的に追跡する。
