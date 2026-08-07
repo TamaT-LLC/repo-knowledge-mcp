@@ -15,6 +15,7 @@ import {
   type RepoKnowledgeConfig,
 } from "./domain-schemas.js";
 import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
+import { evaluateCodeExampleGrounding } from "./code-example-grounding.js";
 import {
   DISTILLATION_OUTPUT_JSON_SCHEMA,
   DISTILLATION_OUTPUT_SCHEMA_DIGEST,
@@ -328,7 +329,7 @@ export class ProviderDistillationService {
     try {
       output = parseDistillationOutput(
         response.outputText,
-        thread.normalizedComments.map((comment) => comment.id),
+        thread.normalizedComments,
       );
     } catch (error) {
       if (!(error instanceof DistillationOutputValidationError)) throw error;
@@ -403,10 +404,19 @@ export class ProviderDistillationService {
   }
 }
 
-/** Parses provider text and binds every evidence ID to the supplied thread. */
+export interface DistillationSourceComment {
+  readonly body: string;
+  readonly diffHunk?: string;
+  readonly id: string;
+}
+
+/**
+ * Parses provider text, binds every evidence ID to the supplied thread, and
+ * verifies code example content against its cited comment bodies and hunks.
+ */
 export function parseDistillationOutput(
   outputText: string,
-  allowedCommentIds: readonly string[],
+  sourceComments: readonly DistillationSourceComment[],
 ): DistillationOutput {
   let value: unknown;
   try {
@@ -426,7 +436,7 @@ export function parseDistillationOutput(
     );
   }
   const allowed = new Set(
-    allowedCommentIds.map((id) => NonEmptyStringSchema.parse(id)),
+    sourceComments.map((comment) => NonEmptyStringSchema.parse(comment.id)),
   );
   const invalidEvidence = parsed.data.candidates.filter((candidate) =>
     candidate.evidence_comment_ids.some((id) => !allowed.has(id)),
@@ -449,6 +459,23 @@ export function parseDistillationOutput(
       "code_example evidence_comment_ids must be a subset of the current review thread",
       invalidExampleEvidence,
     );
+  }
+  for (const candidate of parsed.data.candidates) {
+    if (candidate.code_example === undefined) continue;
+    const grounding = evaluateCodeExampleGrounding(
+      candidate.code_example,
+      sourceComments,
+    );
+    if (!grounding.grounded) {
+      throw new DistillationOutputValidationError(
+        boundedValidationSummary([
+          `code_example content references tokens absent from its cited evidence: ${grounding.ungrounded_tokens.join(
+            ", ",
+          )}`,
+        ]),
+        grounding.ungrounded_tokens.length,
+      );
+    }
   }
   return parsed.data;
 }

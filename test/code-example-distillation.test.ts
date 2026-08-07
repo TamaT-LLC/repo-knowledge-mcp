@@ -4,14 +4,25 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  CODE_EXAMPLE_GENERIC_TOKENS,
+  CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH,
   DISTILLATION_OUTPUT_JSON_SCHEMA,
   DISTILLATION_OUTPUT_SCHEMA_DIGEST,
   DISTILLATION_OUTPUT_SCHEMA_VERSION,
   computeOutputSchemaDigest,
   computeThreadDistillationKey,
+  evaluateCodeExampleGrounding,
+  extractCodeExampleReferenceTokens,
   loadDistillationPrompt,
   parseDistillationOutput,
+  type GeneratedCodeExample,
 } from "../src/index.js";
+
+interface CodeExampleFixtureComment {
+  readonly body: string;
+  readonly diff_hunk?: string;
+  readonly id: string;
+}
 
 interface CodeExampleFixtureExpectation {
   readonly accepted: boolean;
@@ -20,7 +31,7 @@ interface CodeExampleFixtureExpectation {
 }
 
 interface CodeExampleFixtureCase {
-  readonly allowed_comment_ids: readonly string[];
+  readonly comments: readonly CodeExampleFixtureComment[];
   readonly description: string;
   readonly expected: CodeExampleFixtureExpectation;
   readonly id: string;
@@ -46,8 +57,20 @@ async function loadFixtures(): Promise<readonly CodeExampleFixtureCase[]> {
   return parsed.cases;
 }
 
+function sourceComments(comments: readonly CodeExampleFixtureComment[]): {
+  readonly body: string;
+  readonly diffHunk?: string;
+  readonly id: string;
+}[] {
+  return comments.map((comment) => ({
+    body: comment.body,
+    ...(comment.diff_hunk === undefined ? {} : { diffHunk: comment.diff_hunk }),
+    id: comment.id,
+  }));
+}
+
 describe("M2 code example fixtures", () => {
-  it("covers grounded, conceptual, injection, and fictional-API scenarios", async () => {
+  it("covers grounded, conceptual, injection, fictional-API, and fabricated-content scenarios", async () => {
     const cases = await loadFixtures();
 
     expect(cases.map((entry) => entry.id)).toEqual([
@@ -55,13 +78,14 @@ describe("M2 code example fixtures", () => {
       "no-concrete-grounding",
       "prompt-injection-forged-evidence",
       "fictional-api-coercion",
+      "grounded-id-fabricated-content",
     ]);
     for (const entry of cases) {
       if (!entry.expected.accepted) {
         expect(() =>
           parseDistillationOutput(
             JSON.stringify(entry.output),
-            entry.allowed_comment_ids,
+            sourceComments(entry.comments),
           ),
         ).toThrow(
           expect.objectContaining({
@@ -75,15 +99,16 @@ describe("M2 code example fixtures", () => {
       }
       const output = parseDistillationOutput(
         JSON.stringify(entry.output),
-        entry.allowed_comment_ids,
+        sourceComments(entry.comments),
       );
       expect(output.candidates.length).toBeGreaterThan(0);
       const example = output.candidates[0]!.code_example;
       if (entry.expected.code_example_present === true) {
         expect(example).toMatchObject({ generated_example: true });
         expect(example!.evidence_comment_ids.length).toBeGreaterThan(0);
+        const commentIds = entry.comments.map((comment) => comment.id);
         for (const commentId of example!.evidence_comment_ids) {
-          expect(entry.allowed_comment_ids).toContain(commentId);
+          expect(commentIds).toContain(commentId);
         }
       } else {
         expect(example).toBeUndefined();
@@ -107,6 +132,101 @@ describe("M2 code example fixtures", () => {
     expect(prompt.instructions).toContain(
       "sets `generated_example` to true and cites the grounding comment IDs",
     );
+  });
+
+  it("pins the deterministic grounding token rules", () => {
+    expect(CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH).toBe(3);
+    expect(CODE_EXAMPLE_GENERIC_TOKENS).toEqual([
+      "assert",
+      "await",
+      "break",
+      "case",
+      "catch",
+      "class",
+      "console",
+      "const",
+      "constructor",
+      "continue",
+      "def",
+      "default",
+      "delete",
+      "elif",
+      "else",
+      "enum",
+      "export",
+      "extends",
+      "finally",
+      "for",
+      "from",
+      "function",
+      "import",
+      "instanceof",
+      "interface",
+      "lambda",
+      "length",
+      "let",
+      "loop",
+      "match",
+      "new",
+      "print",
+      "println",
+      "pub",
+      "raise",
+      "require",
+      "return",
+      "self",
+      "static",
+      "struct",
+      "super",
+      "switch",
+      "this",
+      "throw",
+      "trait",
+      "try",
+      "type",
+      "typeof",
+      "use",
+      "val",
+      "var",
+      "void",
+      "while",
+      "with",
+      "yield",
+    ]);
+
+    const tokens = extractCodeExampleReferenceTokens(
+      'import { fetchThing } from "@scope/pkg";\n' +
+        "const local = new HttpClient();\n" +
+        "local.send(fetchThing(id));",
+    );
+
+    // Calls, member access, constructed types, and module specifiers require
+    // grounding; declared bindings, short tokens, and generic tokens do not.
+    expect(tokens.identifiers).toEqual(["HttpClient", "fetchThing", "send"]);
+    expect(tokens.specifiers).toEqual(["@scope/pkg"]);
+
+    const example: GeneratedCodeExample = {
+      content: "local.send(fetchThing(id));",
+      evidence_comment_ids: ["comment-1"],
+      generated_example: true,
+      language: "typescript",
+    };
+    expect(
+      evaluateCodeExampleGrounding(example, [
+        {
+          body: "Route local.send through fetchThing so retries stay uniform.",
+          id: "comment-1",
+        },
+      ]),
+    ).toEqual({ grounded: true, ungrounded_tokens: [] });
+    expect(
+      evaluateCodeExampleGrounding(example, [
+        { body: "Please add retries here.", id: "comment-1" },
+      ]),
+    ).toEqual({
+      grounded: false,
+      ungrounded_tokens: ["fetchThing", "local", "send"],
+    });
   });
 
   it("binds the M2 schema change into the output schema digest and distillation key", () => {

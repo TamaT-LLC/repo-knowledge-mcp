@@ -78,14 +78,14 @@ describe("distillation prompt and output boundary", () => {
   it("validates zero, one, and multiple candidates as normalized DTOs", () => {
     const zero = parseDistillationOutput(
       JSON.stringify({ candidates: [], skip_reason: "pr_specific" }),
-      ["comment-1"],
+      sourceComments("comment-1"),
     );
     const one = parseDistillationOutput(
       JSON.stringify({
         candidates: [candidate("Rule one", ["comment-2", "comment-1"])],
         skip_reason: null,
       }),
-      ["comment-1", "comment-2"],
+      sourceComments("comment-1", "comment-2"),
     );
     const many = parseDistillationOutput(
       JSON.stringify({
@@ -95,7 +95,7 @@ describe("distillation prompt and output boundary", () => {
         ],
         skip_reason: null,
       }),
-      ["comment-1", "comment-2"],
+      sourceComments("comment-1", "comment-2"),
     );
 
     expect(zero).toEqual({ candidates: [], skip_reason: "pr_specific" });
@@ -126,7 +126,7 @@ describe("distillation prompt and output boundary", () => {
           ],
           skip_reason: null,
         }),
-        ["comment-1"],
+        sourceComments("comment-1"),
       ),
     ).toThrow(expect.objectContaining({ code: "DISTILLATION_OUTPUT_INVALID" }));
   });
@@ -138,7 +138,7 @@ describe("distillation prompt and output boundary", () => {
           candidates: [candidate("Unsafe evidence", ["other-thread"])],
           skip_reason: null,
         }),
-        ["comment-1"],
+        sourceComments("comment-1"),
       ),
     ).toThrow(
       expect.objectContaining({
@@ -160,7 +160,7 @@ describe("distillation prompt and output boundary", () => {
         ],
         skip_reason: null,
       }),
-      ["comment-1", "comment-2"],
+      groundedSourceComments(),
     );
 
     expect(grounded.candidates[0]!.code_example).toEqual({
@@ -180,7 +180,7 @@ describe("distillation prompt and output boundary", () => {
           ],
           skip_reason: null,
         }),
-        ["comment-1"],
+        sourceComments("comment-1"),
       ),
     ).toThrow(
       expect.objectContaining({
@@ -189,6 +189,60 @@ describe("distillation prompt and output boundary", () => {
           "code_example evidence_comment_ids must be a subset of the current review thread",
       }),
     );
+  });
+
+  it("rejects a flagged example whose content is not grounded in its cited evidence", () => {
+    expect(() =>
+      parseDistillationOutput(
+        JSON.stringify({
+          candidates: [
+            {
+              ...candidate("Keep failures visible", ["comment-1"]),
+              code_example: {
+                ...codeExample(["comment-1"]),
+                content: "superMagicFramework.doEverything();",
+              },
+            },
+          ],
+          skip_reason: null,
+        }),
+        groundedSourceComments(),
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: "DISTILLATION_OUTPUT_INVALID",
+        validationSummary:
+          "code_example content references tokens absent from its cited evidence: doEverything, superMagicFramework",
+      }),
+    );
+  });
+
+  it("grounds example tokens against the cited diff hunk as well as bodies", () => {
+    const output = parseDistillationOutput(
+      JSON.stringify({
+        candidates: [
+          {
+            ...candidate("Keep failures visible", ["comment-1"]),
+            code_example: {
+              ...codeExample(["comment-1"]),
+              content: "await saveProfile();",
+            },
+          },
+        ],
+        skip_reason: null,
+      }),
+      [
+        {
+          body: "This hunk swallows the failure.",
+          diffHunk: "+  saveProfile().catch(() => {});",
+          id: "comment-1",
+        },
+      ],
+    );
+
+    expect(output.candidates[0]!.code_example).toMatchObject({
+      generated_example: true,
+    });
   });
 
   it("rejects unflagged, empty, oversized, and invalid-language code examples", () => {
@@ -213,7 +267,7 @@ describe("distillation prompt and output boundary", () => {
             ],
             skip_reason: null,
           }),
-          ["comment-1"],
+          sourceComments("comment-1"),
         ),
       ).toThrow(
         expect.objectContaining({ code: "DISTILLATION_OUTPUT_INVALID" }),
@@ -882,4 +936,23 @@ function codeExample(
     generated_example: true,
     language: "typescript",
   };
+}
+
+function sourceComments(
+  ...ids: readonly string[]
+): { readonly body: string; readonly id: string }[] {
+  return ids.map((id) => ({ body: "review discussion body", id }));
+}
+
+function groundedSourceComments(): {
+  readonly body: string;
+  readonly id: string;
+}[] {
+  return [
+    {
+      body: "Call invoke() and mapErr the failure into showToast for the UI.",
+      id: "comment-1",
+    },
+    { body: "Agreed, the failure branch must stay visible.", id: "comment-2" },
+  ];
 }

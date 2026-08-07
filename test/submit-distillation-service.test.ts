@@ -206,6 +206,26 @@ describe("SubmitDistillationService extract", () => {
     await expect(
       invalidSubmitter.submitExtract({
         ...extractRequest(invalidFixture),
+        candidates: [
+          {
+            ...candidate(invalidFixture.commentId),
+            code_example: {
+              ...codeExample(invalidFixture.commentId),
+              content: "superMagicFramework.doEverything();",
+            },
+          },
+        ],
+        submission_id: "code-example-ungrounded-content",
+      }),
+    ).rejects.toMatchObject({
+      code: "EVIDENCE_COMMENTS_INVALID",
+      message: expect.stringContaining(
+        "code_example content references tokens absent from its cited evidence: doEverything, superMagicFramework",
+      ),
+    });
+    await expect(
+      invalidSubmitter.submitExtract({
+        ...extractRequest(invalidFixture),
         skip_reason: "typo",
       }),
     ).rejects.toMatchObject({ code: "EXTRACT_REQUEST_INVALID" });
@@ -441,7 +461,8 @@ async function createFixture(options: FixtureOptions = {}): Promise<Fixture> {
   const jobId = createDomainId("job", timestamp);
   const threadId = `thread-submit-${String(offset)}`;
   const commentId = `comment-submit-${String(offset)}`;
-  const body = "Prefer deterministic canonical writes for every submission.";
+  const body =
+    "Route every write through store.commit(transaction) so canonical writes stay deterministic.";
   const normalizedComment = {
     body,
     createdAt: observedAt,

@@ -492,6 +492,7 @@ export {
   startProviderLeaseHeartbeat,
   writeProviderDistillationDiagnostic,
   type DistillationProvenance,
+  type DistillationSourceComment,
   type ProviderDistillationDiagnostic,
   type ProviderDistillationDiagnosticEvent,
   type ProviderDistillationDiagnosticSink,
@@ -531,6 +532,15 @@ export {
   type CanonicalTransactionStoreOptions,
   type KnowledgeUpdateRequest,
 } from "./canonical-transaction-store.js";
+export {
+  CODE_EXAMPLE_GENERIC_TOKENS,
+  CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH,
+  evaluateCodeExampleGrounding,
+  extractCodeExampleReferenceTokens,
+  type CodeExampleEvidenceSource,
+  type CodeExampleGroundingResult,
+  type CodeExampleReferenceTokens,
+} from "./code-example-grounding.js";
 export {
   EVIDENCE_EVENT_PATH,
   REVISION_PROPOSAL_EVENT_PATH,

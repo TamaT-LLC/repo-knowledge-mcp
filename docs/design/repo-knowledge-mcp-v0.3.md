@@ -2674,3 +2674,43 @@ report には次を含める:
 3. 大量の同種 outcome でも boost / penalty が定義上限で飽和する
 4. 同じ event 集合から決定的な score と順位が得られる（再検索・reindex 後も一致）
 5. policy 変更が golden report と version 差分に現れる
+
+## 12. M2 code example grounding 契約
+
+Architecture §6.2 が M2 に課す「入力 diff またはレビュー本文に根拠がある例のみ具体コード化する / 架空の関数名・型名・パッケージ名を生成しない」を、schema と prompt だけでなく **content 本文の機械的検証**として固定する。実装は [code-example-grounding.ts](../../src/code-example-grounding.ts)。
+
+### 12.1 検証の合流点（3 経路）
+
+`code_example` を含む candidate は、次の 3 経路すべてで同一の grounding 検証を通過しない限り canonical に到達しない。
+
+| 経路 | 実装 | 失敗時 |
+|---|---|---|
+| provider 出力パース | `parseDistillationOutput`（[provider-distillation-service.ts](../../src/provider-distillation-service.ts)） | `DISTILLATION_OUTPUT_INVALID`（json_validation として 1 回だけ再試行 → failed） |
+| submit extract / 再水和 | `validateCandidateEvidenceComments`（[submit-distillation-service.ts](../../src/submit-distillation-service.ts)） | `EVIDENCE_COMMENTS_INVALID` |
+| canonical finalize | `validateCandidateEvidenceComments`（[canonical-finalize-service.ts](../../src/canonical-finalize-service.ts)） | `EVIDENCE_COMMENTS_INVALID`（書き込み前に拒否） |
+
+### 12.2 トークン規則（決定的・fail-closed）
+
+`code_example.content` から**参照位置のトークン**だけを字句的に抽出する:
+
+1. 呼び出し: `(` が直後に続く識別子（`invoke(`）
+2. メンバー参照: `.` の直後の識別子（`.isErr`）
+3. メンバー根: 識別子が `.` + 識別子に先行する場合（`superMagicFramework.doEverything` の根）。ただし content 内で宣言キーワード（`catch|class|const|def|enum|fn|for|fun|function|interface|let|struct|trait|type|val|var`）に続いて宣言された名前は除外
+4. 構築: `new` 直後の識別子
+5. モジュール参照: `import` / `from` / `use` 直後の識別子・パス、および `from` / `import` / `require(` に続く引用符付き specifier
+
+抽出後、次を除外する:
+
+- 長さが `CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH = 3` 未満のトークン
+- frozen リスト `CODE_EXAMPLE_GENERIC_TOKENS`（言語横断キーワードと汎用 builtin。リスト全体はテスト [code-example-distillation.test.ts](../../test/code-example-distillation.test.ts) で完全固定し、追加・削除は仕様変更として扱う）
+
+判定は **case-insensitive** で行う。根拠テキストは `code_example.evidence_comment_ids` が引用する comment の body + diff_hunk の連結に限定する（thread の他コメントは根拠にならない）。識別子トークンは根拠テキストの識別子トークン集合への完全一致、モジュール specifier は部分文字列一致で照合する。1 つでも照合できないトークンがあれば **fail-closed で拒否**する（引用 comment が現存しない場合は根拠テキストが空になり、同様に拒否される）。
+
+この規則の限界: untrusted コメント自体が架空 API 名を本文に含む場合、字句照合は通過しうる。その永続化は trust policy（§11）と proposed 既定 status が防ぐ二重防御であり、grounding 検証は provider の幻覚（根拠に現れない名前の生成）を対象とする。
+
+### 12.3 テストで固定した性質
+
+- 有効な comment ID + `generated_example: true` でも、content が引用根拠に現れないトークンを参照する場合は 3 経路すべてで拒否される（fixture `grounded-id-fabricated-content`、[code-example-distillation.json](../../test/fixtures/code-example-distillation.json)）
+- diff_hunk のみに現れる API は根拠として有効
+- 宣言済みローカル変数・3 文字未満・generic トークンは grounding を要求しない
+- `CODE_EXAMPLE_GENERIC_TOKENS` と最小長はテストで完全固定

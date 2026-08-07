@@ -9,6 +9,7 @@ import {
   type CanonicalAppendRecordRequest,
   type CanonicalFileWriteRequest,
 } from "./canonical-transaction-store.js";
+import { evaluateCodeExampleGrounding } from "./code-example-grounding.js";
 import { computeTrustPolicyDigest } from "./config.js";
 import {
   DistillationOutputSchema,
@@ -1355,6 +1356,24 @@ function validateCandidateEvidenceComments(
       "EVIDENCE_COMMENTS_INVALID",
       `evidence comments are outside the current snapshot: ${invalid.join(", ")}`,
     );
+  }
+  const sources = comments.map((comment) => ({
+    body: comment.body,
+    ...(comment.diff_hunk === undefined ? {} : { diffHunk: comment.diff_hunk }),
+    id: comment.comment_id,
+  }));
+  for (const candidate of candidates) {
+    const example = candidate.candidate.code_example;
+    if (example === undefined) continue;
+    const grounding = evaluateCodeExampleGrounding(example, sources);
+    if (!grounding.grounded) {
+      throw submitError(
+        "EVIDENCE_COMMENTS_INVALID",
+        `code_example content references tokens absent from its cited evidence: ${grounding.ungrounded_tokens.join(
+          ", ",
+        )}`,
+      );
+    }
   }
 }
 

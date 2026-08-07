@@ -409,6 +409,41 @@ describe("CanonicalFinalizeService", () => {
     );
   }, 15_000);
 
+  it("rejects a code example whose content is not grounded in its cited evidence", async () => {
+    const fixture = await createFixture({ knowledge: [] });
+    const candidates = [
+      candidate(CANDIDATE_A, "Reject fabricated example content", {
+        code_example: {
+          content: "superMagicFramework.doEverything();",
+          evidence_comment_ids: [ROOT_COMMENT_ID],
+          generated_example: true,
+          language: "typescript",
+        },
+      }),
+    ];
+    const search = await mergeSearch(fixture.store, candidates);
+
+    await expect(
+      finalizer(fixture.store).finalize({
+        ...sourceBinding(),
+        candidates: search.candidates,
+        decisions: [different(CANDIDATE_A)],
+        expected_match_set_digest: search.match_set_digest,
+        lease: lease(),
+        provenance: provenance(),
+      }),
+    ).rejects.toMatchObject({
+      code: "EVIDENCE_COMMENTS_INVALID",
+      message: expect.stringContaining(
+        "code_example content references tokens absent from its cited evidence: doEverything, superMagicFramework",
+      ),
+    });
+
+    const after = await fixture.store.readSnapshot();
+    expect(after.domain.knowledge).toHaveLength(0);
+    expect(jobState(after)).toBe("awaiting_finalize");
+  }, 15_000);
+
   it("rejects code example evidence outside the current snapshot before writing", async () => {
     const fixture = await createFixture({ knowledge: [] });
     const candidates = [
@@ -696,7 +731,7 @@ function comments(): CommentObservation[] {
         provider: "human",
         trust: "trusted",
       },
-      body: "Root review comment",
+      body: "Handle the Result of invoke() instead of ignoring the failure.",
       comment_id: ROOT_COMMENT_ID,
       created_at: "2026-08-06T00:01:00.000Z",
       observation_id: "obs_01ARZ3NDEKTSV4RRFFQ69G5FAW",
