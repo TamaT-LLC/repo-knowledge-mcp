@@ -731,6 +731,8 @@ export {
   REPO_KNOWLEDGE_SERVER_VERSION,
   SearchKnowledgeInputSchema,
   SearchKnowledgeOutputSchema,
+  StatsInputSchema,
+  StatsOutputSchema,
   buildServer,
   createStderrLogger,
   serveRepoKnowledgeStdio,

@@ -4,6 +4,7 @@ import {
   REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION,
   REPO_KNOWLEDGE_CLI_EXIT,
   REPO_KNOWLEDGE_CLI_HELP,
+  StatsReadError,
   parseRepoKnowledgeCliArguments,
   runRepoKnowledgeCli,
   type CliRepositoryOperations,
@@ -12,6 +13,7 @@ import {
   type KnowledgeMutationServiceResolver,
   type RepoKnowledgeDoctorLike,
   type RepoKnowledgeCliIo,
+  type RepositoryStats,
 } from "../src/index.js";
 
 const REPOSITORY = "owner/repository";
@@ -244,7 +246,10 @@ describe("repo-knowledge CLI", () => {
 
   it.each([
     [["record_outcome"], "CLI_COMMAND_UNAVAILABLE"],
-    [["stats"], "CLI_COMMAND_UNAVAILABLE"],
+    [["stats", REPOSITORY, "--bucket", "hour"], "CLI_ARGUMENT_INVALID"],
+    [["stats", REPOSITORY, "--since", "yesterday"], "CLI_ARGUMENT_INVALID"],
+    [["stats", REPOSITORY, "--until=2026-08-01"], "CLI_ARGUMENT_INVALID"],
+    [["stats", REPOSITORY, "extra"], "CLI_ARGUMENT_INVALID"],
     [
       ["ingest", REPOSITORY, "42", "--since", "yesterday"],
       "CLI_ARGUMENT_INVALID",
@@ -266,10 +271,12 @@ describe("repo-knowledge CLI", () => {
     expect(current.stdout()).toBe("");
   });
 
-  it("documents sync while keeping deferred commands out of help", () => {
+  it("documents sync and stats while keeping deferred commands out of help", () => {
     expect(REPO_KNOWLEDGE_CLI_HELP).toContain("sync [repo] [--since <iso>]");
+    expect(REPO_KNOWLEDGE_CLI_HELP).toContain(
+      "stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]",
+    );
     expect(REPO_KNOWLEDGE_CLI_HELP).not.toContain("\n  record_outcome");
-    expect(REPO_KNOWLEDGE_CLI_HELP).not.toContain("\n  stats");
     expect(parseRepoKnowledgeCliArguments([], false)).toEqual({
       kind: "serve",
       selection: {},
@@ -336,6 +343,86 @@ describe("repo-knowledge CLI", () => {
     expect(current.stderr()).toContain("SYNC_PARTIAL_FAILURE");
     expect(current.stderr()).toContain("PR #2");
     expect(current.stderr()).toContain("last contiguous");
+  });
+
+  it("routes stats through the CLI operations resolver with a parsed window", async () => {
+    const current = fixture([
+      "stats",
+      REPOSITORY,
+      "--bucket",
+      "day",
+      "--since",
+      "2026-08-01T00:00:00.000Z",
+      "--until",
+      "2026-08-02T00:00:00.000Z",
+    ]);
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+    expect(current.resolveOperations).toHaveBeenCalledWith({
+      repo: REPOSITORY,
+    });
+    expect(current.operations.stats).toHaveBeenCalledWith({
+      bucket: "day",
+      since: "2026-08-01T00:00:00.000Z",
+      until: "2026-08-02T00:00:00.000Z",
+    });
+    expect(JSON.parse(current.stdout())).toEqual(zeroStats());
+    expect(current.stderr()).toBe("");
+  });
+
+  it("omits absent stats options and accepts a workspace selection", async () => {
+    const current = fixture(["stats", "--workspace", "/work/repo"]);
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+    expect(current.resolveOperations).toHaveBeenCalledWith({
+      workspacePath: "/work/repo",
+    });
+    expect(current.operations.stats).toHaveBeenCalledWith({});
+  });
+
+  it("maps stats window rejections to usage exits", async () => {
+    const current = fixture([
+      "stats",
+      REPOSITORY,
+      "--bucket",
+      "day",
+      "--since",
+      "2026-08-01T00:00:00.000Z",
+    ]);
+    vi.mocked(current.operations.stats).mockRejectedValueOnce(
+      new StatsReadError(
+        "STATS_WINDOW_REQUIRED",
+        'bucket "day" requires both since and until',
+      ),
+    );
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(
+      REPO_KNOWLEDGE_CLI_EXIT.usage,
+    );
+
+    expect(current.stdout()).toBe("");
+    expect(current.stderr()).toContain("STATS_WINDOW_REQUIRED");
+  });
+
+  it("keeps stats canonical read failures on the failure exit code", async () => {
+    const current = fixture(["stats", REPOSITORY]);
+    vi.mocked(current.operations.stats).mockRejectedValueOnce(
+      new StatsReadError(
+        "STATS_SYNC_CHECKPOINT_REPOSITORY_MISMATCH",
+        "stored sync checkpoint belongs to another repository",
+      ),
+    );
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(
+      REPO_KNOWLEDGE_CLI_EXIT.failure,
+    );
+
+    expect(current.stdout()).toBe("");
+    expect(current.stderr()).toContain(
+      "STATS_SYNC_CHECKPOINT_REPOSITORY_MISMATCH",
+    );
   });
 
   it("propagates sync service error codes to stderr with a failure exit", async () => {
@@ -458,6 +545,7 @@ function fixture(
       repo: REPOSITORY,
       submissions: 0,
     })),
+    stats: vi.fn(async () => zeroStats()),
   };
   const resolveOperations = vi.fn<CliRepositoryOperationsResolver["resolve"]>(
     async () => operations,
@@ -489,5 +577,69 @@ function fixture(
     stderr: () => stderr.join(""),
     stdout: () => stdout.join(""),
     syncRepo,
+  };
+}
+
+function zeroStats(): RepositoryStats {
+  return {
+    buckets: null,
+    canonical_digest: "a".repeat(64),
+    evidence: {
+      by_source: { bugbot: 0, devin: 0, greptile: 0, human: 0, other: 0 },
+      by_status: { active: 0, superseded: 0, withdrawn: 0 },
+      eligible_for_count: 0,
+      total: 0,
+    },
+    jobs: {
+      by_state: {
+        awaiting_finalize: 0,
+        done: 0,
+        failed: 0,
+        pending: 0,
+        processing: 0,
+        skipped: 0,
+      },
+      total: 0,
+    },
+    knowledge: {
+      by_category: {
+        architecture: 0,
+        docs: 0,
+        "error-handling": 0,
+        naming: 0,
+        other: 0,
+        perf: 0,
+        security: 0,
+        style: 0,
+        test: 0,
+      },
+      by_severity: { consider: 0, must: 0, should: 0 },
+      by_status: {
+        active: 0,
+        deprecated: 0,
+        proposed: 0,
+        rejected: 0,
+        stale: 0,
+      },
+      total: 0,
+    },
+    operations: {
+      failed_jobs: 0,
+      last_sync_checkpoint_at: null,
+      pending_jobs: 0,
+    },
+    outcomes: {
+      by_type: {
+        applied: 0,
+        false_positive: 0,
+        not_applicable: 0,
+        violated: 0,
+      },
+      total: 0,
+    },
+    repo: REPOSITORY,
+    stats_schema_version: 1,
+    sync: { last_checkpoint: null },
+    window: { bucket: "total", since: null, timezone: "UTC", until: null },
   };
 }

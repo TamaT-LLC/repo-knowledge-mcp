@@ -16,6 +16,13 @@ import type {
 } from "./mcp-mutation-tools.js";
 import { REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION } from "./mcp-server.js";
 import { parseRepositoryName } from "./repository-resolver.js";
+import {
+  StatsBucketSchema,
+  StatsReadError,
+  type RepositoryStats,
+  type RepositoryStatsRequest,
+  type StatsReadErrorCode,
+} from "./stats-read-service.js";
 import type { SyncRepoSummary } from "./sync-repo-service.js";
 
 export const REPO_KNOWLEDGE_CLI_HELP = `Usage: repo-knowledge <command> [options]
@@ -23,6 +30,9 @@ export const REPO_KNOWLEDGE_CLI_HELP = `Usage: repo-knowledge <command> [options
 Commands:
   serve                         Start the MCP stdio server
   sync [repo] [--since <iso>]   Incrementally sync updated pull requests
+  stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]
+                                Print versioned machine-readable repository
+                                aggregates as one JSON document on stdout
   ingest [repo] <pr>            Ingest one complete pull-request snapshot
   distill [repo]                Consume provider-enabled pending jobs
   list [repo] [--status value]  List canonical knowledge
@@ -53,7 +63,17 @@ Sync options:
 Sync exits 0 when every discovered pull request synced, 1 on any failure,
 and 2 on usage errors, so cron can alert on non-zero exits.
 
-record_outcome and stats remain deferred to a later milestone.
+Stats options:
+  --bucket <total|day>          Aggregation mode; "total" (default) returns one
+                                aggregate, "day" returns zero-filled UTC day
+                                buckets and requires --since and --until
+  --since <iso-datetime>        Inclusive window start (ISO 8601 with offset)
+  --until <iso-datetime>        Exclusive window end (ISO 8601 with offset)
+
+Stats exits 0 on success (including zero stats for an empty repository),
+1 on read failures, and 2 on usage errors including invalid windows.
+
+record_outcome remains deferred to a later milestone.
 `;
 
 export const REPO_KNOWLEDGE_CLI_EXIT = Object.freeze({
@@ -151,6 +171,8 @@ export interface CliRepositoryOperations {
   reconcileDerivedMetadata(): Promise<CliReconcileResult>;
   redistill(request: CliRedistillRequest): Promise<CliRedistillResult>;
   reindex(): Promise<CliReindexResult>;
+  /** Versioned read-only aggregation; canonical data is never modified. */
+  stats(request?: RepositoryStatsRequest): Promise<RepositoryStats>;
 }
 
 export interface CliRepositoryOperationsResolver {
@@ -182,6 +204,11 @@ export type ParsedCliCommand =
       readonly kind: "sync";
       readonly selection: CliRepositorySelection;
       readonly since?: string;
+    }
+  | {
+      readonly kind: "stats";
+      readonly request: RepositoryStatsRequest;
+      readonly selection: CliRepositorySelection;
     }
   | {
       readonly kind: "ingest";
@@ -287,7 +314,7 @@ export function parseRepoKnowledgeCliArguments(
     if (argv.length !== 1) throw usage("help does not accept arguments");
     return { kind: "help" };
   }
-  if (["record_outcome", "stats"].includes(name)) {
+  if (name === "record_outcome") {
     throw unavailable(`${name} is deferred to a later milestone`);
   }
   if (argv.slice(1).includes("--help") || argv.slice(1).includes("-h")) {
@@ -299,6 +326,8 @@ export function parseRepoKnowledgeCliArguments(
       return parseServe(argv.slice(1));
     case "sync":
       return parseSync(argv.slice(1));
+    case "stats":
+      return parseStats(argv.slice(1));
     case "doctor":
       return parseDoctor(argv.slice(1));
     case "ingest":
@@ -360,6 +389,13 @@ async function executeCliCommand(
       // the non-zero exit code make partial failures visible to cron.
       options.io.writeStderr(syncFailureDiagnostic(summary));
       return REPO_KNOWLEDGE_CLI_EXIT.failure;
+    }
+    case "stats": {
+      const service = await options.operationsResolver.resolve(
+        command.selection,
+      );
+      writeJson(options.io, await service.stats(command.request));
+      return;
     }
     case "doctor": {
       const result = await options.doctor.run(command.selection);
@@ -509,6 +545,31 @@ function parseSync(args: readonly string[]): ParsedCliCommand {
     ...(since === undefined
       ? {}
       : { since: parseSchema(IsoDateTimeSchema, since, "since") }),
+  };
+}
+
+function parseStats(args: readonly string[]): ParsedCliCommand {
+  const parsed = parseOptions(args, {
+    values: ["repo", "workspace", "bucket", "since", "until"],
+  });
+  assertPositionalCount(parsed, 0, 1, "stats");
+  const bucket = parsed.values.get("bucket");
+  const since = parsed.values.get("since");
+  const until = parsed.values.get("until");
+  return {
+    kind: "stats",
+    request: {
+      ...(bucket === undefined
+        ? {}
+        : { bucket: parseSchema(StatsBucketSchema, bucket, "bucket") }),
+      ...(since === undefined
+        ? {}
+        : { since: parseSchema(IsoDateTimeSchema, since, "since") }),
+      ...(until === undefined
+        ? {}
+        : { until: parseSchema(IsoDateTimeSchema, until, "until") }),
+    },
+    selection: selection(parsed, parsed.positionals[0]),
   };
 }
 
@@ -914,6 +975,17 @@ function syncFailureDiagnostic(summary: SyncRepoSummary): string {
   );
 }
 
+/**
+ * Window-shaped stats rejections are operator argument mistakes, so they exit
+ * with the usage code; canonical or checkpoint failures stay read failures.
+ */
+const STATS_USAGE_ERROR_CODES: ReadonlySet<StatsReadErrorCode> = new Set([
+  "INVALID_STATS_REQUEST",
+  "INVALID_STATS_WINDOW",
+  "STATS_WINDOW_REQUIRED",
+  "STATS_WINDOW_TOO_LARGE",
+]);
+
 function cliDiagnostic(error: unknown): {
   readonly code: string;
   readonly exitCode: number;
@@ -923,6 +995,15 @@ function cliDiagnostic(error: unknown): {
     return {
       code: error.code,
       exitCode: error.exitCode,
+      message: safeDiagnosticMessage(error.message.replace(/^.*?:\s*/u, "")),
+    };
+  }
+  if (error instanceof StatsReadError) {
+    return {
+      code: error.code,
+      exitCode: STATS_USAGE_ERROR_CODES.has(error.code)
+        ? REPO_KNOWLEDGE_CLI_EXIT.usage
+        : REPO_KNOWLEDGE_CLI_EXIT.failure,
       message: safeDiagnosticMessage(error.message.replace(/^.*?:\s*/u, "")),
     };
   }

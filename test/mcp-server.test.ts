@@ -11,10 +11,12 @@ import {
   GetRulesOutputSchema,
   REPO_KNOWLEDGE_SERVER_INSTRUCTIONS,
   SearchKnowledgeOutputSchema,
+  StatsOutputSchema,
   serveRepoKnowledgeStdio,
   type KnowledgeMutationServiceResolver,
   type KnowledgeReadOperations,
   type KnowledgeReadServiceResolver,
+  type RepositoryStats,
 } from "../src/index.js";
 import {
   WireClient,
@@ -60,12 +62,15 @@ describe("repo-knowledge MCP read server", () => {
 
     const listed = await connection.client.request("tools/list", {});
     const tools = readTools(listed).filter((tool) =>
-      ["get_rules", "search_knowledge", "get_knowledge"].includes(tool.name),
+      ["get_rules", "search_knowledge", "get_knowledge", "stats"].includes(
+        tool.name,
+      ),
     );
     expect(tools.map((tool) => tool.name)).toEqual([
       "get_rules",
       "search_knowledge",
       "get_knowledge",
+      "stats",
     ]);
     for (const tool of tools) {
       expect(tool.annotations).toEqual({
@@ -139,6 +144,22 @@ describe("repo-knowledge MCP read server", () => {
     expect(fixture.getKnowledge).toHaveBeenCalledWith({
       evidenceLimit: 7,
       id: KNOWLEDGE_ID,
+    });
+
+    const statsCall = await callTool(connection.client, "stats", {
+      bucket: "day",
+      repo: REPOSITORY,
+      since: "2026-08-01T00:00:00.000Z",
+      until: "2026-08-02T00:00:00.000Z",
+    });
+    const stats = toolStructuredContent(statsCall);
+    expect(StatsOutputSchema.safeParse(stats).success).toBe(true);
+    expect(toolText(statsCall)).toContain("Repository stats");
+    expect(toolText(statsCall)).toContain("stats schema v1");
+    expect(fixture.getStats).toHaveBeenCalledWith({
+      bucket: "day",
+      since: "2026-08-01T00:00:00.000Z",
+      until: "2026-08-02T00:00:00.000Z",
     });
   });
 
@@ -263,6 +284,7 @@ describe("repo-knowledge MCP read server", () => {
       "get_rules",
       "search_knowledge",
       "get_knowledge",
+      "stats",
       "ingest_pr",
       "sync_repo",
       "prepare_distillation",
@@ -369,12 +391,96 @@ function unavailableMutationResolver(): KnowledgeMutationServiceResolver {
   };
 }
 
+function statsFixtureResponse(): RepositoryStats {
+  return {
+    buckets: [
+      {
+        day: "2026-08-01",
+        evidence_total: 2,
+        outcome_by_type: {
+          applied: 1,
+          false_positive: 0,
+          not_applicable: 0,
+          violated: 0,
+        },
+        outcome_total: 1,
+      },
+    ],
+    canonical_digest: "a".repeat(64),
+    evidence: {
+      by_source: { bugbot: 0, devin: 0, greptile: 0, human: 2, other: 0 },
+      by_status: { active: 2, superseded: 0, withdrawn: 0 },
+      eligible_for_count: 2,
+      total: 2,
+    },
+    jobs: {
+      by_state: {
+        awaiting_finalize: 0,
+        done: 0,
+        failed: 0,
+        pending: 1,
+        processing: 0,
+        skipped: 0,
+      },
+      total: 1,
+    },
+    knowledge: {
+      by_category: {
+        architecture: 1,
+        docs: 0,
+        "error-handling": 0,
+        naming: 0,
+        other: 0,
+        perf: 0,
+        security: 0,
+        style: 0,
+        test: 0,
+      },
+      by_severity: { consider: 0, must: 1, should: 0 },
+      by_status: {
+        active: 1,
+        deprecated: 0,
+        proposed: 0,
+        rejected: 0,
+        stale: 0,
+      },
+      total: 1,
+    },
+    operations: {
+      failed_jobs: 0,
+      last_sync_checkpoint_at: null,
+      pending_jobs: 1,
+    },
+    outcomes: {
+      by_type: {
+        applied: 1,
+        false_positive: 0,
+        not_applicable: 0,
+        violated: 0,
+      },
+      total: 1,
+    },
+    repo: REPOSITORY,
+    stats_schema_version: 1,
+    sync: { last_checkpoint: null },
+    window: {
+      bucket: "day",
+      since: "2026-08-01T00:00:00.000Z",
+      timezone: "UTC",
+      until: "2026-08-02T00:00:00.000Z",
+    },
+  };
+}
+
 function createReadFixture(): {
   readonly getKnowledge: ReturnType<
     typeof vi.fn<KnowledgeReadOperations["getKnowledge"]>
   >;
   readonly getRules: ReturnType<
     typeof vi.fn<KnowledgeReadOperations["getRules"]>
+  >;
+  readonly getStats: ReturnType<
+    typeof vi.fn<KnowledgeReadOperations["getStats"]>
   >;
   readonly resolve: ReturnType<
     typeof vi.fn<KnowledgeReadServiceResolver["resolve"]>
@@ -448,9 +554,13 @@ function createReadFixture(): {
       repo: REPOSITORY,
     }),
   );
+  const getStats = vi.fn<KnowledgeReadOperations["getStats"]>(async () =>
+    statsFixtureResponse(),
+  );
   const operations: KnowledgeReadOperations = {
     getKnowledge,
     getRules,
+    getStats,
     searchKnowledge,
   };
   const resolve = vi.fn<KnowledgeReadServiceResolver["resolve"]>(
@@ -459,6 +569,7 @@ function createReadFixture(): {
   return {
     getKnowledge,
     getRules,
+    getStats,
     resolve,
     resolver: { resolve },
     searchKnowledge,

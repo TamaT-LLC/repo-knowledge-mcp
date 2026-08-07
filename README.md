@@ -200,6 +200,7 @@ M1 に secret scanner はないため、review や diff に secret が含まれ�
 | `update_knowledge` | ETag / revision を使い、変更 proposal を作る。active 化はできない |
 | `prepare_distillation` | 明示 opt-in 時だけ host-assisted job data を返す |
 | `submit_distillation` | extract または finalize 結果を lease fencing と idempotency 付きで提出する |
+| `stats` | knowledge / evidence / outcome / job / sync の versioned 集計を read-only で返す |
 
 MCP plane から status を active / rejected に変更する tool は公開しません。
 これは tool 経由の偶発的な権限昇格を抑える運用境界であり、同じ OS user として shell を実行できる agent に対する security boundary ではありません。
@@ -209,6 +210,7 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 | command | 用途 |
 |---|---|
 | `serve [--repo owner/name]` | stdio MCP server を明示起動 |
+| `stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]` | versioned repository 集計を JSON 1 document で出力 |
 | `ingest [repo] <pr>` | 一つの complete PR snapshot を取り込む |
 | `distill [repo]` | Provider Adapter で pending job を処理 |
 | `list [repo] [--status proposed]` | canonical knowledge と revision proposal を列挙 |
@@ -220,8 +222,60 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 | `add --active <fields>` | TTY-only で human-authored active knowledge を追加 |
 | `doctor [repo]` | runtime、GitHub auth、config、storage、canonical data、projection を read-only 診断 |
 
-`sync`、`sync_repo`、`record_outcome`、`stats` は M1 の対象外です。
+`sync`、`sync_repo`、`record_outcome` は M1 の対象外で、M2 で追加されました。
+`stats` も M2 で追加され、MCP tool と CLI command が同じ schema version と集計値を返します（下記「stats の読み方と運用」参照）。
 引数なしで TTY から起動すると help、pipe から起動すると stdio server になります。
+
+## stats の読み方と運用
+
+`stats` は canonical snapshot（knowledge Markdown + canonical JSONL）と repo-local な sync checkpoint だけから導出する read-only の純関数です。
+同じ canonical state と同じ request からは常に同一の response が得られ、壁時計や生成時刻を含みません。
+canonical data を変更する経路はなく、`reindex` 前後でも全集計値が一致します。
+
+response の各値の意味は次のとおりです。
+
+| key | 意味 |
+|---|---|
+| `stats_schema_version` | 集計契約の version（現在 `1`）。キーや単位の意味が変わる変更で increment |
+| `canonical_digest` | canonical state の識別子。同じ digest なら同じ集計値 |
+| `window` | 受理した半開区間 `[since, until)` を UTC instant へ正規化した echo。`timezone` は常に `"UTC"` |
+| `knowledge.total` / `by_status` / `by_category` / `by_severity` | 当該 repository の knowledge Markdown 全件（全 status）の frontmatter 分類。window の影響を受けない現在状態 |
+| `evidence.total` / `by_status` | window 内に observed された evidence の件数と status（active / superseded / withdrawn）分類 |
+| `evidence.by_source` | 同じ evidence 集合の source provider 分類。1 evidence が複数 source を持つと各 source に 1 ずつ数えるため、合計は `total` を超えうる |
+| `evidence.eligible_for_count` | window 内 evidence のうち status=active かつ `eligible_for_count: true` の件数。knowledge の `evidence_count` と同じ資格判定 |
+| `outcomes.total` / `by_type` | window 内の outcome event（applied / violated / not_applicable / false_positive）分類 |
+| `jobs.total` / `by_state` | distill job の現在状態（pending / processing / awaiting_finalize / done / skipped / failed）分類。window の影響を受けない |
+| `sync.last_checkpoint` | sync checkpoint の cursor（`last_pr_number` / `last_updated_at`）と checkpoint の `updated_at`。未同期 repository は `null` |
+| `operations` | `pending_jobs` / `failed_jobs`（`jobs.by_state` の再掲）と `last_sync_checkpoint_at`。cron 同期運用の監視入口 |
+| `buckets` | `--bucket day` のときだけ、window と交差する UTC 暦日を昇順で全列挙した日次集計。観測 0 件の日も 0 埋め。`--bucket total`（既定）では `null` |
+
+分類はすべて enum の全キーを列挙し、該当 0 件でもキーを `0` で返します。
+空 repository や期間内データなしはエラーではなく、zero stats の正常応答（exit 0）です。
+
+期間 filter の規則は次のとおりです。
+
+- `since` / `until` は offset 付き ISO 8601 で、半開区間 `[since, until)` として解釈します（`since` ちょうどは含み、`until` ちょうどは含まない）。
+- 入力 offset は instant の解釈のみに使い、bucket 境界と day キーは UTC で固定します。
+- 期間 filter が効くのは時刻を持つ観測列（evidence の `observed_at`、outcome の `at`）だけです。
+- `--bucket day` は `--since` と `--until` の両方が必須で、366 UTC 日を超える window は拒否します。
+
+運用例です。
+CLI は JSON 1 document を stdout に出力するため、script からそのまま解析できます。
+
+```console
+# 全期間の集計
+repo-knowledge stats owner/repository
+
+# 直近 1 週間の日次推移
+repo-knowledge stats owner/repository --bucket day \
+  --since 2026-08-01T00:00:00Z --until 2026-08-08T00:00:00Z
+
+# cron 監視: 失敗 job が残っていれば非 0 で alert
+repo-knowledge stats owner/repository | jq -e '.operations.failed_jobs == 0'
+```
+
+exit code は 0 が成功（zero stats を含む）、1 が read 失敗（checkpoint の repository 不一致など）、2 が usage error（不正な window を含む）です。
+MCP からは `stats` tool を同じ引数（`bucket` / `since` / `until`）で呼び出せ、CLI と同一の schema version と集計値を返します。
 
 ## 保存構造
 
