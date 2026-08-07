@@ -3,96 +3,151 @@ import type { GeneratedCodeExample } from "./domain-schemas.js";
 
 /**
  * Deterministic grounding contract for generated code examples (design doc
- * §12). A code example may only reference APIs, types, and packages that
- * appear in the body or diff hunk of the review comments it cites. Tokens are
- * extracted lexically from reference positions, so locally declared bindings
- * and generic language keywords never require grounding, while fabricated
- * function, type, and package names are rejected fail-closed.
+ * §12). A code example may only reference names that appear in the body or
+ * diff hunk of the review comments it cites. The contract is exhaustive
+ * rather than positional: every identifier token in the content is a
+ * candidate, and only deterministic exclusions (generic tokens, minimum
+ * length, locally declared bindings, validated module specifiers) remove a
+ * token from the requirement. Fabricated function, type, and package names
+ * are therefore rejected fail-closed regardless of the syntax — optional
+ * chaining, unions, generics, `satisfies`, and future constructs included.
+ * False positives deliberately fall on the rejection side.
  */
 
 export const CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH = 3;
 
 /**
  * Frozen cross-language keywords, ubiquitous builtins, and standard-library
- * type names that occur in reference or type positions but carry no
- * repository-specific meaning. This list is part of the grounding contract
- * and is pinned by tests; extending it is a spec change. Matching is
- * case-insensitive, so lowercase entries also cover `Promise`, `Result`, etc.
+ * type names that carry no repository-specific meaning. This list is part of
+ * the grounding contract and is pinned by tests; extending it is a spec
+ * change. Matching is case-insensitive, so lowercase entries also cover
+ * `Promise`, `Result`, etc.
  */
 export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
+  "abstract",
+  "and",
+  "any",
   "array",
   "assert",
+  "async",
   "await",
+  "bigint",
+  "bool",
   "boolean",
   "box",
   "break",
   "case",
   "catch",
+  "chan",
+  "char",
   "class",
   "console",
   "const",
   "constructor",
   "continue",
+  "crate",
   "date",
+  "declare",
   "def",
   "default",
+  "defer",
+  "del",
   "delete",
+  "double",
+  "dyn",
   "elif",
   "else",
   "enum",
   "error",
   "export",
   "extends",
+  "false",
   "finally",
+  "float",
   "for",
   "from",
+  "func",
   "function",
+  "goto",
   "hashmap",
+  "impl",
   "import",
+  "infer",
   "instanceof",
+  "int",
   "interface",
+  "isize",
+  "keyof",
   "lambda",
   "length",
   "let",
+  "long",
   "loop",
   "map",
   "match",
+  "mod",
+  "module",
+  "mut",
+  "namespace",
+  "never",
   "new",
+  "nil",
+  "none",
+  "not",
+  "null",
   "number",
   "object",
   "omit",
   "option",
+  "override",
+  "package",
   "partial",
+  "pass",
   "pick",
   "print",
   "println",
+  "private",
   "promise",
+  "protected",
   "pub",
+  "public",
   "raise",
+  "range",
   "readonly",
   "record",
+  "ref",
   "regexp",
   "require",
   "result",
   "return",
+  "satisfies",
   "self",
   "set",
+  "short",
   "static",
   "string",
   "struct",
   "super",
   "switch",
+  "symbol",
+  "then",
   "this",
   "throw",
   "trait",
+  "true",
   "try",
   "type",
   "typeof",
+  "undefined",
+  "unknown",
   "use",
+  "usize",
   "val",
   "var",
   "vec",
   "void",
+  "when",
+  "where",
   "while",
   "with",
   "yield",
@@ -103,39 +158,8 @@ const GENERIC_TOKEN_SET: ReadonlySet<string> = new Set(
 );
 
 const IDENTIFIER = "[A-Za-z_$][A-Za-z0-9_$]*";
-const TYPE_IDENTIFIER = "[A-Z][A-Za-z0-9_$]*";
 const MODULE_SPECIFIER = "[A-Za-z_$@][A-Za-z0-9_$@:./-]*";
 const IDENTIFIER_TOKEN_REGEX = new RegExp(IDENTIFIER, "gu");
-const CALLED_TOKEN_REGEX = new RegExp(
-  `(?<![A-Za-z0-9_$])(${IDENTIFIER})\\s*\\(`,
-  "gu",
-);
-const MEMBER_TOKEN_REGEX = new RegExp(`\\.\\s*(${IDENTIFIER})`, "gu");
-const MEMBER_ROOT_TOKEN_REGEX = new RegExp(
-  `(?<![A-Za-z0-9_$.])(${IDENTIFIER})(?=\\s*\\.[A-Za-z_$])`,
-  "gu",
-);
-const BRACKET_MEMBER_TOKEN_REGEX = new RegExp(
-  `(?<=[A-Za-z0-9_$)\\]])\\[\\s*["'](${IDENTIFIER})["']\\s*\\]`,
-  "gu",
-);
-const CONSTRUCTED_TOKEN_REGEX = new RegExp(
-  `(?<![A-Za-z0-9_$])new\\s+(${IDENTIFIER})`,
-  "gu",
-);
-const ANNOTATED_TYPE_TOKEN_REGEX = new RegExp(
-  `:\\s*(${TYPE_IDENTIFIER})`,
-  "gu",
-);
-const ASSERTED_TYPE_TOKEN_REGEX = new RegExp(
-  `(?<![A-Za-z0-9_$])as\\s+(${TYPE_IDENTIFIER})`,
-  "gu",
-);
-const GENERIC_TYPE_TOKEN_REGEX = new RegExp(`<\\s*(${TYPE_IDENTIFIER})`, "gu");
-const EXTENDED_TYPE_TOKEN_REGEX = new RegExp(
-  `(?<![A-Za-z0-9_$])(?:extends|implements)\\s+(${TYPE_IDENTIFIER})`,
-  "gu",
-);
 const MODULE_KEYWORD_TOKEN_REGEX = new RegExp(
   `(?<![A-Za-z0-9_$])(?:import|from|use)\\s+(${MODULE_SPECIFIER})`,
   "gu",
@@ -156,8 +180,9 @@ export interface CodeExampleEvidenceSource {
 
 export interface CodeExampleReferenceTokens {
   /**
-   * Identifier references: calls, member access (dotted and quoted-bracket),
-   * `new`, capital-initial type references, and import names.
+   * Every identifier token in the content that survives the deterministic
+   * exclusions: generic tokens, tokens below the minimum length, locally
+   * declared names, and the interior of validated module specifiers.
    */
   readonly identifiers: readonly string[];
   /** Module specifiers matched as substrings, e.g. `@scope/pkg`. */
@@ -170,38 +195,19 @@ export interface CodeExampleGroundingResult {
 }
 
 /**
- * Extracts reference-position tokens from example content: called
- * identifiers, member access segments and their roots, quoted bracket
- * members, constructed types, capital-initial type references, and
- * import/module references. Locally declared names, tokens shorter than the
- * minimum length, and generic tokens are excluded.
+ * Extracts every identifier token from the content, including tokens inside
+ * string literals and comments (quoted bracket members and error messages are
+ * data too). Excluded deterministically: tokens shorter than the minimum
+ * length, generic tokens, names declared after a declaration keyword
+ * (`catch|class|const|def|enum|fn|for|fun|function|interface|let|struct|`
+ * `trait|type|val|var`), and the interior of quoted module specifiers, which
+ * are validated separately as substrings. Function parameters, destructuring
+ * bindings, and import-bound names are intentionally not excluded; they fail
+ * closed toward requiring grounding.
  */
 export function extractCodeExampleReferenceTokens(
   content: string,
 ): CodeExampleReferenceTokens {
-  const declared = new Set(
-    captureAll(content, DECLARED_TOKEN_REGEX).map((token) =>
-      token.toLowerCase(),
-    ),
-  );
-  const identifiers = sortAndDedupeStrings(
-    [
-      ...captureAll(content, CALLED_TOKEN_REGEX),
-      ...captureAll(content, MEMBER_TOKEN_REGEX),
-      ...captureAll(content, MEMBER_ROOT_TOKEN_REGEX),
-      ...captureAll(content, BRACKET_MEMBER_TOKEN_REGEX),
-      ...captureAll(content, CONSTRUCTED_TOKEN_REGEX),
-      ...captureAll(content, ANNOTATED_TYPE_TOKEN_REGEX),
-      ...captureAll(content, ASSERTED_TYPE_TOKEN_REGEX),
-      ...captureAll(content, GENERIC_TYPE_TOKEN_REGEX),
-      ...captureAll(content, EXTENDED_TYPE_TOKEN_REGEX),
-    ].filter(
-      (token) =>
-        token.length >= CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH &&
-        !GENERIC_TOKEN_SET.has(token.toLowerCase()) &&
-        !declared.has(token.toLowerCase()),
-    ),
-  );
   const specifiers = sortAndDedupeStrings(
     [
       ...captureAll(content, MODULE_KEYWORD_TOKEN_REGEX),
@@ -210,6 +216,25 @@ export function extractCodeExampleReferenceTokens(
       (specifier) =>
         specifier.length >= CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH &&
         !GENERIC_TOKEN_SET.has(specifier.toLowerCase()),
+    ),
+  );
+  // Quoted module specifiers are validated as whole substrings; blank their
+  // interiors so their fragments are not reported twice.
+  const tokenizable = content.replaceAll(
+    QUOTED_MODULE_SPECIFIER_REGEX,
+    (match) => " ".repeat(match.length),
+  );
+  const declared = new Set(
+    captureAll(tokenizable, DECLARED_TOKEN_REGEX).map((token) =>
+      token.toLowerCase(),
+    ),
+  );
+  const identifiers = sortAndDedupeStrings(
+    (tokenizable.match(IDENTIFIER_TOKEN_REGEX) ?? []).filter(
+      (token) =>
+        token.length >= CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH &&
+        !GENERIC_TOKEN_SET.has(token.toLowerCase()) &&
+        !declared.has(token.toLowerCase()),
     ),
   );
   return { identifiers, specifiers };

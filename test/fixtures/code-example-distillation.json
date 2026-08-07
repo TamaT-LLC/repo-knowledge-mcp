@@ -198,6 +198,46 @@
         "skip_reason": null
       },
       "tags": ["code-example", "fictional-api", "grounding", "bracket-member"]
+    },
+    {
+      "comments": [
+        {
+          "body": "The client cache is rebuilt by the documented sync job; no custom loader exists.",
+          "id": "PRRC_position_1"
+        }
+      ],
+      "description": "Optional chaining and a compound generic type hide fabricated names from position-based extraction; the exhaustive token pass rejects them anyway.",
+      "expected": {
+        "accepted": false,
+        "validation_summary": "code_example content references tokens absent from its cited evidence: FabricatedType, fabricatedMethod"
+      },
+      "id": "optional-chaining-and-compound-types",
+      "output": {
+        "candidates": [
+          {
+            "category": "architecture",
+            "code_example": {
+              "content": "const cache: Map<string, FabricatedType> = client?.fabricatedMethod?.();",
+              "evidence_comment_ids": ["PRRC_position_1"],
+              "generated_example": true,
+              "language": "typescript"
+            },
+            "confidence": 0.9,
+            "detail": "Reaches a fabricated API through optional chaining and annotates a fabricated compound type.",
+            "evidence_comment_ids": ["PRRC_position_1"],
+            "rule": "Rebuild the client cache through the documented sync job",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "tags": [
+        "code-example",
+        "fictional-api",
+        "grounding",
+        "optional-chaining"
+      ]
     }
   ]
 }

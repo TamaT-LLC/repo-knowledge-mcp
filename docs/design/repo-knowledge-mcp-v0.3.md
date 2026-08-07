@@ -2757,3 +2757,44 @@ Architecture §6.2 が M2 に課す「入力 diff またはレビュー本文に
 - diff_hunk のみに現れる API は根拠として有効
 - 宣言済みローカル変数・3 文字未満・generic トークンは grounding を要求しない
 - `CODE_EXAMPLE_GENERIC_TOKENS` と最小長はテストで完全固定
+
+## 12. M2 code example grounding 契約
+
+Architecture §6.2 が M2 に課す「入力 diff またはレビュー本文に根拠がある例のみ具体コード化する / 架空の関数名・型名・パッケージ名を生成しない」を、schema と prompt だけでなく **content 本文の機械的検証**として固定する。実装は [code-example-grounding.ts](../../src/code-example-grounding.ts)。
+
+### 12.1 検証の合流点（3 経路）
+
+`code_example` を含む candidate は、次の 3 経路すべてで同一の grounding 検証を通過しない限り canonical に到達しない。
+
+| 経路 | 実装 | 失敗時 |
+|---|---|---|
+| provider 出力パース | `parseDistillationOutput`（[provider-distillation-service.ts](../../src/provider-distillation-service.ts)） | `DISTILLATION_OUTPUT_INVALID`（json_validation として 1 回だけ再試行 → failed） |
+| submit extract / 再水和 | `validateCandidateEvidenceComments`（[submit-distillation-service.ts](../../src/submit-distillation-service.ts)） | `EVIDENCE_COMMENTS_INVALID` |
+| canonical finalize | `validateCandidateEvidenceComments`（[canonical-finalize-service.ts](../../src/canonical-finalize-service.ts)） | `EVIDENCE_COMMENTS_INVALID`（書き込み前に拒否） |
+
+### 12.2 トークン規則（網羅方式・決定的・fail-closed）
+
+構文位置を列挙するホワイトリスト方式は optional chaining（`fabricatedApi?.()`）・複合型（`Map<string, FabricatedType>`、union）・`satisfies` 等の抜け道が構造的に残るため、**網羅方式**を採用する。構文位置に依存せず、content 内のすべての識別子が検証対象になる。
+
+1. **候補**: `code_example.content` 内のすべての識別子トークン（`[A-Za-z_$][A-Za-z0-9_$]*`）。**文字列リテラル・コメント内のトークンも含む**（`client["fabricatedApi"]` の引用符内メンバー名やエラーメッセージ文字列もデータとして扱う）。唯一の例外は次項 3 の引用符付き module specifier の内部で、specifier 全体として照合するため識別子パスからは除外し二重報告を避ける
+2. **決定的除外**: 次のいずれかに該当するトークンは grounding を要求しない
+   - 長さが `CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH = 3` 未満
+   - frozen リスト `CODE_EXAMPLE_GENERIC_TOKENS`（言語横断キーワード・汎用 builtin・標準ライブラリ型名。`Promise` / `Result` / `Vec` / `satisfies` 等を小文字表記で収載し case-insensitive に照合。リスト全体はテスト [code-example-distillation.test.ts](../../test/code-example-distillation.test.ts) で完全固定し、追加・削除は仕様変更として扱う）
+   - content 内で宣言キーワード（`catch|class|const|def|enum|fn|for|fun|function|interface|let|struct|trait|type|val|var`）の直後に宣言されたローカル束縛名。関数パラメータ・分割代入・import 局所名は**除外しない**（外部参照とみなし、根拠を要求する側へ倒す）
+3. **モジュール参照**: `import` / `from` / `use` 直後の識別子・パス、および `from` / `import` / `require(` に続く引用符付き specifier は、specifier 全体を部分文字列として照合する
+4. **照合**: 残った全トークンを根拠テキストと照合し、**未照合が 1 つでもあれば fail-closed で拒否**する
+
+判定は **case-insensitive** で行う。根拠テキストは `code_example.evidence_comment_ids` が引用する comment の body + diff_hunk の連結に限定する（thread の他コメントは根拠にならない）。識別子トークンは根拠テキストの識別子トークン集合への完全一致、モジュール specifier は部分文字列一致で照合する。引用 comment が現存しない場合は根拠テキストが空になり、同様に拒否される。
+
+**誤検知の扱い**: 網羅方式では、根拠に現れないローカル慣用名（パラメータ名・文字列内の単語等）も拒否側に倒れる。これは fail-closed 設計として仕様上許容する。緩和は generic リストへの追加（= 仕様変更としてテスト固定を更新）でのみ行う。
+
+この規則の限界: untrusted コメント自体が架空 API 名を本文に含む場合、字句照合は通過しうる。その永続化は trust policy（§11）と proposed 既定 status が防ぐ二重防御であり、grounding 検証は provider の幻覚（根拠に現れない名前の生成）を対象とする。
+
+### 12.3 テストで固定した性質
+
+- 有効な comment ID + `generated_example: true` でも、content が引用根拠に現れないトークンを参照する場合は 3 経路すべてで拒否される（fixture `grounded-id-fabricated-content`、[code-example-distillation.json](../../test/fixtures/code-example-distillation.json)）
+- 角括弧メンバー参照（`client["fabricatedApi"]()`）と型注釈（`const value: FabricatedType`）の架空名も拒否される（fixture `bracket-and-type-fabrication`）
+- 構文位置に依存しない: `fabricatedApi?.()` / `client?.fabricatedMethod()` / `Map<string, FabricatedType>` / `RealType | FabricatedType` / `value satisfies FabricatedType` がいずれも拒否される（fixture `optional-chaining-and-compound-types` と回帰テスト）
+- diff_hunk のみに現れる API は根拠として有効
+- 宣言済みローカル変数・3 文字未満・generic トークンは grounding を要求しない
+- `CODE_EXAMPLE_GENERIC_TOKENS` と最小長はテストで完全固定

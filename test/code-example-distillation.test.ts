@@ -80,6 +80,7 @@ describe("M2 code example fixtures", () => {
       "fictional-api-coercion",
       "grounded-id-fabricated-content",
       "bracket-and-type-fabrication",
+      "optional-chaining-and-compound-types",
     ]);
     for (const entry of cases) {
       if (!entry.expected.accepted) {
@@ -138,79 +139,130 @@ describe("M2 code example fixtures", () => {
   it("pins the deterministic grounding token rules", () => {
     expect(CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH).toBe(3);
     expect(CODE_EXAMPLE_GENERIC_TOKENS).toEqual([
+      "abstract",
+      "and",
+      "any",
       "array",
       "assert",
+      "async",
       "await",
+      "bigint",
+      "bool",
       "boolean",
       "box",
       "break",
       "case",
       "catch",
+      "chan",
+      "char",
       "class",
       "console",
       "const",
       "constructor",
       "continue",
+      "crate",
       "date",
+      "declare",
       "def",
       "default",
+      "defer",
+      "del",
       "delete",
+      "double",
+      "dyn",
       "elif",
       "else",
       "enum",
       "error",
       "export",
       "extends",
+      "false",
       "finally",
+      "float",
       "for",
       "from",
+      "func",
       "function",
+      "goto",
       "hashmap",
+      "impl",
       "import",
+      "infer",
       "instanceof",
+      "int",
       "interface",
+      "isize",
+      "keyof",
       "lambda",
       "length",
       "let",
+      "long",
       "loop",
       "map",
       "match",
+      "mod",
+      "module",
+      "mut",
+      "namespace",
+      "never",
       "new",
+      "nil",
+      "none",
+      "not",
+      "null",
       "number",
       "object",
       "omit",
       "option",
+      "override",
+      "package",
       "partial",
+      "pass",
       "pick",
       "print",
       "println",
+      "private",
       "promise",
+      "protected",
       "pub",
+      "public",
       "raise",
+      "range",
       "readonly",
       "record",
+      "ref",
       "regexp",
       "require",
       "result",
       "return",
+      "satisfies",
       "self",
       "set",
+      "short",
       "static",
       "string",
       "struct",
       "super",
       "switch",
+      "symbol",
+      "then",
       "this",
       "throw",
       "trait",
+      "true",
       "try",
       "type",
       "typeof",
+      "undefined",
+      "unknown",
       "use",
+      "usize",
       "val",
       "var",
       "vec",
       "void",
+      "when",
+      "where",
       "while",
       "with",
       "yield",
@@ -222,21 +274,45 @@ describe("M2 code example fixtures", () => {
         "local.send(fetchThing(id));",
     );
 
-    // Calls, member access, constructed types, and module specifiers require
-    // grounding; declared bindings, short tokens, and generic tokens do not.
+    // Every identifier token requires grounding; declared bindings, short
+    // tokens, generic tokens, and validated module specifier interiors do not.
     expect(tokens.identifiers).toEqual(["HttpClient", "fetchThing", "send"]);
     expect(tokens.specifiers).toEqual(["@scope/pkg"]);
 
-    // Quoted bracket members and capital-initial type positions require
-    // grounding; array literals, bracket receivers, declared bindings, and
-    // standard-library type names do not.
+    // The exhaustive pass covers quoted bracket members, type annotations,
+    // and string-literal words alike, while standard-library type names stay
+    // excluded through the generic token list.
     const fabricated = extractCodeExampleReferenceTokens(
       'const value: FabricatedType = client["fabricatedApi"]();\n' +
         'const rows = ["apple"];\n' +
         "const typed = rows as Promise<Result>;",
     );
-    expect(fabricated.identifiers).toEqual(["FabricatedType", "fabricatedApi"]);
+    expect(fabricated.identifiers).toEqual([
+      "FabricatedType",
+      "apple",
+      "client",
+      "fabricatedApi",
+    ]);
     expect(fabricated.specifiers).toEqual([]);
+
+    // Position-independent coverage: optional chaining, compound generics,
+    // unions, and satisfies expressions all surface their reference names.
+    const positionIndependent = extractCodeExampleReferenceTokens(
+      "fabricatedApi?.();\n" +
+        "client?.fabricatedMethod();\n" +
+        "const cache: Map<string, FabricatedType> = loadCache();\n" +
+        "let union: RealType | FabricatedType;\n" +
+        "payload satisfies FabricatedType;",
+    );
+    expect(positionIndependent.identifiers).toEqual([
+      "FabricatedType",
+      "RealType",
+      "client",
+      "fabricatedApi",
+      "fabricatedMethod",
+      "loadCache",
+      "payload",
+    ]);
 
     const example: GeneratedCodeExample = {
       content: "local.send(fetchThing(id));",
@@ -270,7 +346,7 @@ describe("M2 code example fixtures", () => {
         },
         [
           {
-            body: "parseProfile should return the ProfileForm we validate.",
+            body: "parseProfile should return the ProfileForm we validate from the payload.",
             id: "comment-1",
           },
         ],

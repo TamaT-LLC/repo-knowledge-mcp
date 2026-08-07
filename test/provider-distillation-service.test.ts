@@ -239,9 +239,65 @@ describe("distillation prompt and output boundary", () => {
       expect.objectContaining({
         code: "DISTILLATION_OUTPUT_INVALID",
         validationSummary:
-          "code_example content references tokens absent from its cited evidence: FabricatedType, fabricatedApi",
+          "code_example content references tokens absent from its cited evidence: FabricatedType, client, fabricatedApi",
       }),
     );
+  });
+
+  it("rejects fabricated names regardless of syntax position", () => {
+    const evidence = [
+      {
+        body: "The client should call loadCache() and treat the payload as RealType.",
+        id: "comment-1",
+      },
+    ];
+    const patterns: readonly {
+      readonly content: string;
+      readonly ungrounded: string;
+    }[] = [
+      { content: "fabricatedApi?.();", ungrounded: "fabricatedApi" },
+      {
+        content: "client?.fabricatedMethod();",
+        ungrounded: "fabricatedMethod",
+      },
+      {
+        content: "const cache: Map<string, FabricatedType> = loadCache();",
+        ungrounded: "FabricatedType",
+      },
+      {
+        content: "let union: RealType | FabricatedType;",
+        ungrounded: "FabricatedType",
+      },
+      {
+        content: "payload satisfies FabricatedType;",
+        ungrounded: "FabricatedType",
+      },
+    ];
+
+    for (const pattern of patterns) {
+      expect(() =>
+        parseDistillationOutput(
+          JSON.stringify({
+            candidates: [
+              {
+                ...candidate("Keep failures visible", ["comment-1"]),
+                code_example: {
+                  ...codeExample(["comment-1"]),
+                  content: pattern.content,
+                },
+              },
+            ],
+            skip_reason: null,
+          }),
+          evidence,
+        ),
+      ).toThrow(
+        expect.objectContaining({
+          code: "DISTILLATION_OUTPUT_INVALID",
+          validationSummary: `code_example content references tokens absent from its cited evidence: ${pattern.ungrounded}`,
+        }),
+      );
+    }
   });
 
   it("grounds example tokens against the cited diff hunk as well as bodies", () => {
