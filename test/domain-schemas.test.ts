@@ -119,6 +119,55 @@ describe("distillation schemas", () => {
     expect(candidate.scope).toEqual(["src/**", "test/**"]);
   });
 
+  it("normalizes grounded code examples and requires the generated flag", () => {
+    const output = DistillationOutputSchema.parse({
+      candidates: [
+        {
+          ...candidateFixture(),
+          code_example: codeExampleFixture(),
+        },
+      ],
+      skip_reason: null,
+    });
+    const candidate: DistilledCandidate = output.candidates[0]!;
+
+    expect(candidate.code_example).toEqual({
+      content: "const result = await invoke();",
+      evidence_comment_ids: ["PRRC_a", "PRRC_z"],
+      generated_example: true,
+      language: "typescript",
+    });
+    expect(
+      DistillationOutputSchema.parse({
+        candidates: [candidateFixture()],
+        skip_reason: null,
+      }).candidates[0]!.code_example,
+    ).toBeUndefined();
+  });
+
+  it("rejects unflagged, empty, oversized, and mislabeled code examples", () => {
+    const invalidExamples: Record<string, unknown>[] = [
+      { ...codeExampleFixture(), generated_example: undefined },
+      { ...codeExampleFixture(), generated_example: false },
+      { ...codeExampleFixture(), content: "" },
+      { ...codeExampleFixture(), content: " \n\t" },
+      { ...codeExampleFixture(), content: "x".repeat(4_001) },
+      { ...codeExampleFixture(), evidence_comment_ids: [] },
+      { ...codeExampleFixture(), language: "TypeScript" },
+      { ...codeExampleFixture(), language: "" },
+      { ...codeExampleFixture(), unexpected: "field" },
+    ];
+
+    for (const example of invalidExamples) {
+      expect(() =>
+        DistillationOutputSchema.parse({
+          candidates: [{ ...candidateFixture(), code_example: example }],
+          skip_reason: null,
+        }),
+      ).toThrow();
+    }
+  });
+
   it("requires skip_reason exactly for zero-candidate output", () => {
     expect(
       DistillationOutputSchema.parse({
@@ -263,5 +312,14 @@ function candidateFixture(): Record<string, unknown> {
     rule: "不具合修正には回帰テストを追加する",
     scope: ["test/**", "src/**", "test/**"],
     severity: "must",
+  };
+}
+
+function codeExampleFixture(): Record<string, unknown> {
+  return {
+    content: "const result = await invoke();",
+    evidence_comment_ids: ["PRRC_z", "PRRC_a", "PRRC_z"],
+    generated_example: true,
+    language: "typescript",
   };
 }

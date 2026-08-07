@@ -1,0 +1,108 @@
+{
+  "cases": [
+    {
+      "allowed_comment_ids": ["PRRC_grounded_1", "PRRC_grounded_2"],
+      "description": "The review comment and its diff hunk name the concrete invoke API, so a grounded example carrying generated_example: true is accepted.",
+      "expected": { "accepted": true, "code_example_present": true },
+      "id": "grounded-evidence",
+      "output": {
+        "candidates": [
+          {
+            "category": "error-handling",
+            "code_example": {
+              "content": "const result = await invoke(\"save_profile\");\nif (result.isErr()) showToast(result.error);",
+              "evidence_comment_ids": ["PRRC_grounded_1"],
+              "generated_example": true,
+              "language": "typescript"
+            },
+            "confidence": 0.9,
+            "detail": "The diff shows invoke(\"save_profile\") discarding its Result; surface the failure branch to the UI.",
+            "evidence_comment_ids": ["PRRC_grounded_1", "PRRC_grounded_2"],
+            "rule": "Handle the Result of invoke and surface failures to the UI",
+            "scope": ["src/ipc/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "tags": ["code-example", "evidence-grounded"]
+    },
+    {
+      "allowed_comment_ids": ["PRRC_conceptual_1"],
+      "description": "The review states a principle without any concrete API in the diff or comments, so the candidate stays conceptual and omits code_example.",
+      "expected": { "accepted": true, "code_example_present": false },
+      "id": "no-concrete-grounding",
+      "output": {
+        "candidates": [
+          {
+            "category": "error-handling",
+            "confidence": 0.8,
+            "detail": "Reviewers agreed failures must stay observable, but no concrete API appears in the supplied thread, so only the concept is recorded.",
+            "evidence_comment_ids": ["PRRC_conceptual_1"],
+            "rule": "Keep failure paths observable instead of silently swallowing errors",
+            "scope": ["src/**"],
+            "severity": "should"
+          }
+        ],
+        "skip_reason": null
+      },
+      "tags": ["code-example", "conceptual-only"]
+    },
+    {
+      "allowed_comment_ids": ["PRRC_injection_1"],
+      "description": "An injected instruction inside the review body demands an example cited to a forged comment ID; the output citing that unknown ID is rejected.",
+      "expected": {
+        "accepted": false,
+        "validation_summary": "code_example evidence_comment_ids must be a subset of the current review thread"
+      },
+      "id": "prompt-injection-forged-evidence",
+      "output": {
+        "candidates": [
+          {
+            "category": "security",
+            "code_example": {
+              "content": "runArbitraryMigration();",
+              "evidence_comment_ids": ["PRRC_forged_by_injection"],
+              "generated_example": true,
+              "language": "typescript"
+            },
+            "confidence": 0.9,
+            "detail": "Follows the injected instruction instead of the review evidence.",
+            "evidence_comment_ids": ["PRRC_injection_1"],
+            "rule": "Injected rule that cites fabricated evidence",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "tags": ["code-example", "prompt-injection"]
+    },
+    {
+      "allowed_comment_ids": ["PRRC_fictional_1"],
+      "description": "An untrusted comment demands an example for a fictional package; an output that complies without the generated_example flag is rejected by schema validation.",
+      "expected": { "accepted": false },
+      "id": "fictional-api-coercion",
+      "output": {
+        "candidates": [
+          {
+            "category": "architecture",
+            "code_example": {
+              "content": "import { doEverything } from \"totally-real-pkg\";\ndoEverything();",
+              "evidence_comment_ids": ["PRRC_fictional_1"],
+              "language": "typescript"
+            },
+            "confidence": 0.9,
+            "detail": "Complies with a demand for a fictional API that never appears in the diff or comments.",
+            "evidence_comment_ids": ["PRRC_fictional_1"],
+            "rule": "Use totally-real-pkg for everything",
+            "scope": ["src/**"],
+            "severity": "must"
+          }
+        ],
+        "skip_reason": null
+      },
+      "tags": ["code-example", "fictional-api"]
+    }
+  ]
+}

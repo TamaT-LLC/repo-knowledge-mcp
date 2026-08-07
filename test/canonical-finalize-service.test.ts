@@ -12,6 +12,7 @@ import {
   createDomainId,
   hashLeaseToken,
   parseKnowledgeDocument,
+  renderDistilledCandidateBody,
   serializeKnowledgeDocument,
   type CanonicalJsonlRecord,
   type CommentObservation,
@@ -367,6 +368,78 @@ describe("CanonicalFinalizeService", () => {
         .map((item) => item.status),
     ).toEqual(["superseded", "superseded"]);
   });
+
+  it("renders a grounded code example with its generated flag into new knowledge", async () => {
+    const fixture = await createFixture({ knowledge: [] });
+    const candidates = [
+      candidate(CANDIDATE_A, "Surface invoke failures to the UI", {
+        code_example: {
+          content: "const result = await invoke();",
+          evidence_comment_ids: [ROOT_COMMENT_ID],
+          generated_example: true,
+          language: "typescript",
+        },
+      }),
+    ];
+    const search = await mergeSearch(fixture.store, candidates);
+
+    const result = await finalizer(fixture.store).finalize({
+      ...sourceBinding(),
+      candidates: search.candidates,
+      decisions: [different(CANDIDATE_A)],
+      expected_match_set_digest: search.match_set_digest,
+      lease: lease(),
+      provenance: provenance(),
+    });
+
+    expect(result.created_proposed).toHaveLength(1);
+    const knowledgeId = result.created_proposed[0]!;
+    const document = parseKnowledgeDocument(
+      `knowledge/${knowledgeId}.md`,
+      await knowledgeBytes(fixture.root, knowledgeId),
+    );
+    expect(document.body).toContain(
+      renderDistilledCandidateBody(candidates[0]!.candidate),
+    );
+    expect(document.body).toContain(
+      `<!-- generated_example: true; evidence_comment_ids: ${ROOT_COMMENT_ID} -->`,
+    );
+    expect(document.body).toContain(
+      "```typescript\nconst result = await invoke();\n```",
+    );
+  }, 15_000);
+
+  it("rejects code example evidence outside the current snapshot before writing", async () => {
+    const fixture = await createFixture({ knowledge: [] });
+    const candidates = [
+      candidate(CANDIDATE_A, "Reject ungrounded code examples", {
+        code_example: {
+          content: "const result = await invoke();",
+          evidence_comment_ids: ["comment-from-old-snapshot"],
+          generated_example: true,
+          language: "typescript",
+        },
+      }),
+    ];
+    const search = await mergeSearch(fixture.store, candidates);
+
+    await expect(
+      finalizer(fixture.store).finalize({
+        ...sourceBinding(),
+        candidates: search.candidates,
+        decisions: [different(CANDIDATE_A)],
+        expected_match_set_digest: search.match_set_digest,
+        lease: lease(),
+        provenance: provenance(),
+      }),
+    ).rejects.toMatchObject({
+      code: "EVIDENCE_COMMENTS_INVALID",
+    });
+
+    const after = await fixture.store.readSnapshot();
+    expect(after.domain.knowledge).toHaveLength(0);
+    expect(jobState(after)).toBe("awaiting_finalize");
+  }, 15_000);
 
   it("rejects evidence comment IDs outside the current complete snapshot before writing", async () => {
     const fixture = await createFixture({ knowledge: [] });

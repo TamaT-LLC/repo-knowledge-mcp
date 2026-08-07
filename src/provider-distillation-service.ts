@@ -437,6 +437,19 @@ export function parseDistillationOutput(
       invalidEvidence,
     );
   }
+  const invalidExampleEvidence = parsed.data.candidates.filter(
+    (candidate) =>
+      candidate.code_example !== undefined &&
+      candidate.code_example.evidence_comment_ids.some(
+        (id) => !allowed.has(id),
+      ),
+  ).length;
+  if (invalidExampleEvidence > 0) {
+    throw new DistillationOutputValidationError(
+      "code_example evidence_comment_ids must be a subset of the current review thread",
+      invalidExampleEvidence,
+    );
+  }
   return parsed.data;
 }
 

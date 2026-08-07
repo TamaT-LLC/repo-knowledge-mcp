@@ -288,9 +288,41 @@ export const ScopePatternSchema = NonEmptyStringSchema.max(512).refine(
   "negative scope patterns are not supported in M1",
 );
 
+export const GENERATED_CODE_EXAMPLE_MAX_CONTENT_CHARACTERS = 4_000;
+
+export const CodeExampleLanguageSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9][a-z0-9+#.-]{0,31}$/u,
+    "must be a lowercase language identifier such as typescript",
+  );
+
+/**
+ * A concrete example is only valid when it is grounded in the supplied review
+ * thread: it must always carry `generated_example: true` and cite at least one
+ * evidence comment ID, and every ID is bound to the current snapshot by the
+ * extract and finalize validators.
+ */
+export const GeneratedCodeExampleSchema = z
+  .object({
+    content: NonEmptyStringSchema.max(
+      GENERATED_CODE_EXAMPLE_MAX_CONTENT_CHARACTERS,
+    ).refine((value) => value.trim().length > 0, {
+      message: "code example content must not be blank",
+    }),
+    evidence_comment_ids: z
+      .array(GitHubNodeIdSchema)
+      .min(1)
+      .transform((values) => sortAndDedupeStrings(values)),
+    generated_example: z.literal(true),
+    language: CodeExampleLanguageSchema,
+  })
+  .strict();
+
 export const DistilledCandidateSchema = z
   .object({
     category: KnowledgeCategorySchema,
+    code_example: GeneratedCodeExampleSchema.optional(),
     confidence: z.number().min(0).max(1),
     detail: NonEmptyStringSchema,
     evidence_comment_ids: z
@@ -610,6 +642,7 @@ export type KnowledgeCategory = z.infer<typeof KnowledgeCategorySchema>;
 export type KnowledgeStatus = z.infer<typeof KnowledgeStatusSchema>;
 export type Severity = z.infer<typeof SeveritySchema>;
 export type SkipReason = z.infer<typeof SkipReasonSchema>;
+export type GeneratedCodeExample = z.infer<typeof GeneratedCodeExampleSchema>;
 export type DistilledCandidate = z.infer<typeof DistilledCandidateSchema>;
 export type DistillationOutput = z.infer<typeof DistillationOutputSchema>;
 export type MergeDecision = z.infer<typeof MergeDecisionSchema>;

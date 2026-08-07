@@ -1345,7 +1345,10 @@ function validateCandidateEvidenceComments(
 ): void {
   const currentIds = new Set(comments.map((comment) => comment.comment_id));
   const invalid = sortAndDedupeStrings(
-    candidates.flatMap((candidate) => candidate.candidate.evidence_comment_ids),
+    candidates.flatMap((candidate) => [
+      ...candidate.candidate.evidence_comment_ids,
+      ...(candidate.candidate.code_example?.evidence_comment_ids ?? []),
+    ]),
   ).filter((id) => !thread.comment_ids.includes(id) || !currentIds.has(id));
   if (invalid.length > 0) {
     throw submitError(

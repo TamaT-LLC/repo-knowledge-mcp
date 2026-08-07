@@ -8,7 +8,7 @@ import {
   type ReviewerIdentity,
 } from "./domain-schemas.js";
 
-export const DISTILLATION_OUTPUT_SCHEMA_VERSION = "distill-output-v1";
+export const DISTILLATION_OUTPUT_SCHEMA_VERSION = "distill-output-v2";
 
 export const DISTILLATION_OUTPUT_JSON_SCHEMA = deepFreezeJson({
   additionalProperties: false,
@@ -31,6 +31,46 @@ export const DISTILLATION_OUTPUT_JSON_SCHEMA = deepFreezeJson({
               "other",
             ],
             type: "string",
+          },
+          code_example: {
+            additionalProperties: false,
+            description:
+              "Optional concrete code example. Include it only when the " +
+              "supplied diff hunks or comment bodies contain the exact APIs, " +
+              "types, and package names the example uses; otherwise omit it " +
+              "and keep detail conceptual.",
+            properties: {
+              content: {
+                description:
+                  "Non-blank example code of at most 4000 characters, " +
+                  "grounded in the supplied review data.",
+                type: "string",
+              },
+              evidence_comment_ids: {
+                description:
+                  "One or more unique comment IDs from the supplied review " +
+                  "thread whose bodies or diff hunks ground this example.",
+                items: { type: "string" },
+                type: "array",
+              },
+              generated_example: {
+                description: "Always true; marks the example as generated.",
+                enum: [true],
+                type: "boolean",
+              },
+              language: {
+                description:
+                  "Lowercase language identifier such as typescript or rust.",
+                type: "string",
+              },
+            },
+            required: [
+              "content",
+              "evidence_comment_ids",
+              "generated_example",
+              "language",
+            ],
+            type: "object",
           },
           confidence: {
             description: "Confidence from 0 through 1 inclusive.",
