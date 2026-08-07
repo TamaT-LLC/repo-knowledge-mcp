@@ -104,6 +104,7 @@ export {
 export {
   QUALITY_GATE_METRICS,
   QualityGateBindingError,
+  QualityGateMetricMissingError,
   QualityGateThresholdsSchema,
   assertQualityGateBaselineBinding,
   evaluateQualityGate,
@@ -112,6 +113,20 @@ export {
   type QualityGateReport,
   type QualityGateThresholds,
 } from "./quality-gate.js";
+export {
+  QUALITY_GATE_EXIT_INTEGRITY_FAILURE,
+  QUALITY_GATE_EXIT_METRIC_FAILURE,
+  QUALITY_GATE_EXIT_PASS,
+  QUALITY_GATE_REPORT_KIND,
+  buildUnreadableInputOutcome,
+  runQualityGate,
+  type QualityGateRunFailure,
+  type QualityGateRunFailureCode,
+  type QualityGateRunOutcome,
+  type QualityGateRunReport,
+  type QualityGateRunStatus,
+  type RunQualityGateRequest,
+} from "./quality-gate-runner.js";
 export {
   OUTCOME_RANKING_BASELINE_POLICY_VERSION,
   OutcomeRankingFixtureSchema,

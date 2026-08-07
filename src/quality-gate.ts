@@ -93,9 +93,25 @@ export interface QualityGateReport {
 export class QualityGateBindingError extends Error {
   readonly code = "QUALITY_GATE_BASELINE_MISMATCH";
 
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly mismatches: readonly string[],
+  ) {
     super(`QUALITY_GATE_BASELINE_MISMATCH: ${message}`);
     this.name = "QualityGateBindingError";
+  }
+}
+
+export class QualityGateMetricMissingError extends Error {
+  readonly code = "QUALITY_GATE_METRIC_MISSING";
+
+  constructor(readonly metrics: readonly QualityGateMetricName[]) {
+    super(
+      `QUALITY_GATE_METRIC_MISSING: the metric report lacks a finite value for ${metrics.join(
+        ", ",
+      )}`,
+    );
+    this.name = "QualityGateMetricMissingError";
   }
 }
 
@@ -135,6 +151,7 @@ export function assertQualityGateBaselineBinding(
       `thresholds were reviewed against a different baseline measurement (${mismatches.join(
         ", ",
       )})`,
+      mismatches,
     );
   }
 }
@@ -142,13 +159,21 @@ export function assertQualityGateBaselineBinding(
 /**
  * Compares a recomputed golden report against reviewed per-metric minimums.
  * The comparison is pure, so the same recorded predictions always produce the
- * same gate verdict.
+ * same gate verdict. A report that lacks a finite value for any gated metric
+ * is rejected fail-closed instead of being treated as passing.
  */
 export function evaluateQualityGate(
   report: GoldenEvaluationReport,
   thresholds: QualityGateThresholds,
 ): QualityGateReport {
   const parsed = QualityGateThresholdsSchema.parse(thresholds);
+  const missing = QUALITY_GATE_METRICS.filter((metric) => {
+    const entry = report.metrics[metric] as { value?: unknown } | undefined;
+    return entry === undefined || !Number.isFinite(entry.value);
+  });
+  if (missing.length > 0) {
+    throw new QualityGateMetricMissingError(missing);
+  }
   const results = QUALITY_GATE_METRICS.map(
     (metric): QualityGateMetricResult => {
       const minimum = parsed.metrics[metric].minimum;

@@ -84,6 +84,49 @@ $ node dist/golden-cli.js test/fixtures/golden/m2-provider-baseline.json \
 - 同じコマンドは `npm run golden` の 3 本目としても実行され、CI でも
   （記録済み prediction のみで）毎回検証される
 
+## 2.1 offline quality gate（CI / release gate）
+
+CI と release 前検証は、上記の指標比較に **fixture drift 検出**を加えた
+統合 gate を実行する。live network も provider credential も一切不要で、
+記録済み prediction だけから決定的に完走する。
+
+```console
+$ npm run quality:gate
+```
+
+内部的には次と同じ（引数はすべて省略可能で、既定はコミット済み fixture）。
+
+```console
+$ node dist/quality-gate-cli.js \
+    --artifact test/fixtures/golden/m2-provider-baseline.json \
+    --thresholds test/fixtures/golden/m2-quality-thresholds.json \
+    --corpus test/fixtures/golden/m2-anonymized-corpus.json \
+    --recorded test/fixtures/golden/m2-recorded-predictions.json \
+    --prompt prompts/distill.md
+```
+
+gate は次を 1 コマンドで検証し、結果を必ず**機械可読 JSON report**として
+stdout に出力する（`report_kind: "m2_quality_gate_report"`）。
+
+| 検証 | 失敗時の failure code | exit |
+|---|---|---|
+| thresholds / artifact のスキーマ妥当性 | `THRESHOLDS_INVALID` / `ARTIFACT_INVALID` | 2 |
+| thresholds が review 済み測定に束縛されているか | `BASELINE_MISMATCH`（不一致 field 一覧付き） | 2 |
+| corpus + recorded prediction + 現行 prompt/schema/policy 世代から artifact を replay 再現できるか（fixture drift） | `FIXTURE_DRIFT` / `REPLAY_FAILED` | 2 |
+| 全指標が存在するか | `METRIC_MISSING` | 2 |
+| 全指標が下限以上か | `METRIC_BELOW_MINIMUM`（metric / minimum / value 付き） | 1 |
+| 入力ファイルが読めるか | `INPUT_UNREADABLE` | 2 |
+
+- exit 0: `status: "pass"`。全指標が下限以上で、drift も世代不一致もない
+- exit 1: `status: "metric_failure"`。指標低下のみ（integrity は健全）
+- exit 2: `status: "integrity_failure"`。入力・束縛・drift の問題
+- 同じ入力からは Node 22 / 24 で **同一 byte の report と同一 exit code** が
+  得られる（CI は両バージョンで `npm run golden` と `npm run quality:gate` を実行する）
+- prompt（`prompts/distill.md`）や output schema・trust policy・ranking policy の
+  世代がコード側で変わると、replay された artifact の provenance digest が
+  変わるため `FIXTURE_DRIFT` として検出される。意図した変更なら
+  手順 1 の replay で artifact を再生成し、手順 4 で thresholds を再 review する
+
 ## 3. 実 provider での実測（operator のみ・明示 opt-in）
 
 ```console
@@ -128,6 +171,38 @@ $ node dist/golden-baseline-cli.js \
 現行の `m2-thresholds-v1` は **fixture ベース**（`source: "fixture_replay"`、
 記録済み fixture prediction の replay 実測値 − margin）であり、実 provider の
 live 実測で置き換える際は必ずこの手順で version を進めること。
+
+## 4.1 閾値・baseline 更新の運用規約（必須）
+
+`m2-quality-thresholds.json` / `m2-provider-baseline.json` /
+`m2-recorded-predictions.json` / `m2-anonymized-corpus.json` に触れる変更は、
+すべて次の規約に従う。gate の閾値と baseline は「二人目の目を通さずに
+動かせない」ことを不変条件とする。
+
+1. **理由の明文化**: 変更する metric ごとに `rationale` を更新し、
+   「なぜ下限を動かすのか」「margin の根拠（誤差幅・corpus サイズ）」を書く。
+   `rationale` の更新なしに `minimum` だけ動かす変更は review で差し戻す
+2. **version bump**: 閾値の意味が変わる変更（`minimum` / `baseline` /
+   `source` の変更、corpus 差し替え）では `thresholds_version` を必ず進める。
+   同一 version のまま内容だけ変える変更は禁止
+3. **reviewer 確認**: `reviewed.by` / `reviewed.at` を実際に review した
+   maintainer で更新する。**変更の作成者自身のみを reviewer とする自己承認は
+   不可**で、PR は作成者以外の maintainer が approve してからマージする
+4. **PR 単位の分離**: 閾値・baseline の更新は挙動変更と同じ PR に混ぜず、
+   単独 PR にする（gate の緩和が機能変更に紛れて通ることを防ぐ）
+5. **機械検証**: マージ前にローカルで `npm run golden` と
+   `npm run quality:gate` と `npm run check` がすべて成功していること。
+   binding（`artifact_digest`）は gate が機械的に強制するため、
+   「thresholds だけ更新して baseline を置き忘れる」ような不整合は
+   `QUALITY_GATE_BASELINE_MISMATCH` / `FIXTURE_DRIFT` として CI で落ちる
+6. **緩和の扱い**: `minimum` の引き下げ（gate 緩和）は原則禁止。緩和が
+   必要な場合は、理由（corpus 変更・指標定義の変更など）と代替の
+   安全策を PR 本文に明記し、maintainer 2 名の合意を得る
+
+quality gate の通過は
+[trusted-human auto activation runbook](./trusted-human-auto-activation-runbook.md)
+の前提条件でもある。gate を緩めることは auto activation の安全前提を
+緩めることを意味するため、上記規約は例外なく適用する。
 
 ## 失敗時の診断
 

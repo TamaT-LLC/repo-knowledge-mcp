@@ -71,6 +71,7 @@
     "lint": "eslint src test scripts --max-warnings=0",
     "package:smoke": "node scripts/package-smoke.mjs",
     "prepack": "npm run --silent build",
+    "quality:gate": "npm run build && node dist/quality-gate-cli.js",
     "smoke:m1": "npm run build && node dist/m1-smoke-cli.js",
     "test": "npm run build && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
