@@ -142,6 +142,16 @@ export class GitHubIngestService {
       ((repositoryRoot) => new CanonicalTransactionStore(repositoryRoot));
   }
 
+  /**
+   * Resolves a repository name to its stable node ID through this service's
+   * own resolver, without fetching or mutating anything. Sync uses this to
+   * verify the ingester's binding before the first mutation.
+   */
+  async resolveRepoId(repo: string): Promise<string> {
+    const repository = await this.options.repositoryResolver.resolve({ repo });
+    return repository.repoId;
+  }
+
   async ingest(
     request: IngestPullRequestRequest,
   ): Promise<IngestPullRequestResult> {

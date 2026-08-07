@@ -25,7 +25,7 @@ export interface ProviderPostIngestRunner {
 
 export interface IngestPrMutationServiceOptions {
   readonly config: RepoKnowledgeConfig;
-  readonly ingester: Pick<GitHubIngestService, "ingest">;
+  readonly ingester: Pick<GitHubIngestService, "ingest" | "resolveRepoId">;
   readonly providerRunner?: ProviderPostIngestRunner;
   readonly repo: string;
 }
@@ -46,16 +46,29 @@ export class IngestPrMutationError extends Error {
 
 /** Ingests first, then runs provider work only behind its explicit policy opt-in. */
 export class IngestPrMutationService {
+  /** The repository this mutation service is bound to. */
+  readonly repo: string;
+
   private readonly config: RepoKnowledgeConfig;
-  private readonly ingester: Pick<GitHubIngestService, "ingest">;
+  private readonly ingester: Pick<
+    GitHubIngestService,
+    "ingest" | "resolveRepoId"
+  >;
   private readonly providerRunner: ProviderPostIngestRunner | undefined;
-  private readonly repo: string;
 
   constructor(options: IngestPrMutationServiceOptions) {
     this.config = RepoKnowledgeConfigSchema.parse(options.config);
     this.ingester = options.ingester;
     this.providerRunner = options.providerRunner;
     this.repo = RepositoryNameSchema.parse(options.repo);
+  }
+
+  /**
+   * Resolves this service's bound repository to its stable repo_id through
+   * the ingest pipeline's own resolver, without performing any mutation.
+   */
+  async resolveBoundRepoId(): Promise<string> {
+    return this.ingester.resolveRepoId(this.repo);
   }
 
   async ingestPullRequest(request: {
