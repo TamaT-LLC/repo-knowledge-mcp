@@ -2533,3 +2533,59 @@ M1-B、M1-C、M1-D の実装状況はロードマップ上の状態であり、�
 - [x] 元文書から v0.3 の統合節へ追跡できる。
 - [x] Markdown の相対リンクと明示 anchor をローカル検証対象にした。
 - [x] M1-A の kill-point、projection、registry テストを含むローカル検証が成功した。
+
+<a id="stats-contract"></a>
+
+## 10. M2 stats 集計契約
+
+この節は M2 の `stats`（v0.2 本体 §3.1 で「集計定義確定後」とした項目）が返す集計の正規契約を定義する。
+実装は read service 層の [stats-read-service.ts](../../src/stats-read-service.ts) であり、MCP / CLI への公開はこの契約に従う後続タスクの範囲とする。
+
+<a id="stats-schema-version"></a>
+
+### 10.1 schema version と決定性
+
+- response には `stats_schema_version: 1` を必ず含める。集計の意味・キー・単位を変える変更は version を増やす。
+- stats は canonical snapshot（knowledge Markdown + canonical JSONL）と repo-local な sync checkpoint だけから導出する純関数であり、同じ canonical state と同じ request からは常に同一の response が得られる。壁時計や生成時刻を response に含めない。
+- response には canonical state の識別子として `canonical_digest`（canonical ファイル hash 集合の JCS SHA-256）を含める。`reindex` は正本を変更しないため（v0.2.1 §1.5）、reindex 前後で digest を含む全集計値が一致する。
+
+<a id="stats-window"></a>
+
+### 10.2 時刻範囲・bucket・timezone
+
+- request は `{ bucket?: "total" | "day", since?: string, until?: string }`。`since` / `until` は offset 付き ISO 8601（`Z` を含む）とし、受理後は UTC instant へ正規化して response の `window` に返す。
+- 期間は半開区間 `[since, until)`。`since` ちょうどの instant は含み、`until` ちょうどの instant は含まない。`since >= until` は `INVALID_STATS_WINDOW` として拒否する。
+- timezone の意味を固定する: 入力 offset は instant の解釈のみに使い、bucket 境界と day キーはすべて UTC（`window.timezone: "UTC"` 固定）。例えば `2026-08-02T00:30:00+09:00` は UTC instant `2026-08-01T15:30:00Z` として day bucket `2026-08-01` に属する。
+- `bucket: "total"`（既定）は期間全体を 1 集計で返し `buckets: null` とする。`bucket: "day"` は `since` と `until` の両方を必須とし（欠落は `STATS_WINDOW_REQUIRED`）、`[since, until)` と交差する UTC 暦日を昇順で全列挙する。観測が 0 件の日も 0 埋めで含める。day bucket 数が 366 を超える window は `STATS_WINDOW_TOO_LARGE` として拒否する。
+- 期間 filter は時刻を持つ観測列（evidence の `observed_at`、outcome の `at`）にのみ適用する。knowledge / job / sync は「現在状態」の点集計であり、window の影響を受けない。
+
+<a id="stats-aggregates"></a>
+
+### 10.3 集計定義
+
+すべての分類は §6 で確定した enum を全キー列挙し、該当 0 件でもキーを 0 で返す。空集合の意味は「キー欠落」ではなく「値 0」に固定する。
+
+| section | 定義 |
+| --- | --- |
+| `knowledge.total` / `by_status` / `by_category` / `by_severity` | 当該 repository の knowledge Markdown 全件（全 status）を frontmatter で分類する |
+| `evidence.total` / `by_status` | window 内に observed された evidence を件数と status（active / superseded / withdrawn）で分類する |
+| `evidence.by_source` | 同じ evidence 集合を source provider で分類する。1 evidence が複数 source を持つ場合は各 source に 1 ずつ数えるため、`by_source` の合計は `total` を超えうる |
+| `evidence.eligible_for_count` | window 内 evidence のうち status=active かつ `eligible_for_count: true` の件数。knowledge の `evidence_count` と同じ資格判定を使う |
+| `outcomes.total` / `by_type` | window 内の OutcomeRecorded（§6.4）を outcome 種別（applied / violated / not_applicable / false_positive）で分類する |
+| `jobs.total` / `by_state` | distill job の現在状態（pending / processing / awaiting_finalize / done / skipped / failed。§9.2 と v0.2.1 §3 の拡張）を分類する |
+| `sync.last_checkpoint` | sync checkpoint の cursor（`last_pr_number` / `last_updated_at`）と checkpoint の `updated_at`。未同期 repository は `null` |
+| `operations` | `pending_jobs` / `failed_jobs`（`jobs.by_state` の再掲）と `last_sync_checkpoint_at`。cron 同期運用（§19 M2）の監視入口とする |
+
+<a id="stats-read-boundary"></a>
+
+### 10.4 read 境界と repository 分離
+
+- stats read は knowledge read と同じ一貫 projection 読み口（readKnowledgeView）だけを使う。read 前の canonical 検証と projection 再構築（[F-03](#implementation-facts) の性質）をそのまま継承し、SQLite にしか存在しない値を集計に使わない。
+- すべての集計は resolve 済み repo_id で filter する。別 repository の knowledge / evidence / outcome / job は response に混入しない。
+- sync checkpoint は repository storage 配下の repo-local ファイルから読み、cursor の repo_id が resolve 済み repo_id と一致しない場合は `STATS_SYNC_CHECKPOINT_REPOSITORY_MISMATCH` で fail-closed にする。
+
+<a id="stats-fixed-tests"></a>
+
+### 10.5 テストで固定した性質
+
+固定 fixture の全集計、空 repository の 0 埋め、期間境界（境界 instant の包含 / 排他、`+09:00` offset の UTC day 割り当て）、reindex 前後の全集計一致、cross-repository 非混入と checkpoint mismatch の fail-closed は、[stats read service の受け入れテスト](../../test/stats-read-service.test.ts) で固定する。
