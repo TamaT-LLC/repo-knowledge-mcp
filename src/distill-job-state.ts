@@ -25,6 +25,8 @@ export const DISTILLATION_JOB_AWAITING_FINALIZE =
 export const DISTILLATION_JOB_SUCCEEDED = "DistillationJobSucceeded";
 export const DISTILLATION_JOB_SKIPPED = "DistillationJobSkipped";
 export const DISTILLATION_JOB_FAILED = "DistillationJobFailed";
+export const DISTILLATION_JOB_REDISTILL_REQUESTED =
+  "DistillationJobRedistillRequested";
 
 export const DISTILLATION_JOB_RECORD_TYPES = new Set<string>([
   "DistillJob",
@@ -37,6 +39,7 @@ export const DISTILLATION_JOB_RECORD_TYPES = new Set<string>([
   DISTILLATION_JOB_SUCCEEDED,
   DISTILLATION_JOB_SKIPPED,
   DISTILLATION_JOB_FAILED,
+  DISTILLATION_JOB_REDISTILL_REQUESTED,
 ]);
 
 const CreatedPayloadSchema = z
@@ -88,6 +91,10 @@ const FailedPayloadSchema = GenerationPayloadSchema.extend({
   next_retry_at: IsoDateTimeSchema.nullable(),
 }).strict();
 
+const RedistillRequestedPayloadSchema = GenerationPayloadSchema.extend({
+  distillation_key: Sha256DigestSchema,
+}).strict();
+
 export interface DistillationJobEventPayloadByType {
   readonly DistillationJobAwaitingFinalize: z.infer<
     typeof GenerationPayloadSchema
@@ -100,6 +107,9 @@ export interface DistillationJobEventPayloadByType {
     typeof LeaseRenewedPayloadSchema
   >;
   readonly DistillationJobLeased: z.infer<typeof LeasedPayloadSchema>;
+  readonly DistillationJobRedistillRequested: z.infer<
+    typeof RedistillRequestedPayloadSchema
+  >;
   readonly DistillationJobSkipped: z.infer<typeof SkippedPayloadSchema>;
   readonly DistillationJobSucceeded: z.infer<typeof GenerationPayloadSchema>;
 }
@@ -267,6 +277,8 @@ function transitionRank(record: CanonicalJsonlRecord): number {
       return 4;
     case DISTILLATION_JOB_LEASE_REVOKED:
       return 4;
+    case DISTILLATION_JOB_REDISTILL_REQUESTED:
+      return 5;
     default:
       return 0;
   }
@@ -403,6 +415,11 @@ export function applyDistillationJobRecord(
         assertMatchingJob(current, payload.job_id, record);
         assertActiveGeneration(current, payload.lease_generation, record);
         return applyFailed(current, payload, recordedAt, record);
+      }
+      case DISTILLATION_JOB_REDISTILL_REQUESTED: {
+        const payload = RedistillRequestedPayloadSchema.parse(record.payload);
+        assertMatchingJob(current, payload.job_id, record);
+        return applyRedistillRequested(current, payload, recordedAt, record);
       }
       default:
         throw stateError(
@@ -591,6 +608,41 @@ function applyFailed(
   });
 }
 
+function applyRedistillRequested(
+  current: DistillJob,
+  payload: z.infer<typeof RedistillRequestedPayloadSchema>,
+  recordedAt: string,
+  record: CanonicalJsonlRecord,
+): DistillJob {
+  if (payload.distillation_key !== current.distillation_key) {
+    throw transition(record, "redistill request changed the job key");
+  }
+  if (payload.lease_generation !== current.lease_generation) {
+    throw transition(record, "redistill request lease_generation is stale");
+  }
+  if (
+    current.state !== "done" &&
+    current.state !== "failed" &&
+    current.state !== "skipped"
+  ) {
+    throw transition(
+      record,
+      "only terminal jobs can be explicitly redistilled",
+    );
+  }
+  return DistillJobSchema.parse({
+    ...jobIdentity(current),
+    attempts: current.attempts,
+    last_error: null,
+    lease_generation: current.lease_generation,
+    next_retry_at: null,
+    skip_reason: null,
+    state: "pending",
+    updated_at: recordedAt,
+    validation_failures: 0,
+  });
+}
+
 function assertMatchingJob(
   current: DistillJob,
   jobId: string,
@@ -692,6 +744,10 @@ function parseEventPayload<TType extends DistillationJobEventType>(
       ) as DistillationJobEventPayloadByType[TType];
     case DISTILLATION_JOB_FAILED:
       return FailedPayloadSchema.parse(
+        payload,
+      ) as DistillationJobEventPayloadByType[TType];
+    case DISTILLATION_JOB_REDISTILL_REQUESTED:
+      return RedistillRequestedPayloadSchema.parse(
         payload,
       ) as DistillationJobEventPayloadByType[TType];
     case DISTILLATION_JOB_LEASE_EXPIRED:
