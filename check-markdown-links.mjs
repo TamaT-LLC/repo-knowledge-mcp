@@ -4,7 +4,11 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = dirname(fileURLToPath(import.meta.url));
 const documentationRoot = join(repositoryRoot, "docs");
-const markdownFiles = (await collectMarkdownFiles(documentationRoot)).sort();
+const markdownFiles = [
+  join(repositoryRoot, "README.md"),
+  join(repositoryRoot, "SECURITY.md"),
+  ...(await collectMarkdownFiles(documentationRoot)),
+].sort();
 const failures = [];
 
 for (const markdownPath of markdownFiles) {

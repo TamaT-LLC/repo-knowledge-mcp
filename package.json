@@ -1,13 +1,25 @@
 {
   "name": "repo-knowledge-mcp",
   "version": "0.1.0",
-  "description": "Deterministic primitives for the repo knowledge MCP write path",
+  "description": "Local-first MCP server that turns pull-request review knowledge into reusable repository rules",
   "type": "module",
-  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "bin": {
     "repo-knowledge": "./dist/bin.js",
     "repo-knowledge-mcp": "./dist/bin.js"
   },
+  "files": [
+    "dist/",
+    "prompts/",
+    "README.md",
+    "SECURITY.md"
+  ],
+  "mcpName": "io.github.tamat-llc/repo-knowledge",
+  "mcpProtocolVersions": [
+    "2025-11-25",
+    "2026-07-28"
+  ],
   "engines": {
     "node": "^22.13.0 || >=24.0.0"
   },
@@ -19,8 +31,24 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "pull-request",
+    "code-review",
+    "knowledge-base"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TamaT-LLC/repo-knowledge-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TamaT-LLC/repo-knowledge-mcp/issues"
+  },
+  "homepage": "https://github.com/TamaT-LLC/repo-knowledge-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
     "better-sqlite3": "^13.0.3",
@@ -36,10 +64,12 @@
     "build": "tsc -p tsconfig.build.json",
     "check": "npm run format:check && npm run docs:check && npm run lint && npm run typecheck && npm test",
     "docs:check": "node check-markdown-links.mjs",
-    "format": "prettier --write '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' 'test/**/*.json' 'docs/**/*.json' '*.json' '*.mjs'",
-    "format:check": "prettier --check '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' 'test/**/*.json' 'docs/**/*.json' '*.json' '*.mjs'",
+    "format": "prettier --write '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.mjs' 'test/**/*.json' 'docs/**/*.json' '*.json' '*.mjs'",
+    "format:check": "prettier --check '.github/**/*.yml' 'src/**/*.ts' 'test/**/*.ts' 'scripts/**/*.mjs' 'test/**/*.json' 'docs/**/*.json' '*.json' '*.mjs'",
     "golden": "npm run build && node dist/golden-cli.js test/fixtures/golden/m1-golden.json",
-    "lint": "eslint src test --max-warnings=0",
+    "lint": "eslint src test scripts --max-warnings=0",
+    "package:smoke": "node scripts/package-smoke.mjs",
+    "prepack": "npm run --silent build",
     "smoke:m1": "npm run build && node dist/m1-smoke-cli.js",
     "test": "npm run build && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
