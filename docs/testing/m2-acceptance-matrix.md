@@ -4,7 +4,7 @@ M2（v0.2）の明示要件を、実行可能な自動 test、quality gate、再
 要件の出典は [repo-knowledge-mcp v0.3 設計書](../design/repo-knowledge-mcp-v0.3.md) の
 §3.1（v0.2 ツール）、§6.4（outcome モデル）、§12.3（record_outcome）、§13（ランキング）、
 §16（CLI）、§18（テスト方針）、§19 M2。
-`npm run check` は automated 欄の test と Node 22/24 の CI を実行し、
+`npm run check` は automated 欄の test を実行し、Node 22/24 の matrix は CI で実行する。
 `npm run golden` / `npm run quality:gate` / `npm run package:smoke` が gate 欄を実行する。
 実運用でのみ確認できる項目は runbook の手順へ追跡する。
 M1 の受け入れ条件 1〜63 は [M1 acceptance matrix](./m1-acceptance-matrix.md) が引き続き保証する。
