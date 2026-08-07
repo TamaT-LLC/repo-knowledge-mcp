@@ -215,7 +215,7 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 | `distill [repo]` | Provider Adapter で pending job を処理 |
 | `list [repo] [--status proposed]` | canonical knowledge と revision proposal を列挙 |
 | `reindex [repo]` | canonical files から `index.sqlite` を再構築 |
-| `redistill [repo] <selector>` | `--all`、`--author`、`--prompt-version`、`--failed` で再 job 化 |
+| `redistill [repo] <selector>` | `--all`、`--author`、`--prompt-version`、`--failed`、`--outdated` で再 job 化。`--outdated` は現在の prompt / output schema / trust policy digest に対応する job が無い thread だけを queue し、既存 job は reset しない（M2 prompt への選択的再蒸留経路） |
 | `reconcile [repo] --write-derived-metadata` | 派生 metadata snapshot を明示的に書く |
 | `export [repo] --bootstrap` | agent bootstrap の 1 行だけを出力 |
 | `approve` / `reject` / `edit` / `approve-revision` | TTY-only admin operation |

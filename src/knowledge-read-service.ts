@@ -10,11 +10,13 @@ import {
   KnowledgeIdSchema,
   RepositoryIdSchema,
   RepositoryNameSchema,
+  type GeneratedCodeExample,
   type KnowledgeCategory,
   type KnowledgeEvidence,
   type Severity,
 } from "./domain-schemas.js";
 import type { ProjectedKnowledge } from "./domain-projection.js";
+import { parseKnowledgeBodyCodeExample } from "./knowledge-code-example.js";
 import {
   DEFAULT_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
   MAX_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
@@ -139,6 +141,11 @@ export interface GetKnowledgeRequest {
 
 export interface KnowledgeDetail {
   readonly applied_count: number;
+  /**
+   * Structured M2 code example parsed from the canonical body, or null for
+   * M1-era documents and hand-edited bodies without a valid example section.
+   */
+  readonly code_example: GeneratedCodeExample | null;
   readonly detail: string;
   readonly etag: string;
   readonly evidence_count: number;
@@ -356,6 +363,7 @@ export class KnowledgeReadService {
       evidence: page,
       knowledge: {
         applied_count: knowledge.appliedCount,
+        code_example: parseKnowledgeBodyCodeExample(document.body).code_example,
         detail: knowledge.detail,
         etag: knowledge.etag,
         evidence_count: knowledge.evidenceCount,

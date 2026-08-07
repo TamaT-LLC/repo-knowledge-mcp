@@ -209,12 +209,24 @@ const McpKnowledgeEvidenceSchema = z
   })
   .strict();
 
+const McpGeneratedCodeExampleSchema = z
+  .object({
+    content: NonEmptyStringSchema,
+    evidence_comment_ids: z.array(GitHubNodeIdSchema).min(1),
+    generated_example: z.literal(true),
+    language: NonEmptyStringSchema,
+  })
+  .strict();
+
 export const GetKnowledgeOutputSchema = z
   .object({
     evidence: z.array(McpKnowledgeEvidenceSchema),
     knowledge: z
       .object({
         applied_count: z.number().int().nonnegative(),
+        code_example: McpGeneratedCodeExampleSchema.nullable().describe(
+          "Structured generated code example, or null when the document has none.",
+        ),
         detail: z.string(),
         etag: z.string().min(1),
         evidence_count: z.number().int().nonnegative(),

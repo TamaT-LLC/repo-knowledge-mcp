@@ -14,6 +14,8 @@ import {
   RepoKnowledgeConfigSchema,
   computeOutputSchemaDigest,
   computePromptDigest,
+  parseKnowledgeBodyCodeExample,
+  renderKnowledgeBodyWithCodeExample,
   type CompleteGitHubPullRequestSnapshot,
   type CompleteSnapshotFetcher,
   type GitHubReviewActor,
@@ -72,6 +74,50 @@ describe("CanonicalCliRepositoryService", () => {
     await expect(
       readFile(join(fixture.root, "index.sqlite")),
     ).resolves.not.toHaveLength(0);
+  });
+
+  it("reindexes example-bearing documents without losing body, marker, or search hits", async () => {
+    const root = await createRoot();
+    const store = new CanonicalTransactionStore(root);
+    const model = new ModelPlaneKnowledgeService({
+      repo: REPOSITORY,
+      repoId: REPOSITORY_ID,
+      repository: store,
+    });
+    const example = {
+      content: "const result = await invoke();\nnotifyFailure(result);",
+      evidence_comment_ids: ["comment-example"],
+      generated_example: true as const,
+      language: "typescript",
+    };
+    const added = await model.addKnowledge({
+      category: "error-handling",
+      detail: renderKnowledgeBodyWithCodeExample(
+        "Surface backend errors to the UI layer.",
+        example,
+      ),
+      rule: "Report backend errors",
+      scope: ["src/**"],
+      severity: "should",
+    });
+    const knowledgePath = join(root, "knowledge", `${added.id}.md`);
+    const before = await readFile(knowledgePath);
+    await rm(join(root, "index.sqlite"), { force: true });
+
+    const result = await maintenance(store).reindex();
+
+    expect(result).toMatchObject({ knowledge: 1, repo: REPOSITORY });
+    expect(await readFile(knowledgePath)).toEqual(before);
+    const document = await store.readKnowledge(`knowledge/${added.id}.md`);
+    expect(parseKnowledgeBodyCodeExample(document.body).code_example).toEqual(
+      example,
+    );
+    const search = await store.searchKnowledge({
+      query: "notifyFailure",
+      repoId: REPOSITORY_ID,
+      statuses: ["proposed"],
+    });
+    expect(search.hits.map((hit) => hit.id)).toEqual([added.id]);
   });
 
   it("writes derived metadata through one canonical transaction and then no-ops", async () => {
@@ -212,6 +258,63 @@ describe("CanonicalCliRepositoryService", () => {
     });
   });
 
+  it("queues only threads missing a current-key job with --outdated and never resets", async () => {
+    const root = await createRoot();
+    const config = RepoKnowledgeConfigSchema.parse({
+      trust: {
+        aiReviewers: { "greptile-apps[bot]": "greptile" },
+      },
+    });
+    await new GitHubIngestService({
+      outputSchemaDigest: OUTPUT_DIGEST,
+      promptDigest: PROMPT_DIGEST,
+      repositoryContext: {},
+      repositoryResolver: new FixedResolver(root),
+      snapshotClient: new OneSnapshotFetcher(botSnapshot()),
+      trust: config.trust,
+    }).ingest({ pr_number: 7, repo: REPOSITORY });
+    const store = new CanonicalTransactionStore(root);
+    expect((await store.readSnapshot()).domain.distillJobs).toHaveLength(1);
+
+    const m1Current = await maintenance(store, config).redistill({
+      selector: "outdated",
+    });
+    expect(m1Current).toEqual({
+      created_jobs: 0,
+      reclassified_comments: 0,
+      reset_jobs: 0,
+      selected_threads: 1,
+      unchanged: 1,
+    });
+
+    const m2Service = maintenance(store, config, undefined, {
+      promptDigest: computePromptDigest("distill-v2\n"),
+      promptVersion: "distill-v2",
+    });
+    const first = await m2Service.redistill({ selector: "outdated" });
+    expect(first).toEqual({
+      created_jobs: 1,
+      reclassified_comments: 0,
+      reset_jobs: 0,
+      selected_threads: 1,
+      unchanged: 0,
+    });
+
+    await expect(
+      m2Service.redistill({ selector: "outdated" }),
+    ).resolves.toEqual({
+      created_jobs: 0,
+      reclassified_comments: 0,
+      reset_jobs: 0,
+      selected_threads: 1,
+      unchanged: 1,
+    });
+    const jobs = (await store.readSnapshot()).domain.distillJobs;
+    expect(jobs).toHaveLength(2);
+    expect(new Set(jobs.map((job) => job.distillation_key)).size).toBe(2);
+    expect(jobs.map((job) => job.state)).toEqual(["pending", "pending"]);
+  });
+
   it("leaves jobs pending and never invokes a provider when transmission is disabled", async () => {
     const root = await createRoot();
     const config = RepoKnowledgeConfigSchema.parse({
@@ -272,13 +375,17 @@ function maintenance(
   store: CanonicalTransactionStore,
   configInput: unknown = {},
   providerRunner?: ProviderPostIngestRunner,
+  overrides: {
+    readonly promptDigest?: string;
+    readonly promptVersion?: string;
+  } = {},
 ): CanonicalCliRepositoryService {
   const config = RepoKnowledgeConfigSchema.parse(configInput);
   return new CanonicalCliRepositoryService({
     config,
     outputSchemaDigest: OUTPUT_DIGEST,
-    promptDigest: PROMPT_DIGEST,
-    promptVersion: "distill-v1",
+    promptDigest: overrides.promptDigest ?? PROMPT_DIGEST,
+    promptVersion: overrides.promptVersion ?? "distill-v1",
     ...(providerRunner === undefined ? {} : { providerRunner }),
     repo: REPOSITORY,
     repoId: REPOSITORY_ID,

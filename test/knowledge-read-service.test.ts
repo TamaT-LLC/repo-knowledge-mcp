@@ -7,12 +7,15 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CanonicalTransactionStore,
+  KNOWLEDGE_CODE_EXAMPLE_MARKER_PREFIX,
   KnowledgeReadError,
   KnowledgeReadService,
   createDomainId,
+  renderKnowledgeBodyWithCodeExample,
   serializeCanonicalJsonlRecord,
   serializeKnowledgeDocument,
   type CanonicalJsonlRecord,
+  type GeneratedCodeExample,
   type KnowledgeCategory,
   type KnowledgeEvidence,
   type KnowledgeOutcome,
@@ -392,6 +395,81 @@ describe("KnowledgeReadService.getKnowledge", () => {
     await expect(
       readService.getKnowledge({ cursor: "not+base64", id: firstId }),
     ).rejects.toBeInstanceOf(KnowledgeReadError);
+  });
+
+  it("returns the structured code example while get_rules stays example-free", async () => {
+    const repository = await createRepository();
+    const example: GeneratedCodeExample = {
+      content: "const result = await invoke();\nnotifyFailure(result);",
+      evidence_comment_ids: ["comment-example"],
+      generated_example: true,
+      language: "typescript",
+    };
+    const knowledgeId = await writeKnowledge(repository, {
+      detail: renderKnowledgeBodyWithCodeExample(
+        "Surface backend errors to the UI layer.",
+        example,
+      ),
+      rule: "Report backend errors",
+      scope: [],
+    });
+    const readService = service(repository);
+
+    const detail = await readService.getKnowledge({ id: knowledgeId });
+    expect(detail.knowledge.code_example).toEqual(example);
+    expect(detail.knowledge.detail).toContain(
+      KNOWLEDGE_CODE_EXAMPLE_MARKER_PREFIX,
+    );
+
+    const search = await readService.searchKnowledge({
+      query: "notifyFailure",
+    });
+    expect(search.results.map((item) => item.id)).toEqual([knowledgeId]);
+
+    const rules = await service(repository).getRules();
+    expect(rules.rules.map((rule) => rule.id)).toEqual([knowledgeId]);
+    const serialized = JSON.stringify(rules);
+    expect(rules.rules[0]).not.toHaveProperty("detail");
+    expect(rules.rules[0]).not.toHaveProperty("code_example");
+    expect(serialized).not.toContain("notifyFailure");
+    expect(serialized).not.toContain("generated_example");
+  });
+
+  it("reads M1-era documents without migration and fails soft on hand edits", async () => {
+    const repository = await createRepository();
+    const legacyId = await writeKnowledge(repository, {
+      detail:
+        "## 背景\nM1 の本文構成のままの文書。\n## 適用条件\n`invoke` 呼び出し箇所。\n",
+      extraFrontmatter: {
+        applied_count: 0,
+        distillation: { prompt_version: "distill-v1", provider: "anthropic" },
+        evidence_count: 3,
+        representative_evidence: [],
+        sources: ["human"],
+        violation_count: 0,
+      },
+      rule: "Legacy schema rule",
+      scope: [],
+    });
+    const editedId = await writeKnowledge(repository, {
+      detail: `Edited by hand.\n\n${KNOWLEDGE_CODE_EXAMPLE_MARKER_PREFIX}comment-1 -->\n\nThe fence was deleted manually.\n`,
+      rule: "Hand-edited example section",
+      scope: [],
+    });
+    const readService = service(repository);
+
+    const legacy = await readService.getKnowledge({ id: legacyId });
+    expect(legacy.knowledge.code_example).toBeNull();
+    expect(legacy.knowledge.frontmatter).toMatchObject({
+      evidence_count: 3,
+      schema_version: 1,
+    });
+
+    const edited = await readService.getKnowledge({ id: editedId });
+    expect(edited.knowledge.code_example).toBeNull();
+    expect(edited.knowledge.detail).toContain(
+      "The fence was deleted manually.",
+    );
   });
 });
 

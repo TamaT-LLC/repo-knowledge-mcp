@@ -369,6 +369,13 @@ export class CanonicalCliRepositoryService implements Omit<
           createdJobs += 1;
           continue;
         }
+        // --outdated only fills in missing current-key jobs; a thread whose
+        // M2 prompt/schema/trust digest already produced a job is up to date
+        // and must never be re-queued by this selector.
+        if (request.selector === "outdated") {
+          unchanged += 1;
+          continue;
+        }
         if (isTerminal(existing)) {
           appendRecords.push({
             record: createDistillationJobEventRecord({
@@ -642,6 +649,7 @@ function selectRedistillThreads(
   let selectedIds: Set<string>;
   switch (request.selector) {
     case "all":
+    case "outdated":
       selectedIds = currentIds;
       break;
     case "author":

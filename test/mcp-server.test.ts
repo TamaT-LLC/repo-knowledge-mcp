@@ -534,6 +534,12 @@ function createReadFixture(): {
       evidence: [],
       knowledge: {
         applied_count: 3,
+        code_example: {
+          content: "const value = await parseEnvelope(input);",
+          evidence_comment_ids: ["comment-example"],
+          generated_example: true as const,
+          language: "typescript",
+        },
         detail: "Detailed implementation data",
         etag: "etag-value",
         evidence_count: 2,
