@@ -1,8 +1,9 @@
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { InMemoryTransport } from "@modelcontextprotocol/server";
+import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -24,6 +25,24 @@ afterEach(async () => {
 });
 
 describe("default CLI runtime", () => {
+  it("publishes both command aliases through the built CLI entry", async () => {
+    const manifest = JSON.parse(
+      await readFile("package.json", "utf8"),
+    ) as Record<string, unknown>;
+    expect(manifest.bin).toEqual({
+      "repo-knowledge": "./dist/bin.js",
+      "repo-knowledge-mcp": "./dist/bin.js",
+    });
+
+    const storageRoot = join(await temporaryDirectory(), "not-created");
+    const result = await execa(process.execPath, ["dist/bin.js", "--help"], {
+      env: { ...process.env, REPO_KNOWLEDGE_HOME: storageRoot },
+    });
+    expect(result.stdout).toBe(REPO_KNOWLEDGE_CLI_HELP.trimEnd());
+    expect(result.stderr).toBe("");
+    await expect(access(storageRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("keeps help and bootstrap output side-effect free", async () => {
     const parent = await temporaryDirectory();
     const storageRoot = join(parent, "not-created");
