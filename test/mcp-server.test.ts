@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,6 +25,7 @@ import {
   toolResult,
   toolStructuredContent,
   toolText,
+  type JsonRpcReply,
   type McpParameters,
 } from "./support/mcp-test-client.js";
 
@@ -28,10 +33,16 @@ const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const REPOSITORY = "owner/repository";
 const handles: Array<{ close(): Promise<void> }> = [];
 const clients: WireClient[] = [];
+const temporaryHomes: string[] = [];
 
 afterEach(async () => {
   await Promise.all(handles.splice(0).map(async (handle) => handle.close()));
   await Promise.all(clients.splice(0).map(async (client) => client.close()));
+  await Promise.all(
+    temporaryHomes
+      .splice(0)
+      .map((path) => rm(path, { force: true, recursive: true })),
+  );
 });
 
 describe("repo-knowledge MCP read server", () => {
@@ -199,6 +210,74 @@ describe("repo-knowledge MCP read server", () => {
     expect(JSON.parse(result.stderr)).toMatchObject({
       msg: "stderr-only-marker",
       name: "repo-knowledge",
+    });
+  });
+
+  it("starts the packaged stdio bin with JSON-RPC-only stdout", async () => {
+    const storageRoot = await mkdtemp(join(tmpdir(), "rkm-stdio-bin-"));
+    temporaryHomes.push(storageRoot);
+    const messages = [
+      {
+        id: 1,
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {
+          capabilities: {},
+          clientInfo: { name: "stdio-bin-test", version: "1.0.0" },
+          protocolVersion: "2025-11-25",
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+        params: {},
+      },
+      { id: 2, jsonrpc: "2.0", method: "tools/list", params: {} },
+      {
+        id: 3,
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: {
+          arguments: { pr_number: 1, repo: REPOSITORY },
+          name: "ingest_pr",
+        },
+      },
+    ];
+    const result = await execa(process.execPath, ["dist/stdio-bin.js"], {
+      cwd: process.cwd(),
+      env: { ...process.env, REPO_KNOWLEDGE_HOME: storageRoot },
+      input: `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
+    });
+
+    expect(result.stderr).toBe("");
+    const replies = result.stdout
+      .split(/\r?\n/u)
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as JsonRpcReply);
+    expect(replies).toHaveLength(3);
+    expect(replies[0]).toMatchObject({
+      id: 1,
+      result: { serverInfo: { name: "repo-knowledge" } },
+    });
+    expect(readTools(replies[1]!).map((tool) => tool.name)).toEqual([
+      "get_rules",
+      "search_knowledge",
+      "get_knowledge",
+      "ingest_pr",
+      "prepare_distillation",
+      "submit_distillation",
+      "add_knowledge",
+      "update_knowledge",
+    ]);
+    expect(replies[2]).toMatchObject({
+      id: 3,
+      result: {
+        isError: true,
+        structuredContent: {
+          error: { code: "MUTATION_RUNTIME_UNAVAILABLE" },
+          ok: false,
+        },
+      },
     });
   });
 });

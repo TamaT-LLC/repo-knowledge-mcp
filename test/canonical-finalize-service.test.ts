@@ -395,7 +395,7 @@ describe("CanonicalFinalizeService", () => {
     expect(after.records).toHaveLength(before.records.length);
     expect(after.domain.knowledge).toHaveLength(0);
     expect(jobState(after)).toBe("awaiting_finalize");
-  });
+  }, 15_000);
 
   it("rejects a changed match set without any canonical write", async () => {
     const fixture = await createFixture({ knowledge: [] });

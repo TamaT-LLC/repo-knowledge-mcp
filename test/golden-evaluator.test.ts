@@ -86,6 +86,15 @@ describe("M1 golden evaluator", () => {
       /duplicate cases id/u,
     );
   });
+
+  it("rejects duplicate result identities before measuring search quality", async () => {
+    const fixture = structuredClone(await loadFixture());
+    fixture.searches[0]!.ranking[1] = fixture.searches[0]!.ranking[0]!;
+
+    expect(() => GoldenFixtureSchema.parse(fixture)).toThrow(
+      /duplicate ranking id/u,
+    );
+  });
 });
 
 async function loadFixture(): Promise<GoldenFixture> {

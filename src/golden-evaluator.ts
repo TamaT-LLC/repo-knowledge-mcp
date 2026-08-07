@@ -68,7 +68,20 @@ const GoldenSearchCaseSchema = z
     ranking: z.array(z.string().min(1)),
     relevance: z.record(z.string().min(1), z.number().int().nonnegative()),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const seen = new Set<string>();
+    for (const [index, id] of value.ranking.entries()) {
+      if (seen.has(id)) {
+        context.addIssue({
+          code: "custom",
+          message: `duplicate ranking id ${id}`,
+          path: ["ranking", index],
+        });
+      }
+      seen.add(id);
+    }
+  });
 
 export const GoldenFixtureSchema = z
   .object({

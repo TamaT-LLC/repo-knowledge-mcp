@@ -720,6 +720,12 @@ export {
   type ModelPlaneUpdateKnowledgeRequest,
   type ModelPlaneUpdateKnowledgeResult,
 } from "./model-plane-knowledge-service.js";
+export {
+  parseStdioEntryArguments,
+  serveDefaultRepoKnowledgeStdio,
+  type ServeDefaultRepoKnowledgeStdioOptions,
+  type StdioEntrySelection,
+} from "./stdio-entry.js";
 export { FileLockTimeoutError, withPosixFileLock } from "./posix-file-lock.js";
 export {
   RequestIntegrityError,

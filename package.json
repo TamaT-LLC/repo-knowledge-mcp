@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "repo-knowledge": "./dist/bin.js"
+    "repo-knowledge": "./dist/bin.js",
+    "repo-knowledge-mcp": "./dist/bin.js"
   },
   "files": [
     "dist/",
