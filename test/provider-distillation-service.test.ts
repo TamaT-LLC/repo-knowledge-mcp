@@ -294,6 +294,10 @@ describe("distillation prompt and output boundary", () => {
         content: "réponse.envoyer();",
         ungrounded: "envoyer, réponse",
       },
+      {
+        content: "db();",
+        ungrounded: "db",
+      },
     ];
 
     for (const pattern of patterns) {

@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   CODE_EXAMPLE_GENERIC_TOKENS,
-  CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH,
   DISTILLATION_OUTPUT_JSON_SCHEMA,
   DISTILLATION_OUTPUT_SCHEMA_DIGEST,
   DISTILLATION_OUTPUT_SCHEMA_VERSION,
@@ -137,12 +136,13 @@ describe("M2 code example fixtures", () => {
   });
 
   it("pins the deterministic grounding token rules", () => {
-    expect(CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH).toBe(3);
     expect(CODE_EXAMPLE_GENERIC_TOKENS).toEqual([
+      "_",
       "abstract",
       "and",
       "any",
       "array",
+      "as",
       "assert",
       "async",
       "await",
@@ -168,8 +168,10 @@ describe("M2 code example fixtures", () => {
       "defer",
       "del",
       "delete",
+      "do",
       "double",
       "dyn",
+      "e",
       "elif",
       "else",
       "enum",
@@ -183,15 +185,23 @@ describe("M2 code example fixtures", () => {
       "from",
       "func",
       "function",
+      "go",
       "goto",
       "hashmap",
+      "i",
+      "id",
+      "if",
       "impl",
       "import",
+      "in",
       "infer",
       "instanceof",
       "int",
       "interface",
+      "is",
       "isize",
+      "j",
+      "k",
       "keyof",
       "lambda",
       "length",
@@ -203,6 +213,7 @@ describe("M2 code example fixtures", () => {
       "mod",
       "module",
       "mut",
+      "n",
       "namespace",
       "never",
       "new",
@@ -212,8 +223,10 @@ describe("M2 code example fixtures", () => {
       "null",
       "number",
       "object",
+      "of",
       "omit",
       "option",
+      "or",
       "override",
       "package",
       "partial",
@@ -265,7 +278,10 @@ describe("M2 code example fixtures", () => {
       "where",
       "while",
       "with",
+      "x",
+      "y",
       "yield",
+      "z",
     ]);
 
     const tokens = extractCodeExampleReferenceTokens(
@@ -424,6 +440,54 @@ describe("M2 code example fixtures", () => {
         specifierEvidence,
       ),
     ).toEqual({ grounded: false, ungrounded_tokens: ["@scope/pkg"] });
+  });
+
+  it("requires grounding for short names while idiomatic tokens stay exempt", () => {
+    const example = (content: string): GeneratedCodeExample => ({
+      content,
+      evidence_comment_ids: ["comment-1"],
+      generated_example: true,
+      language: "typescript",
+    });
+
+    // Short API names have no length exemption.
+    expect(
+      evaluateCodeExampleGrounding(example("db().close();"), [
+        { body: "Close the handle when done.", id: "comment-1" },
+      ]),
+    ).toEqual({ grounded: false, ungrounded_tokens: ["db"] });
+    expect(
+      evaluateCodeExampleGrounding(example("db().close();"), [
+        { body: "Always close the db handle when done.", id: "comment-1" },
+      ]),
+    ).toEqual({ grounded: true, ungrounded_tokens: [] });
+
+    // Short module specifiers require an exact grounded specifier too.
+    expect(
+      evaluateCodeExampleGrounding(example('import "ab";'), [
+        { body: "Use the documented package here.", id: "comment-1" },
+      ]),
+    ).toEqual({ grounded: false, ungrounded_tokens: ["ab"] });
+    expect(
+      evaluateCodeExampleGrounding(example('import "ab";'), [
+        { body: 'Depend on "ab" only for parsing.', id: "comment-1" },
+      ]),
+    ).toEqual({ grounded: true, ungrounded_tokens: [] });
+
+    // Idiomatic loop variables are exempt through the frozen generic list.
+    expect(
+      evaluateCodeExampleGrounding(
+        example(
+          "for (let i = 0; i < items.length; i += 1) pushItem(items[i]);",
+        ),
+        [
+          {
+            body: "pushItem must run for every entry in items.",
+            id: "comment-1",
+          },
+        ],
+      ),
+    ).toEqual({ grounded: true, ungrounded_tokens: [] });
   });
 
   it("verifies dynamic import specifiers and Unicode identifiers", () => {

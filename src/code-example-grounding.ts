@@ -6,8 +6,11 @@ import type { GeneratedCodeExample } from "./domain-schemas.js";
  * §12). A code example may only reference names that appear in the body or
  * diff hunk of the review comments it cites. The contract is exhaustive
  * rather than positional: every identifier token in the content is a
- * candidate, and only deterministic exclusions (generic tokens, minimum
- * length, validated module specifiers) remove a token from the requirement.
+ * candidate, and only deterministic exclusions (generic tokens, validated
+ * module specifiers) remove a token from the requirement. There is no
+ * length-based exemption: short names such as `db` require grounding, and
+ * idiomatic loop variables are excluded only through the frozen generic
+ * token list.
  * Declaring a name inside the example does not exempt it — otherwise a
  * fabricated type or API could be laundered through `interface Fabricated {}`
  * followed by a use. Fabricated function, type, and package names are
@@ -17,20 +20,22 @@ import type { GeneratedCodeExample } from "./domain-schemas.js";
  * side.
  */
 
-export const CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH = 3;
-
 /**
- * Frozen cross-language keywords, ubiquitous builtins, and standard-library
- * type names that carry no repository-specific meaning. This list is part of
- * the grounding contract and is pinned by tests; extending it is a spec
- * change. Matching is case-insensitive, so lowercase entries also cover
- * `Promise`, `Result`, etc.
+ * Frozen cross-language keywords, ubiquitous builtins, standard-library type
+ * names, and idiomatic short names (loop variables, `id`, `_`) that carry no
+ * repository-specific meaning. This list is the only exemption from
+ * grounding and is pinned by tests; extending it is a spec change. API-like
+ * short names such as `db` are deliberately absent. Matching is
+ * case-insensitive, so lowercase entries also cover `Promise`, `Result`,
+ * etc.
  */
 export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
+  "_",
   "abstract",
   "and",
   "any",
   "array",
+  "as",
   "assert",
   "async",
   "await",
@@ -56,8 +61,10 @@ export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
   "defer",
   "del",
   "delete",
+  "do",
   "double",
   "dyn",
+  "e",
   "elif",
   "else",
   "enum",
@@ -71,15 +78,23 @@ export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
   "from",
   "func",
   "function",
+  "go",
   "goto",
   "hashmap",
+  "i",
+  "id",
+  "if",
   "impl",
   "import",
+  "in",
   "infer",
   "instanceof",
   "int",
   "interface",
+  "is",
   "isize",
+  "j",
+  "k",
   "keyof",
   "lambda",
   "length",
@@ -91,6 +106,7 @@ export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
   "mod",
   "module",
   "mut",
+  "n",
   "namespace",
   "never",
   "new",
@@ -100,8 +116,10 @@ export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
   "null",
   "number",
   "object",
+  "of",
   "omit",
   "option",
+  "or",
   "override",
   "package",
   "partial",
@@ -153,7 +171,10 @@ export const CODE_EXAMPLE_GENERIC_TOKENS: readonly string[] = Object.freeze([
   "where",
   "while",
   "with",
+  "x",
+  "y",
   "yield",
+  "z",
 ]);
 
 const GENERIC_TOKEN_SET: ReadonlySet<string> = new Set(
@@ -175,7 +196,6 @@ const QUOTED_STRING_REGEX = /["']([^"'\n]+)["']/gu;
 const SPECIFIER_RUN_REGEX = new RegExp(MODULE_SPECIFIER, "gu");
 const QUOTED_EVIDENCE_STRING_REGEX = /["']([^"'\n]+)["']/gu;
 const TRAILING_SPECIFIER_PUNCTUATION_REGEX = /[.:/-]+$/u;
-const MAX_ASCII_CODE_POINT = 0x7f;
 
 export interface CodeExampleEvidenceSource {
   readonly body: string;
@@ -186,8 +206,8 @@ export interface CodeExampleEvidenceSource {
 export interface CodeExampleReferenceTokens {
   /**
    * Every identifier token in the content that survives the deterministic
-   * exclusions: generic tokens, tokens below the minimum length, and the
-   * interior of validated module specifiers. Declared names are included.
+   * exclusions: generic tokens and the interior of validated module
+   * specifiers. Declared names and short names are included.
    */
   readonly identifiers: readonly string[];
   /**
@@ -210,11 +230,11 @@ export interface CodeExampleGroundingResult {
  * `import` / `import(` / `require(`) plus any quoted string that is
  * specifier-shaped (starts with `@` or contains `/`); their interiors are
  * blanked from the identifier pass so package-name fragments cannot be
- * grounded word-by-word. Excluded deterministically: generic tokens and
- * ASCII-only tokens shorter than the minimum length (non-ASCII tokens always
- * require grounding). Declared names, function parameters, destructuring
- * bindings, and import-bound names are intentionally not excluded; they fail
- * closed toward requiring grounding.
+ * grounded word-by-word. The only deterministic exclusion is the frozen
+ * generic token list; there is no length-based exemption. Declared names,
+ * function parameters, destructuring bindings, short names, and import-bound
+ * names are intentionally not excluded; they fail closed toward requiring
+ * grounding.
  */
 export function extractCodeExampleReferenceTokens(
   content: string,
@@ -230,7 +250,7 @@ export function extractCodeExampleReferenceTokens(
       )
       .filter(
         (specifier) =>
-          specifier.length >= CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH &&
+          specifier.length > 0 &&
           !GENERIC_TOKEN_SET.has(specifier.toLowerCase()),
       ),
   );
@@ -245,9 +265,7 @@ export function extractCodeExampleReferenceTokens(
     );
   const identifiers = sortAndDedupeStrings(
     (tokenizable.match(IDENTIFIER_TOKEN_REGEX) ?? []).filter(
-      (token) =>
-        !isExemptShortToken(token) &&
-        !GENERIC_TOKEN_SET.has(token.toLowerCase()),
+      (token) => !GENERIC_TOKEN_SET.has(token.toLowerCase()),
     ),
   );
   return { identifiers, specifiers };
@@ -325,30 +343,6 @@ function collectEvidenceSpecifiers(text: string): ReadonlySet<string> {
  */
 function isSpecifierShaped(value: string): boolean {
   return value.startsWith("@") || value.includes("/");
-}
-
-/**
- * The minimum-length exemption exists for ubiquitous short ASCII idioms
- * (`id`, `db`, `fs`). Tokens containing any non-ASCII code point require
- * grounding regardless of length, so short Unicode names such as `Δx` cannot
- * bypass verification. Lengths are counted in code points.
- */
-function isExemptShortToken(token: string): boolean {
-  return (
-    isAsciiOnly(token) &&
-    codePointLength(token) < CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH
-  );
-}
-
-function isAsciiOnly(value: string): boolean {
-  for (const character of value) {
-    if (character.codePointAt(0)! > MAX_ASCII_CODE_POINT) return false;
-  }
-  return true;
-}
-
-function codePointLength(value: string): number {
-  return [...value].length;
 }
 
 function captureAll(content: string, pattern: RegExp): string[] {

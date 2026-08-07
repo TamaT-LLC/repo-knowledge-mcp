@@ -534,7 +534,6 @@ export {
 } from "./canonical-transaction-store.js";
 export {
   CODE_EXAMPLE_GENERIC_TOKENS,
-  CODE_EXAMPLE_GROUNDING_MIN_TOKEN_LENGTH,
   evaluateCodeExampleGrounding,
   extractCodeExampleReferenceTokens,
   type CodeExampleEvidenceSource,
