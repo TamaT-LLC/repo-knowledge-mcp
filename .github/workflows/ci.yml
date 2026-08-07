@@ -29,4 +29,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      # Offline M2 quality gate: recorded predictions only, no live network
+      # access and no provider credential. Fails on any metric below its
+      # reviewed minimum, on fixture drift, and on threshold/baseline or
+      # prompt/schema/policy generation mismatches.
+      - run: npm run golden
+      - run: npm run quality:gate
       - run: npm run package:smoke

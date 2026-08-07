@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   QUALITY_GATE_METRICS,
   QualityGateBindingError,
+  QualityGateMetricMissingError,
   QualityGateThresholdsSchema,
   assertQualityGateBaselineBinding,
   computeBaselineIdentityDigest,
@@ -171,6 +172,72 @@ describe("M2 quality gate thresholds", () => {
     expect(
       gate.results.filter((result) => !result.pass).map((r) => r.metric),
     ).toEqual(["extraction_recall"]);
+  });
+
+  it.each(QUALITY_GATE_METRICS.map((metric) => ({ metric })))(
+    "fails the gate when $metric alone drops below its minimum",
+    async ({ metric }) => {
+      const thresholds = await loadThresholds();
+      const { report } = evaluateProviderBaselineArtifact(
+        JSON.parse(await readFile(ARTIFACT_URL, "utf8")),
+      );
+      const belowMinimum = thresholds.metrics[metric].minimum - 0.001;
+      const degraded = {
+        ...report,
+        metrics: {
+          ...report.metrics,
+          [metric]: { denominator: 1, numerator: 0, value: belowMinimum },
+        },
+      };
+
+      const gate = evaluateQualityGate(degraded, thresholds);
+
+      expect(gate.ok).toBe(false);
+      expect(
+        gate.results.filter((result) => !result.pass).map((r) => r.metric),
+      ).toEqual([metric]);
+    },
+  );
+
+  it("rejects a metric report that is missing a gated metric", async () => {
+    const thresholds = await loadThresholds();
+    const { report } = evaluateProviderBaselineArtifact(
+      JSON.parse(await readFile(ARTIFACT_URL, "utf8")),
+    );
+    const metrics = { ...report.metrics } as Record<string, unknown>;
+    delete metrics.search_ndcg;
+    const incomplete = { ...report, metrics } as typeof report;
+
+    expect(() => evaluateQualityGate(incomplete, thresholds)).toThrow(
+      QualityGateMetricMissingError,
+    );
+    expect(() => evaluateQualityGate(incomplete, thresholds)).toThrow(
+      /search_ndcg/u,
+    );
+  });
+
+  it("reports the mismatched binding fields machine-readably", async () => {
+    const thresholds = await loadThresholds();
+    const { artifact } = evaluateProviderBaselineArtifact(
+      JSON.parse(await readFile(ARTIFACT_URL, "utf8")),
+    );
+    const remeasured = {
+      ...artifact,
+      measured_at: "2026-08-08T12:00:00.000Z",
+    };
+
+    let caught: unknown;
+    try {
+      assertQualityGateBaselineBinding(remeasured, thresholds);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(QualityGateBindingError);
+    expect((caught as QualityGateBindingError).mismatches).toEqual([
+      "measured_at",
+      "artifact_digest",
+    ]);
   });
 
   it("rejects a minimum above the measured value it derives from", async () => {
