@@ -205,6 +205,23 @@ export {
   type ProviderPostIngestRunner,
 } from "./ingest-pr-mutation-service.js";
 export {
+  MAX_OUTCOME_FILE_PATHS,
+  MAX_OUTCOME_FILE_PATH_LENGTH,
+  MAX_OUTCOME_NOTE_LENGTH,
+  MAX_OUTCOME_TASK_ID_LENGTH,
+  OUTCOME_EVENT_PATH,
+  OUTCOME_RECORDED_RECORD_TYPE,
+  OutcomeKindSchema,
+  RecordOutcomeError,
+  RecordOutcomeMutationService,
+  RecordOutcomeRequestSchema,
+  type OutcomeKind,
+  type RecordOutcomeErrorCode,
+  type RecordOutcomeMutationServiceOptions,
+  type RecordOutcomeRequest,
+  type RecordOutcomeResult,
+} from "./record-outcome-mutation-service.js";
+export {
   PULL_REQUEST_SNAPSHOT_RECORD_TYPE,
   RAW_COMMENT_PATH,
   RAW_PULL_REQUEST_PATH,
