@@ -43,6 +43,12 @@ export interface PilotBacklogDayPoint {
 }
 
 export interface PilotSummaryBacklog {
+  /**
+   * Window dates between the first and last observed day that have no
+   * observed record (missing or unrecorded). Any entry here interrupts the
+   * backlog series and makes the monotonicity verdict indeterminate.
+   */
+  readonly backlog_series_gaps: readonly string[];
   readonly final_failed_jobs: number | null;
   readonly final_pending_jobs: number | null;
   readonly max_failed_jobs: number | null;
@@ -54,8 +60,12 @@ export interface PilotSummaryBacklog {
    * least two observed days, no day-over-day decrease, and a final value
    * strictly above the first. This is the machine check for the pilot
    * plan's go condition "the backlog did not end monotonically increasing".
+   * `null` (fail-closed) when `backlog_series_gaps` is non-empty: the
+   * backlog may have moved during the gap, so the verdict is indeterminate
+   * and a human must review the daily records and incidents instead of
+   * treating the run as an automatic go.
    */
-  readonly pending_jobs_monotonically_increasing: boolean;
+  readonly pending_jobs_monotonically_increasing: boolean | null;
 }
 
 export interface PilotSummaryQuality {
@@ -130,8 +140,10 @@ export function summarizePilotLog(
     date: record.date,
     pending_jobs: record.backlog.pending_jobs,
   }));
+  const backlogSeriesGaps = listBacklogSeriesGaps(expectedDates, observed);
   return {
     backlog: {
+      backlog_series_gaps: backlogSeriesGaps,
       final_failed_jobs: lastObserved?.backlog.failed_jobs ?? null,
       final_pending_jobs: lastObserved?.backlog.pending_jobs ?? null,
       max_failed_jobs: maxOf(observed, (record) => record.backlog.failed_jobs),
@@ -140,8 +152,13 @@ export function summarizePilotLog(
         (record) => record.backlog.pending_jobs,
       ),
       pending_jobs_by_day: pendingJobsByDay,
+      // An interrupted series cannot prove or disprove a monotone trend:
+      // the backlog may have moved during the gap, so fail closed to
+      // "indeterminate" instead of judging the spliced samples.
       pending_jobs_monotonically_increasing:
-        isMonotonicallyIncreasing(pendingJobsByDay),
+        backlogSeriesGaps.length > 0
+          ? null
+          : isMonotonicallyIncreasing(pendingJobsByDay),
     },
     coverage: {
       complete: unrecordedDates.length === 0,
@@ -204,6 +221,24 @@ function countByGateStatus(
     counts[record.quality.gate_status] += 1;
   }
   return counts;
+}
+
+/**
+ * Window dates strictly between the first and last observed day without an
+ * observed record. Each one breaks the day-over-day backlog series, whether
+ * the day was excused (missing record) or simply unrecorded.
+ */
+function listBacklogSeriesGaps(
+  expectedDates: readonly string[],
+  observed: readonly ObservedPilotDailyRecord[],
+): readonly string[] {
+  const first = observed[0]?.date;
+  const last = observed.at(-1)?.date;
+  if (first === undefined || last === undefined) return [];
+  const observedDates = new Set(observed.map((record) => record.date));
+  return expectedDates.filter(
+    (date) => date > first && date < last && !observedDates.has(date),
+  );
 }
 
 /**

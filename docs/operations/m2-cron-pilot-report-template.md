@@ -7,35 +7,43 @@
 
 ## 1. pilot 概要
 
-| 項目 | 値 |
-|---|---|
-| pilot_id | `m2-cron-pilot-___` |
-| 対象 repository | `TamaT-LLC/repo-knowledge-mcp` |
-| 期間（UTC） | `YYYY-MM-DD` 〜 `YYYY-MM-DD`（14 日間） |
-| cron 頻度 | 15 分間隔 |
-| provider 経路 | cron は送信なし / 蒸留は対話実行（実施回数: ___） |
-| 日次記録 log | `~/.repo-knowledge/pilot/<pilot_id>.jsonl` |
+| 項目            | 値                                                |
+| --------------- | ------------------------------------------------- |
+| pilot_id        | `m2-cron-pilot-___`                               |
+| 対象 repository | `TamaT-LLC/repo-knowledge-mcp`                    |
+| 期間（UTC）     | `YYYY-MM-DD` 〜 `YYYY-MM-DD`（14 日間）           |
+| cron 頻度       | 15 分間隔                                         |
+| provider 経路   | cron は送信なし / 蒸留は対話実行（実施回数: ___） |
+| 日次記録 log    | `~/.repo-knowledge/pilot/<pilot_id>.jsonl`        |
 
 ## 2. 日次記録の集約結果
 
 `pilot:daily -- summarize --require-complete` の出力 JSON をここに貼り、
 次の表へ転記する。
 
-| 判定材料 | 実測値 | go 条件 | 判定 |
-|---|---|---|---|
-| coverage.complete | | `true` | |
-| sync.run_success_rate | | 0.99 以上 | |
-| sync.unchanged（重複 no-op 件数） | | 増殖なしの傍証 | |
-| sync.retry_attempts / failed_pull_requests | | rollback 条件に非該当 | |
-| backlog.pending_jobs_monotonically_increasing | | `false` | |
-| backlog.final_pending_jobs / pending_jobs_by_day | | 系列の目視確認（傍証） | |
-| quality.days_by_gate_status.integrity_failure | | 0 日 | |
+| 判定材料                                         | 実測値 | go 条件                                  | 判定 |
+| ------------------------------------------------ | ------ | ---------------------------------------- | ---- |
+| coverage.complete                                |        | `true`                                   |      |
+| sync.run_success_rate                            |        | 0.99 以上                                |      |
+| sync.unchanged（重複 no-op 件数）                |        | 増殖なしの傍証                           |      |
+| sync.retry_attempts / failed_pull_requests       |        | rollback 条件に非該当                    |      |
+| backlog.pending_jobs_monotonically_increasing    |        | `false`（`null` は下記の人間 review へ） |      |
+| backlog.final_pending_jobs / pending_jobs_by_day |        | 系列の目視確認（傍証）                   |      |
+| quality.days_by_gate_status.integrity_failure    |        | 0 日                                     |      |
+
+`pending_jobs_monotonically_increasing` が `null`（欠測による系列断絶で判定不能）の
+場合は自動 go としない。`backlog_series_gaps` に列挙された日付の日次記録・incident を
+人間が review して backlog が発散していないことを確認し、判断根拠をここに記録する:
+
+- backlog_series_gaps: ___
+- review 結果と判断根拠: ___
+- reviewer: ___
 
 欠測日（`missing_days`）:
 
 | date | reason |
-|---|---|
-| | |
+| ---- | ------ |
+|      |        |
 
 ## 3. incident 一覧
 
@@ -43,8 +51,8 @@ rollback 条件への該当有無を明記する。該当した場合、この p
 新 `pilot_id` での再実施が必要。
 
 | 発生日 | 事象 | 影響 | 対処 | rollback 条件該当 |
-|---|---|---|---|---|
-| | | | | |
+| ------ | ---- | ---- | ---- | ----------------- |
+|        |      |      |      |                   |
 
 ## 4. human rubric 評価結果
 
@@ -52,21 +60,21 @@ rollback 条件への該当有無を明記する。該当した場合、この p
 3 checkpoint の評価 JSON（`PilotRubricEvaluationSchema` 準拠）のパスを記載し、
 score を転記する。
 
-| query | day 1 | day 7 | day 14 | 悪化なし | day 14 が 3 以上 |
-|---|---|---|---|---|---|
-| q-error-handling | | | | | |
-| q-schema-validation | | | | | |
-| q-lock-concurrency | | | | | |
-| q-sync-checkpoint | | | | | |
-| q-stdout-purity | | | | | |
+| query               | day 1 | day 7 | day 14 | 悪化なし | day 14 が 3 以上 |
+| ------------------- | ----- | ----- | ------ | -------- | ---------------- |
+| q-error-handling    |       |       |        |          |                  |
+| q-schema-validation |       |       |        |          |                  |
+| q-lock-concurrency  |       |       |        |          |                  |
+| q-sync-checkpoint   |       |       |        |          |                  |
+| q-stdout-purity     |       |       |        |          |                  |
 
 評価者と評価日時: ___
 
 ## 5. 未達項目と follow-up Issue
 
 | 未達項目 | 内容 | follow-up Issue |
-|---|---|---|
-| | | #___ |
+| -------- | ---- | --------------- |
+|          |      | #___            |
 
 ## 6. proposed 承認 / trusted-human auto activation 判断
 
@@ -80,10 +88,10 @@ score を転記する。
 
 ## 7. M2 go/no-go 判断
 
-| 完了条件 | 判定 | 根拠（§2〜§6 の参照） |
-|---|---|---|
-| cron 同期で 2 週間運用できた | go / no-go | |
-| ランキングが体感に合う | go / no-go | |
+| 完了条件                     | 判定       | 根拠（§2〜§6 の参照） |
+| ---------------------------- | ---------- | --------------------- |
+| cron 同期で 2 週間運用できた | go / no-go |                       |
+| ランキングが体感に合う       | go / no-go |                       |
 
 **総合判定: M2 完了 / 未完了**
 

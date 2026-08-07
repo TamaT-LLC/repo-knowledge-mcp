@@ -351,7 +351,52 @@ describe("summarizePilotLog", () => {
       { date: "2026-08-02", pending_jobs: 3 },
       { date: "2026-08-03", pending_jobs: 3 },
     ]);
+    expect(summary.backlog.backlog_series_gaps).toEqual([]);
     // Never decreases and strictly grows overall: the no-go signal.
+    expect(summary.backlog.pending_jobs_monotonically_increasing).toBe(true);
+  });
+
+  it("returns an indeterminate backlog verdict when the observed series is interrupted", () => {
+    // Day 2 is excused with a reason, day 4 is simply unrecorded; both
+    // interrupt the series between the first and last observed day.
+    const summary = summarizePilotLog({
+      durationDays: 5,
+      records: [
+        observedRecord("2026-08-01", { pendingJobs: 1 }),
+        buildMissingDailyRecord({
+          date: "2026-08-02",
+          pilotId: PILOT_ID,
+          reason: "operator offline",
+          recordedAt: RECORDED_AT,
+        }),
+        observedRecord("2026-08-03", { pendingJobs: 2 }),
+        observedRecord("2026-08-05", { pendingJobs: 4 }),
+      ],
+      startDate: "2026-08-01",
+    });
+
+    expect(summary.backlog.backlog_series_gaps).toEqual([
+      "2026-08-02",
+      "2026-08-04",
+    ]);
+    // The backlog may have moved during the gaps, so the verdict is
+    // indeterminate rather than a boolean the go decision could trust.
+    expect(summary.backlog.pending_jobs_monotonically_increasing).toBeNull();
+  });
+
+  it("ignores unobserved days outside the observed span when detecting gaps", () => {
+    // The unrecorded day 3 is after the last observed day: the series
+    // itself is contiguous, so the verdict stays boolean.
+    const summary = summarizePilotLog({
+      durationDays: 3,
+      records: [
+        observedRecord("2026-08-01", { pendingJobs: 1 }),
+        observedRecord("2026-08-02", { pendingJobs: 2 }),
+      ],
+      startDate: "2026-08-01",
+    });
+
+    expect(summary.backlog.backlog_series_gaps).toEqual([]);
     expect(summary.backlog.pending_jobs_monotonically_increasing).toBe(true);
   });
 
