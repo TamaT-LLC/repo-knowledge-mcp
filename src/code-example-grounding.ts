@@ -191,10 +191,10 @@ const MODULE_KEYWORD_TOKEN_REGEX = new RegExp(
   "gu",
 );
 const QUOTED_MODULE_SPECIFIER_REGEX =
-  /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["']([^"'\n]+)["']/gu;
-const QUOTED_STRING_REGEX = /["']([^"'\n]+)["']/gu;
+  /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["'`]([^"'`\n]+)["'`]/gu;
+const QUOTED_STRING_REGEX = /["'`]([^"'`\n]+)["'`]/gu;
 const SPECIFIER_RUN_REGEX = new RegExp(MODULE_SPECIFIER, "gu");
-const QUOTED_EVIDENCE_STRING_REGEX = /["']([^"'\n]+)["']/gu;
+const QUOTED_EVIDENCE_STRING_REGEX = /["'`]([^"'`\n]+)["'`]/gu;
 const TRAILING_SPECIFIER_PUNCTUATION_REGEX = /[.:/-]+$/u;
 
 export interface CodeExampleEvidenceSource {
@@ -228,9 +228,11 @@ export interface CodeExampleGroundingResult {
  * comments count too (quoted bracket members and error messages are data).
  * Specifiers come from static and dynamic import positions (`from` /
  * `import` / `import(` / `require(`) plus any quoted string that is
- * specifier-shaped (starts with `@` or contains `/`); their interiors are
- * blanked from the identifier pass so package-name fragments cannot be
- * grounded word-by-word. The only deterministic exclusion is the frozen
+ * specifier-shaped (starts with `@` or contains `/`); single quotes, double
+ * quotes, and backticks all delimit specifiers, and a template literal with
+ * `${...}` interpolation is matched as one whole string including the
+ * interpolation text. Specifier interiors are blanked from the identifier
+ * pass so package-name fragments cannot be grounded word-by-word. The only deterministic exclusion is the frozen
  * generic token list; there is no length-based exemption. Declared names,
  * function parameters, destructuring bindings, short names, and import-bound
  * names are intentionally not excluded; they fail closed toward requiring

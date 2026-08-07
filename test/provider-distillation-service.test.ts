@@ -298,6 +298,10 @@ describe("distillation prompt and output boundary", () => {
         content: "db();",
         ungrounded: "db",
       },
+      {
+        content: "await import(`@scope/fabricated`);",
+        ungrounded: "@scope/fabricated",
+      },
     ];
 
     for (const pattern of patterns) {

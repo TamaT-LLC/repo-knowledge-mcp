@@ -527,6 +527,51 @@ describe("M2 code example fixtures", () => {
       ]),
     ).toEqual({ grounded: true, ungrounded_tokens: [] });
 
+    // Template-literal imports are matched as whole specifiers too, with
+    // backticks treated like quotes on both the content and evidence sides.
+    const templateTokens = extractCodeExampleReferenceTokens(
+      "await import(`@scope/fabricated`);",
+    );
+    expect(templateTokens.identifiers).toEqual([]);
+    expect(templateTokens.specifiers).toEqual(["@scope/fabricated"]);
+
+    const templateImport = example(
+      "const mod = await import(`@scope/fabricated`);",
+    );
+    expect(
+      evaluateCodeExampleGrounding(templateImport, [
+        {
+          body: "The scope of this loader is fabricated bundles from the documented mod registry.",
+          id: "comment-1",
+        },
+      ]),
+    ).toEqual({ grounded: false, ungrounded_tokens: ["@scope/fabricated"] });
+    expect(
+      evaluateCodeExampleGrounding(templateImport, [
+        {
+          body: "Lazy-load the mod bundle from `@scope/fabricated`.",
+          id: "comment-1",
+        },
+      ]),
+    ).toEqual({ grounded: true, ungrounded_tokens: [] });
+
+    // An interpolated template specifier is compared as one whole string
+    // including the interpolation text, so it fails closed.
+    expect(
+      evaluateCodeExampleGrounding(
+        example("const mod = await import(`@scope/${channel}/loader`);"),
+        [
+          {
+            body: "The channel loader for scope modules is documented, and mod loading is lazy.",
+            id: "comment-1",
+          },
+        ],
+      ),
+    ).toEqual({
+      grounded: false,
+      ungrounded_tokens: ["@scope/${channel}/loader"],
+    });
+
     // Unicode identifiers are tokenized with the same rules on both sides,
     // and short non-ASCII tokens are never exempt.
     const unicodeExample = example("const Δx = réponse.envoyer();");

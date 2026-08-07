@@ -2699,10 +2699,12 @@ Architecture §6.2 が M2 に課す「入力 diff またはレビュー本文に
    **長さによる免除は存在しない**: 識別子・module specifier とも、長さに関わらず照合対象とする。`db()` のような短い API 名や `"ab"` のような短い package 名も根拠がなければ拒否される
 
    **宣言による除外は存在しない**: content 内で宣言された名前（`interface` / `type` / `const` 等による宣言、関数パラメータ、分割代入、import 局所名）も照合対象に含める。宣言 + 使用の形で架空の型・API 名を通す抜け道を構造的に塞ぐためであり、正当な例のローカル変数名が根拠に現れない場合も拒否側に倒す
-3. **モジュール参照**: 次のものを module specifier として扱う（いずれも末尾の `.` `:` `/` `-` を除去）
+3. **モジュール参照**: 次のものを module specifier として扱う（いずれも末尾の `.` `:` `/` `-` を除去）。引用符は `'` / `"` / **バッククォート `` ` ``** を同格に扱い、content 側と根拠側で同一規則を適用する
    - `import` / `from` / `use` 直後の識別子・パス
-   - `from` / `import` / `import(` / `require(` に続く引用符付き文字列（**動的 import を含む**）
-   - 構文位置に関わらず、**specifier 形状**の引用符内文字列 — `@` で始まる、または `/` を含むもの（`import("@scope/fabricated")` のような動的 import や loader 引数を漏れなく捕捉する決定的規則）
+   - `from` / `import` / `import(` / `require(` に続く引用符付き文字列（**動的 import・テンプレートリテラル import を含む**）
+   - 構文位置に関わらず、**specifier 形状**の引用符内文字列 — `@` で始まる、または `/` を含むもの（``import(`@scope/fabricated`)`` のような動的 import や loader 引数を漏れなく捕捉する決定的規則）
+
+   補間 `${...}` を含むテンプレートリテラルは、**補間表記を含む文字列全体を 1 つの specifier として**完全一致で照合する。根拠に同一のテンプレート表記が現れない限り照合不能であり fail-closed で拒否される（リテラル片や補間内識別子が根拠に個別に存在しても通過しない）
 
    specifier は**境界付き完全一致**で照合する。根拠テキストから specifier 候補集合 — 引用符内文字列と、specifier パターン（`[A-Za-z_$@][A-Za-z0-9_$@:./-]*`）の最大一致（それぞれ末尾句読点 `.` `:` `/` `-` を除去した変形も含める）— を抽出し、specifier 全体が集合の要素と **case-sensitive に完全一致**する場合のみ根拠ありとする。部分文字列照合は行わない（根拠が `@scope/pkg-utils` のとき `@scope/pkg` は拒否される）
 4. **照合**: 残った全トークンを根拠テキストと照合し、**未照合が 1 つでもあれば fail-closed で拒否**する
@@ -2721,6 +2723,7 @@ Architecture §6.2 が M2 に課す「入力 diff またはレビュー本文に
 - 宣言による回避が拒否される: `interface FabricatedService {}` / `type FabricatedPayload = …` / `const fabricatedCache = …` のように content 内で宣言しても、根拠に現れない名前は拒否される
 - モジュール specifier は境界付き完全一致: 根拠が `@scope/pkg-utils` のとき `@scope/pkg` の import は拒否され、完全一致する specifier は受理される
 - 動的 import も specifier 全体で照合される: `import("@scope/fabricated")` は、根拠に `scope` と `fabricated` が別々の単語として存在しても拒否され、specifier 完全一致の根拠がある場合のみ受理される
+- テンプレートリテラル import も同様: ``import(`@scope/fabricated`)`` は断片語の個別存在では通過せず、specifier 完全一致の根拠がある場合のみ受理される。補間 `${...}` を含むテンプレート specifier は根拠に同一表記がない限り拒否される
 - Unicode 識別子も照合される: `réponse` / `Δx` は根拠になければ拒否され、根拠にあれば受理される
 - 短名も照合される: `db()` は根拠になければ拒否・あれば受理され、`import "ab"` の短い specifier も根拠がなければ拒否される。ループ変数 `i` 等の generic 収載慣用名を含む正常例は受理される
 - diff_hunk のみに現れる API は根拠として有効
