@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
+import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -270,6 +271,93 @@ describe("RepoKnowledgeDoctor", () => {
     expect(check(derivedResult, "sqlite.projection").status).toBe("pass");
   });
 
+  it("does not compare a stale main database snapshot while WAL frames are pending", async () => {
+    const fixture = await createFixture();
+    const database = new Database(join(fixture.repositoryRoot, "index.sqlite"));
+    database.pragma("wal_autocheckpoint = 0");
+    database.exec("BEGIN");
+    database.prepare("SELECT COUNT(*) FROM projection_meta").get();
+    try {
+      await new ModelPlaneKnowledgeService({
+        repo: REPOSITORY,
+        repoId: REPOSITORY_ID,
+        repository: fixture.store,
+      }).addKnowledge({
+        category: "style",
+        detail: "Pending WAL detail",
+        rule: "Pending WAL rule",
+        scope: ["test/**"],
+        severity: "should",
+      });
+
+      const result = await fixture.doctor().run({ repo: REPOSITORY });
+
+      expect(check(result, "sqlite.journal")).toMatchObject({
+        status: "fail",
+        details: { pending_wal_bytes: expect.any(Number) },
+      });
+      expect(check(result, "sqlite.projection")).toMatchObject({
+        status: "warn",
+        message: expect.stringContaining("WAL frames"),
+      });
+    } finally {
+      database.exec("ROLLBACK");
+      database.close();
+    }
+  });
+
+  it("reports missing and stale projection checkpoints", async () => {
+    const missing = await createFixture();
+    setProjectionCheckpoint(missing.repositoryRoot, null);
+
+    const missingResult = await missing.doctor().run({ repo: REPOSITORY });
+
+    expect(check(missingResult, "sqlite.projection")).toMatchObject({
+      status: "fail",
+      details: {
+        mismatches: expect.arrayContaining([
+          expect.objectContaining({
+            actual: null,
+            field: "last_committed_transaction_id",
+          }),
+        ]),
+      },
+    });
+
+    const stale = await createFixture();
+    const document = await stale.store.readKnowledge(
+      relative(stale.repositoryRoot, stale.knowledgePath),
+    );
+    await new ModelPlaneKnowledgeService({
+      repo: REPOSITORY,
+      repoId: REPOSITORY_ID,
+      repository: stale.store,
+    }).updateKnowledge({
+      expected_etag: document.etag,
+      expected_revision: document.revision,
+      id: document.frontmatter.id,
+      patch: { rule: "Proposed checkpoint fixture rule" },
+    });
+    setProjectionCheckpoint(
+      stale.repositoryRoot,
+      "txn_00000000000000000000000000",
+    );
+
+    const staleResult = await stale.doctor().run({ repo: REPOSITORY });
+
+    expect(check(staleResult, "sqlite.projection")).toMatchObject({
+      status: "fail",
+      details: {
+        mismatches: expect.arrayContaining([
+          expect.objectContaining({
+            actual: "txn_00000000000000000000000000",
+            field: "last_committed_transaction_id",
+          }),
+        ]),
+      },
+    });
+  });
+
   it("reports unresolved transactions and unsupported network storage without repairing either", async () => {
     const fixture = await createFixture();
     const transactionPath = join(
@@ -442,6 +530,28 @@ function orphanEvidence(knowledgeId: string): KnowledgeEvidence {
     status: "active",
     thread_id: "thread-doctor",
   };
+}
+
+function setProjectionCheckpoint(
+  repositoryRoot: string,
+  transactionId: string | null,
+): void {
+  const database = new Database(join(repositoryRoot, "index.sqlite"));
+  try {
+    if (transactionId === null) {
+      database
+        .prepare("DELETE FROM projection_meta WHERE key = ?")
+        .run("last_committed_transaction_id");
+    } else {
+      database
+        .prepare(
+          "INSERT OR REPLACE INTO projection_meta (key, value) VALUES (?, ?)",
+        )
+        .run("last_committed_transaction_id", transactionId);
+    }
+  } finally {
+    database.close();
+  }
 }
 
 async function canonicalBytes(root: string): Promise<Record<string, string>> {
