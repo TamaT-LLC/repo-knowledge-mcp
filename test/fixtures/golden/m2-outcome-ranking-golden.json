@@ -1,0 +1,231 @@
+{
+  "fixture_id": "m2-outcome-ranking-baseline-2026-08-07",
+  "fixture_kind": "outcome_ranking",
+  "queries": [
+    {
+      "candidates": [
+        {
+          "applied_count": 0,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_top_match",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 0,
+          "violation_count": 0
+        },
+        {
+          "applied_count": 0,
+          "evidence_count": 0,
+          "false_positive_count": 12,
+          "id": "kn_false_positive_heavy",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 1,
+          "violation_count": 2
+        },
+        {
+          "applied_count": 8,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_applied_proven",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 2,
+          "violation_count": 2
+        }
+      ],
+      "id": "mixed-applied-violated-false-positive",
+      "relevance": {
+        "kn_applied_proven": 1,
+        "kn_false_positive_heavy": 0,
+        "kn_top_match": 2
+      },
+      "rubric": [
+        {
+          "description": "適用実績が積み上がったルールは false_positive を連発するルールより上位に来る",
+          "higher": "kn_applied_proven",
+          "id": "applied-beats-false-positive",
+          "lower": "kn_false_positive_heavy"
+        }
+      ]
+    },
+    {
+      "candidates": [
+        {
+          "applied_count": 0,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_must_rule",
+          "not_applicable_count": 0,
+          "severity": "must",
+          "text_rank": 0,
+          "violation_count": 0
+        },
+        {
+          "applied_count": 0,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_should_rule",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 1,
+          "violation_count": 0
+        },
+        {
+          "applied_count": 0,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_consider_rule",
+          "not_applicable_count": 0,
+          "severity": "consider",
+          "text_rank": 2,
+          "violation_count": 0
+        }
+      ],
+      "id": "zero-outcomes-keeps-m1-order",
+      "relevance": {
+        "kn_consider_rule": 0,
+        "kn_must_rule": 2,
+        "kn_should_rule": 1
+      },
+      "rubric": [
+        {
+          "description": "outcome が 0 件のときは M1 と同じ順位が維持される",
+          "higher": "kn_must_rule",
+          "id": "m1-parity-without-outcomes",
+          "lower": "kn_should_rule"
+        }
+      ]
+    },
+    {
+      "candidates": [
+        {
+          "applied_count": 0,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_relevant_top",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 0,
+          "violation_count": 0
+        },
+        {
+          "applied_count": 3,
+          "evidence_count": 0,
+          "false_positive_count": 40,
+          "id": "kn_noisy_saturated",
+          "not_applicable_count": 40,
+          "severity": "should",
+          "text_rank": 1,
+          "violation_count": 0
+        },
+        {
+          "applied_count": 0,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_clean_neighbor",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 2,
+          "violation_count": 0
+        }
+      ],
+      "id": "penalty-saturates-at-cap",
+      "relevance": {
+        "kn_clean_neighbor": 1,
+        "kn_noisy_saturated": 0,
+        "kn_relevant_top": 2
+      },
+      "rubric": [
+        {
+          "description": "not_applicable と false_positive が大量でも penalty は上限で飽和し、隣接する clean なルールだけを追い越させる",
+          "higher": "kn_clean_neighbor",
+          "id": "saturated-penalty-demotes-noisy-rule",
+          "lower": "kn_noisy_saturated"
+        },
+        {
+          "description": "not_applicable / false_positive はルールを無条件に押し上げない",
+          "higher": "kn_relevant_top",
+          "id": "noisy-outcomes-never-lift",
+          "lower": "kn_noisy_saturated"
+        }
+      ]
+    },
+    {
+      "candidates": [
+        {
+          "applied_count": 3,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_text_leader",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 0,
+          "violation_count": 0
+        },
+        {
+          "applied_count": 100000,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_applied_flood",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 1,
+          "violation_count": 0
+        }
+      ],
+      "id": "applied-boost-is-bounded",
+      "relevance": {
+        "kn_applied_flood": 1,
+        "kn_text_leader": 2
+      },
+      "rubric": [
+        {
+          "description": "大量の applied でも boost は上限で頭打ちになり、text rank 首位を無条件には超えない",
+          "higher": "kn_text_leader",
+          "id": "bounded-boost-keeps-text-leader",
+          "lower": "kn_applied_flood"
+        }
+      ]
+    },
+    {
+      "candidates": [
+        {
+          "applied_count": 0,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_first_hit",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 0,
+          "violation_count": 0
+        },
+        {
+          "applied_count": 2,
+          "evidence_count": 0,
+          "false_positive_count": 0,
+          "id": "kn_below_min_sample",
+          "not_applicable_count": 0,
+          "severity": "should",
+          "text_rank": 1,
+          "violation_count": 0
+        }
+      ],
+      "id": "applied-below-min-sample-is-inert",
+      "relevance": {
+        "kn_below_min_sample": 1,
+        "kn_first_hit": 2
+      },
+      "rubric": [
+        {
+          "description": "最小 sample 未満の applied は boost にならず M1 の順位を変えない",
+          "higher": "kn_first_hit",
+          "id": "min-sample-gate-holds",
+          "lower": "kn_below_min_sample"
+        }
+      ]
+    }
+  ],
+  "schema_version": 1
+}

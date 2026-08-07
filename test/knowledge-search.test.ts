@@ -8,10 +8,17 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   KnowledgeSearchError,
+  MAX_OUTCOME_SCORE,
+  MIN_OUTCOME_SCORE,
+  OUTCOME_RANKING_POLICY,
   SqliteCanonicalProjection,
+  appliedBoost,
   computeKnowledgeSearchScore,
   createDomainId,
   evidenceBoost,
+  falsePositivePenalty,
+  notApplicablePenalty,
+  outcomeScore,
   serializeCanonicalJsonlRecord,
   serializeKnowledgeDocument,
   violationBoost,
@@ -19,6 +26,7 @@ import {
   type KnowledgeCategory,
   type KnowledgeEvidence,
   type KnowledgeOutcome,
+  type KnowledgeOutcomeCounts,
   type KnowledgeStatus,
   type Severity,
 } from "../src/index.js";
@@ -28,6 +36,15 @@ const HASH_A = `sha256:${"a".repeat(64)}`;
 const HASH_B = `sha256:${"b".repeat(64)}`;
 const LOW_RANKING_KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const HIGH_RANKING_KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAX";
+const TOP_TEXT_KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAA";
+const FALSE_POSITIVE_KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAB";
+const APPLIED_KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAC";
+const ZERO_OUTCOMES: KnowledgeOutcomeCounts = {
+  appliedCount: 0,
+  falsePositiveCount: 0,
+  notApplicableCount: 0,
+  violationCount: 0,
+};
 const temporaryRepositories: string[] = [];
 
 afterEach(async () => {
@@ -163,10 +180,15 @@ describe("knowledge search filtering and ranking", () => {
   it("caps evidence and violation boosts", () => {
     expect(evidenceBoost(10_000)).toBe(0.3);
     expect(violationBoost(10_000)).toBe(0.15);
-    expect(computeKnowledgeSearchScore(0, "consider", 0, 0)).toBe(1);
-    expect(computeKnowledgeSearchScore(1, "must", 10_000, 10_000)).toBeCloseTo(
-      1.35,
+    expect(computeKnowledgeSearchScore(0, "consider", 0, ZERO_OUTCOMES)).toBe(
+      1,
     );
+    expect(
+      computeKnowledgeSearchScore(1, "must", 10_000, {
+        ...ZERO_OUTCOMES,
+        violationCount: 10_000,
+      }),
+    ).toBeCloseTo(1.35);
   });
 
   it("reranks FTS candidates with bounded domain boosts", async () => {
@@ -257,6 +279,135 @@ describe("knowledge search filtering and ranking", () => {
     });
     expect(evidenceBoost(result.hits[0]!.evidenceCount)).toBe(0.3);
     expect(violationBoost(result.hits[0]!.violationCount)).toBe(0.15);
+  });
+});
+
+describe("M2 outcome ranking policy", () => {
+  it("keeps zero-outcome scores identical to the M1 formula", () => {
+    expect(outcomeScore(ZERO_OUTCOMES)).toBe(0);
+    expect(computeKnowledgeSearchScore(1, "must", 4, ZERO_OUTCOMES)).toBe(
+      1 / 2 + 0.4 + evidenceBoost(4),
+    );
+  });
+
+  it("disables the applied boost below the minimum sample", () => {
+    const belowSample = OUTCOME_RANKING_POLICY.minAppliedSample - 1;
+    expect(appliedBoost(belowSample)).toBe(0);
+    expect(appliedBoost(OUTCOME_RANKING_POLICY.minAppliedSample)).toBeCloseTo(
+      OUTCOME_RANKING_POLICY.appliedBoostWeight *
+        Math.log1p(OUTCOME_RANKING_POLICY.minAppliedSample),
+    );
+  });
+
+  it("caps every outcome term for arbitrarily large event floods", () => {
+    expect(appliedBoost(1_000_000)).toBe(
+      OUTCOME_RANKING_POLICY.appliedBoostCap,
+    );
+    expect(notApplicablePenalty(1_000_000)).toBe(
+      OUTCOME_RANKING_POLICY.notApplicablePenaltyCap,
+    );
+    expect(falsePositivePenalty(1_000_000)).toBe(
+      OUTCOME_RANKING_POLICY.falsePositivePenaltyCap,
+    );
+    expect(
+      outcomeScore({
+        appliedCount: 1_000_000,
+        falsePositiveCount: 0,
+        notApplicableCount: 0,
+        violationCount: 0,
+      }),
+    ).toBe(MAX_OUTCOME_SCORE);
+    expect(
+      outcomeScore({
+        appliedCount: 0,
+        falsePositiveCount: 1_000_000,
+        notApplicableCount: 1_000_000,
+        violationCount: 0,
+      }),
+    ).toBe(MIN_OUTCOME_SCORE);
+  });
+
+  it("never lets not_applicable or false_positive raise a score", () => {
+    for (const counts of [
+      { ...ZERO_OUTCOMES, falsePositiveCount: 1 },
+      { ...ZERO_OUTCOMES, notApplicableCount: 1 },
+      { ...ZERO_OUTCOMES, falsePositiveCount: 50, notApplicableCount: 50 },
+    ]) {
+      expect(outcomeScore(counts)).toBeLessThan(0);
+    }
+  });
+
+  it("accepts the legacy numeric form as the M1 violation count", () => {
+    expect(computeKnowledgeSearchScore(0, "consider", 0, 0)).toBe(1);
+    expect(computeKnowledgeSearchScore(1, "must", 10_000, 10_000)).toBe(
+      computeKnowledgeSearchScore(1, "must", 10_000, {
+        ...ZERO_OUTCOMES,
+        violationCount: 10_000,
+      }),
+    );
+    expect(computeKnowledgeSearchScore(2, "should", 3, 5)).toBe(
+      1 / 3 + 0.2 + evidenceBoost(3) + violationBoost(5),
+    );
+  });
+
+  it("publishes a frozen machine-trackable policy version", () => {
+    expect(OUTCOME_RANKING_POLICY.version).toBe("m2-outcome-v1");
+    expect(Object.isFrozen(OUTCOME_RANKING_POLICY)).toBe(true);
+  });
+
+  it("reranks mixed outcomes deterministically within the bounded signal", async () => {
+    const repository = await createRepository();
+    for (const id of [
+      TOP_TEXT_KNOWLEDGE_ID,
+      FALSE_POSITIVE_KNOWLEDGE_ID,
+      APPLIED_KNOWLEDGE_ID,
+    ]) {
+      await writeKnowledge(repository, {
+        id,
+        rule: "outcome ranking phrase",
+        severity: "should",
+      });
+    }
+    await writeRecords(repository, [
+      ...outcomeRecords(FALSE_POSITIVE_KNOWLEDGE_ID, "false_positive", 12),
+      ...outcomeRecords(APPLIED_KNOWLEDGE_ID, "applied", 8),
+      ...outcomeRecords(APPLIED_KNOWLEDGE_ID, "violated", 2),
+      ...outcomeRecords(FALSE_POSITIVE_KNOWLEDGE_ID, "violated", 2),
+    ]);
+    const projection = new SqliteCanonicalProjection(repository);
+
+    const first = await projection.searchKnowledge({
+      query: "outcome ranking phrase",
+      repoId: "repo-a",
+    });
+    const second = await projection.searchKnowledge({
+      query: "outcome ranking phrase",
+      repoId: "repo-a",
+    });
+    await projection.rebuild();
+    const rebuilt = await projection.searchKnowledge({
+      query: "outcome ranking phrase",
+      repoId: "repo-a",
+    });
+
+    expect(first.hits.map((hit) => hit.id)).toEqual([
+      TOP_TEXT_KNOWLEDGE_ID,
+      APPLIED_KNOWLEDGE_ID,
+      FALSE_POSITIVE_KNOWLEDGE_ID,
+    ]);
+    expect(first.hits[1]).toMatchObject({
+      appliedCount: 8,
+      falsePositiveCount: 0,
+      notApplicableCount: 0,
+      violationCount: 2,
+    });
+    expect(first.hits[2]).toMatchObject({
+      appliedCount: 0,
+      falsePositiveCount: 12,
+      violationCount: 2,
+    });
+    expect(second).toEqual(first);
+    expect(rebuilt).toEqual(first);
   });
 });
 
@@ -425,6 +576,21 @@ function evidence(
     status: "active",
     thread_id: threadId,
   };
+}
+
+function outcomeRecords(
+  knowledgeId: string,
+  outcome: KnowledgeOutcome["outcome"],
+  count: number,
+): CanonicalJsonlRecord[] {
+  return Array.from({ length: count }, () =>
+    canonicalRecord("OutcomeRecorded", {
+      at: NOW,
+      knowledge_id: knowledgeId,
+      outcome,
+      repo_id: "repo-a",
+    } satisfies KnowledgeOutcome),
+  );
 }
 
 async function writeRecords(

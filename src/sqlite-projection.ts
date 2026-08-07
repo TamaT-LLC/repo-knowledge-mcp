@@ -89,6 +89,28 @@ interface ProjectionMetaRow {
   readonly value: string;
 }
 
+/** Bump whenever derived table shapes change so stale files rebuild cleanly. */
+export const PROJECTION_SCHEMA_VERSION = "3";
+
+const PROJECTION_TABLES = [
+  "canonical_records",
+  "distill_jobs",
+  "evidence",
+  "knowledge",
+  "knowledge_documents",
+  "knowledge_file_state",
+  "knowledge_fts",
+  "outcomes",
+  "projection_meta",
+  "pull_request_snapshots",
+  "pull_requests",
+  "review_comments",
+  "review_threads",
+  "revision_proposals",
+  "submission_receipts",
+  "thread_removals",
+] as const;
+
 interface RecordRow {
   readonly line_sha256: string;
   readonly record_json: string;
@@ -114,7 +136,9 @@ interface ProjectedKnowledgeRow {
   readonly detail: string;
   readonly etag: string;
   readonly evidence_count: number;
+  readonly false_positive_count: number;
   readonly id: string;
+  readonly not_applicable_count: number;
   readonly path: string;
   readonly repo_id: string;
   readonly revision: number;
@@ -263,7 +287,7 @@ function ensureCaptureProjected(
   if (
     getProjectionMeta(database, "canonical_digest") ===
       capture.canonicalDigest &&
-    getProjectionMeta(database, "schema_version") === "2"
+    getProjectionMeta(database, "schema_version") === PROJECTION_SCHEMA_VERSION
   ) {
     return;
   }
@@ -274,7 +298,26 @@ function ensureCaptureProjected(
   );
 }
 
+/** Derived tables from an older schema cannot be migrated in place; drop them. */
+function dropOutdatedSchema(database: Database.Database): void {
+  const metaTable = database
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projection_meta'",
+    )
+    .get() as unknown as { name: string } | undefined;
+  if (metaTable === undefined) return;
+  if (
+    getProjectionMeta(database, "schema_version") === PROJECTION_SCHEMA_VERSION
+  ) {
+    return;
+  }
+  for (const table of PROJECTION_TABLES) {
+    database.exec(`DROP TABLE IF EXISTS ${table}`);
+  }
+}
+
 function createSchema(database: Database.Database): void {
+  dropOutdatedSchema(database);
   database.exec(`
     CREATE TABLE IF NOT EXISTS projection_meta (
       key TEXT PRIMARY KEY,
@@ -409,6 +452,8 @@ function createSchema(database: Database.Database): void {
       evidence_count INTEGER NOT NULL,
       violation_count INTEGER NOT NULL,
       applied_count INTEGER NOT NULL,
+      not_applicable_count INTEGER NOT NULL,
+      false_positive_count INTEGER NOT NULL,
       sources_json TEXT NOT NULL,
       revision INTEGER NOT NULL,
       etag TEXT NOT NULL,
@@ -565,7 +610,7 @@ function rebuildDatabase(
 
     replaceDomainProjection(database, domain);
 
-    setMeta.run("schema_version", "2");
+    setMeta.run("schema_version", PROJECTION_SCHEMA_VERSION);
     setMeta.run("canonical_digest", capture.canonicalDigest);
     setMeta.run("index_dirty", "false");
     if (checkpointTransactionId === null) {
@@ -745,8 +790,9 @@ function replaceDomainProjection(
     INSERT INTO knowledge (
       id, path, repo_id, rule, detail, search_rule, search_detail, category,
       scope_json, severity, status, evidence_count, violation_count,
-      applied_count, sources_json, revision, etag, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      applied_count, not_applicable_count, false_positive_count, sources_json,
+      revision, etag, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const deleteKnowledgeFts = database.prepare(
     "DELETE FROM knowledge_fts WHERE knowledge_id = ?",
@@ -772,6 +818,8 @@ function replaceDomainProjection(
       value.evidenceCount,
       value.violationCount,
       value.appliedCount,
+      value.notApplicableCount,
+      value.falsePositiveCount,
       JSON.stringify(value.sources),
       value.revision,
       value.etag,
@@ -982,7 +1030,9 @@ function projectedKnowledgeFromRow(
     detail: row.detail,
     etag: row.etag,
     evidenceCount: row.evidence_count,
+    falsePositiveCount: row.false_positive_count,
     id: row.id,
+    notApplicableCount: row.not_applicable_count,
     path: row.path,
     repoId: row.repo_id,
     revision: row.revision,
@@ -1086,7 +1136,7 @@ function searchKnowledgeDatabase(
         textRank,
         knowledge.severity,
         knowledge.evidenceCount,
-        knowledge.violationCount,
+        knowledge,
       ),
       textRank,
     };

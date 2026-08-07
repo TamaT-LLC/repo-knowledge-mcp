@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   DomainProjectionError,
+  PROJECTION_SCHEMA_VERSION,
   SqliteCanonicalProjection,
   createDomainId,
   serializeCanonicalJsonlRecord,
@@ -65,9 +66,11 @@ describe("domain SQLite projection", () => {
     ]);
     expect(snapshot.domain.knowledge).toEqual([
       expect.objectContaining({
-        appliedCount: 0,
+        appliedCount: 1,
         evidenceCount: 1,
+        falsePositiveCount: 1,
         id: ids.knowledgeId,
+        notApplicableCount: 1,
         sources: ["human"],
         violationCount: 1,
       }),
@@ -100,6 +103,37 @@ describe("domain SQLite projection", () => {
       );
     } finally {
       database.close();
+    }
+  });
+
+  it("drops and rebuilds derived tables left by an older schema version", async () => {
+    const repository = await createRepository();
+    await seedCompleteDomainState(repository);
+    const projection = new SqliteCanonicalProjection(repository);
+    const before = await projection.rebuild();
+
+    const database = new Database(projection.databasePath);
+    try {
+      database.exec("ALTER TABLE knowledge DROP COLUMN not_applicable_count");
+      database
+        .prepare("UPDATE projection_meta SET value = '2' WHERE key = ?")
+        .run("schema_version");
+    } finally {
+      database.close();
+    }
+
+    const after = await projection.ensureCurrent();
+
+    expect(after.domain.knowledge).toEqual(before.domain.knowledge);
+    const reopened = new Database(projection.databasePath, { readonly: true });
+    try {
+      expect(
+        reopened
+          .prepare("SELECT value FROM projection_meta WHERE key = ?")
+          .get("schema_version"),
+      ).toEqual({ value: PROJECTION_SCHEMA_VERSION });
+    } finally {
+      reopened.close();
     }
   });
 
@@ -240,12 +274,14 @@ async function seedCompleteDomainState(repository: string): Promise<{
     },
     submission_id: "submission-1",
   };
-  const outcome: KnowledgeOutcome = {
+  const outcomes: readonly KnowledgeOutcome[] = (
+    ["violated", "applied", "not_applicable", "false_positive"] as const
+  ).map((outcome) => ({
     at: NOW,
     knowledge_id: knowledgeId,
-    outcome: "violated",
+    outcome,
     repo_id: "repo-1",
-  };
+  }));
 
   await writeRecords(repository, [
     canonicalRecord("PullRequestObservation", pullRequest),
@@ -278,7 +314,7 @@ async function seedCompleteDomainState(repository: string): Promise<{
     canonicalRecord("EvidenceCreated", projectedEvidence),
     canonicalRecord("KnowledgeRevisionProposal", proposal),
     canonicalRecord("SubmissionReceipt", receipt),
-    canonicalRecord("OutcomeRecorded", outcome),
+    ...outcomes.map((outcome) => canonicalRecord("OutcomeRecorded", outcome)),
   ]);
   return { commentId, evidenceId, jobId, knowledgeId, receiptId };
 }

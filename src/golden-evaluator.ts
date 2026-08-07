@@ -322,19 +322,32 @@ function searchMetrics(fixture: GoldenFixture): {
   let ndcgSum = 0;
   let reciprocalRankSum = 0;
   for (const query of fixture.searches) {
-    const firstRelevant = query.ranking.findIndex(
-      (id) => (query.relevance[id] ?? 0) > 0,
-    );
-    if (firstRelevant >= 0) reciprocalRankSum += 1 / (firstRelevant + 1);
-
-    const actualGrades = query.ranking.map((id) => query.relevance[id] ?? 0);
-    const idealGrades = Object.values(query.relevance)
-      .sort((left, right) => right - left)
-      .slice(0, query.ranking.length);
-    const ideal = discountedGain(idealGrades);
-    ndcgSum += ideal === 0 ? 1 : discountedGain(actualGrades) / ideal;
+    reciprocalRankSum += rankingReciprocalRank(query.ranking, query.relevance);
+    ndcgSum += rankingNdcg(query.ranking, query.relevance);
   }
   return { ndcgSum, reciprocalRankSum };
+}
+
+/** Reciprocal rank of the first relevant id; 0 when nothing relevant ranks. */
+export function rankingReciprocalRank(
+  ranking: readonly string[],
+  relevance: Readonly<Record<string, number>>,
+): number {
+  const firstRelevant = ranking.findIndex((id) => (relevance[id] ?? 0) > 0);
+  return firstRelevant >= 0 ? 1 / (firstRelevant + 1) : 0;
+}
+
+/** NDCG of a ranking against graded relevance; 1 for a gradeless query. */
+export function rankingNdcg(
+  ranking: readonly string[],
+  relevance: Readonly<Record<string, number>>,
+): number {
+  const actualGrades = ranking.map((id) => relevance[id] ?? 0);
+  const idealGrades = Object.values(relevance)
+    .sort((left, right) => right - left)
+    .slice(0, ranking.length);
+  const ideal = discountedGain(idealGrades);
+  return ideal === 0 ? 1 : discountedGain(actualGrades) / ideal;
 }
 
 function discountedGain(grades: readonly number[]): number {
@@ -365,6 +378,15 @@ function matchesScope(patterns: readonly string[], path: string): boolean {
 
 function ratioMetric(numerator: number, denominator: number): GoldenMetric {
   return metric(numerator, denominator, denominator === 0 ? 1 : undefined);
+}
+
+/** Rounded numerator/denominator metric shared with the outcome ranking report. */
+export function goldenMetric(
+  numerator: number,
+  denominator: number,
+  emptyValue = 0,
+): GoldenMetric {
+  return metric(numerator, denominator, emptyValue);
 }
 
 function metric(
