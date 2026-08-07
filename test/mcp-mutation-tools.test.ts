@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AddKnowledgeOutputSchema,
   DistillJobCoordinatorError,
+  FileLockTimeoutError,
   IngestPrOutputSchema,
   KnowledgeConflictError,
   PrepareDistillationOutputSchema,
@@ -11,6 +12,9 @@ import {
   RepositoryResolutionError,
   SubmitDistillationError,
   SubmitDistillationOutputSchema,
+  SyncCursorError,
+  SyncRepoError,
+  SyncRepoOutputSchema,
   UpdateKnowledgeOutputSchema,
   serveRepoKnowledgeStdio,
   type KnowledgeMutationOperations,
@@ -54,6 +58,7 @@ describe("MCP mutation tools", () => {
     ).filter((tool) =>
       [
         "ingest_pr",
+        "sync_repo",
         "prepare_distillation",
         "submit_distillation",
         "add_knowledge",
@@ -63,6 +68,7 @@ describe("MCP mutation tools", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       "ingest_pr",
+      "sync_repo",
       "prepare_distillation",
       "submit_distillation",
       "add_knowledge",
@@ -95,6 +101,12 @@ describe("MCP mutation tools", () => {
         openWorldHint: false,
         readOnlyHint: false,
       },
+      sync_repo: {
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+        readOnlyHint: false,
+      },
       update_knowledge: {
         destructiveHint: false,
         idempotentHint: false,
@@ -124,6 +136,36 @@ describe("MCP mutation tools", () => {
       repo: REPOSITORY,
       startupRepo: "startup/repository",
       startupWorkspace: "/workspace/startup",
+    });
+
+    const sync = await callTool(connection.client, "sync_repo", {
+      repo: REPOSITORY,
+      since: "2026-08-01T00:00:00.000Z",
+    });
+    expect(
+      SyncRepoOutputSchema.safeParse(toolStructuredContent(sync)).success,
+    ).toBe(true);
+    expect(toolText(sync)).toContain("**2** updated pull request(s)");
+    expect(toolStructuredContent(sync)).toMatchObject({
+      result: {
+        discovered: 2,
+        failed: 0,
+        ingested: 1,
+        next_cursor: {
+          last_pr_number: 42,
+          repo_id: "R_repository",
+          version: 1,
+        },
+        unchanged: 1,
+      },
+      summary: {
+        counts: { discovered: 2, failed: 0, ingested: 1, unchanged: 1 },
+        next_action: expect.stringContaining("prepare_distillation"),
+        retryable: true,
+      },
+    });
+    expect(fixture.syncRepo).toHaveBeenCalledWith({
+      since: "2026-08-01T00:00:00.000Z",
     });
 
     const prepare = await callTool(connection.client, "prepare_distillation", {
@@ -449,6 +491,70 @@ describe("MCP mutation tools", () => {
     });
   });
 
+  it("maps sync boundary, checkpoint, and lock errors to structured sync_repo errors", async () => {
+    const fixture = createMutationFixture();
+    fixture.syncRepo
+      .mockRejectedValueOnce(
+        new SyncRepoError(
+          "SYNC_SINCE_BEYOND_CHECKPOINT",
+          "--since 2026-08-05T00:00:00.000Z is not strictly older than the stored checkpoint boundary",
+        ),
+      )
+      .mockRejectedValueOnce(
+        new SyncCursorError(
+          "SYNC_BOUNDARY_CONFLICT",
+          "cursor and --since are mutually exclusive boundaries",
+        ),
+      )
+      .mockRejectedValueOnce(
+        new SyncRepoError(
+          "SYNC_REPOSITORY_MISMATCH",
+          "ingester is bound to another repository",
+        ),
+      )
+      .mockRejectedValueOnce(new FileLockTimeoutError("/repo/.sync.lock"));
+    const connection = await connect(fixture.resolver);
+    const call = async () =>
+      callTool(connection.client, "sync_repo", { repo: REPOSITORY });
+
+    const beyond = await call();
+    expect(toolResult(beyond)).toMatchObject({ isError: true });
+    expect(
+      SyncRepoOutputSchema.safeParse(toolStructuredContent(beyond)).success,
+    ).toBe(true);
+    expect(toolStructuredContent(beyond)).toMatchObject({
+      error: {
+        code: "SYNC_SINCE_BEYOND_CHECKPOINT",
+        next_action: expect.stringContaining("stored checkpoint"),
+        retryable: false,
+      },
+      ok: false,
+    });
+
+    expect(toolStructuredContent(await call())).toMatchObject({
+      error: {
+        code: "SYNC_BOUNDARY_CONFLICT",
+        next_action: expect.stringContaining("never both"),
+        retryable: false,
+      },
+      ok: false,
+    });
+
+    expect(toolStructuredContent(await call())).toMatchObject({
+      error: { code: "SYNC_REPOSITORY_MISMATCH", retryable: false },
+      ok: false,
+    });
+
+    expect(toolStructuredContent(await call())).toMatchObject({
+      error: {
+        code: "LOCK_TIMEOUT",
+        next_action: expect.stringContaining("sync lock"),
+        retryable: true,
+      },
+      ok: false,
+    });
+  });
+
   it("calls mutation tools over the 2026-07-28 protocol era", async () => {
     const fixture = createMutationFixture();
     const connection = await connect(fixture.resolver, "modern");
@@ -550,6 +656,9 @@ function createMutationFixture(): {
   readonly submitFinalize: ReturnType<
     typeof vi.fn<KnowledgeMutationOperations["submitFinalize"]>
   >;
+  readonly syncRepo: ReturnType<
+    typeof vi.fn<KnowledgeMutationOperations["syncRepo"]>
+  >;
   readonly updateKnowledge: ReturnType<
     typeof vi.fn<KnowledgeMutationOperations["updateKnowledge"]>
   >;
@@ -626,12 +735,27 @@ function createMutationFixture(): {
       status: "pending",
     }),
   );
+  const syncRepo = vi.fn<KnowledgeMutationOperations["syncRepo"]>(async () => ({
+    discovered: 2,
+    failed: 0,
+    failures: [],
+    ingested: 1,
+    jobs_created: 1,
+    next_cursor: {
+      last_pr_number: 42,
+      last_updated_at: "2026-08-06T00:00:00.000Z",
+      repo_id: "R_repository",
+      version: 1,
+    },
+    unchanged: 1,
+  }));
   const operations: KnowledgeMutationOperations = {
     addKnowledge,
     ingestPullRequest,
     prepareDistillation,
     submitExtract,
     submitFinalize,
+    syncRepo,
     updateKnowledge,
   };
   const resolve = vi.fn<KnowledgeMutationServiceResolver["resolve"]>(
@@ -645,6 +769,7 @@ function createMutationFixture(): {
     resolver: { resolve },
     submitExtract,
     submitFinalize,
+    syncRepo,
     updateKnowledge,
   };
 }

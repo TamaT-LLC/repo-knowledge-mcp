@@ -264,6 +264,7 @@ describe("repo-knowledge MCP read server", () => {
       "search_knowledge",
       "get_knowledge",
       "ingest_pr",
+      "sync_repo",
       "prepare_distillation",
       "submit_distillation",
       "add_knowledge",
@@ -359,6 +360,7 @@ function unavailableMutationResolver(): KnowledgeMutationServiceResolver {
         prepareDistillation: unavailable,
         submitExtract: unavailable,
         submitFinalize: unavailable,
+        syncRepo: unavailable,
         updateKnowledge: unavailable,
       };
     },

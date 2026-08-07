@@ -38,6 +38,7 @@ describe("M1 real stdio MCP E2E", () => {
       "prepare_distillation",
       "search_knowledge",
       "submit_distillation",
+      "sync_repo",
       "update_knowledge",
     ]);
 
@@ -67,6 +68,7 @@ describe("M1 real stdio MCP E2E", () => {
         submission_id: "stdio-submission",
         thread_fingerprint: HASH,
       },
+      sync_repo: { repo: REPOSITORY, since: "2026-08-01T00:00:00.000Z" },
       update_knowledge: {
         expected_etag: "a".repeat(64),
         expected_revision: 1,
@@ -351,6 +353,22 @@ const mutation = {
       created_proposed: [],
       merged_evidence: [],
       revision_proposals: [],
+    };
+  },
+  async syncRepo() {
+    return {
+      discovered: 1,
+      failed: 0,
+      failures: [],
+      ingested: 1,
+      jobs_created: 1,
+      next_cursor: {
+        last_pr_number: 7,
+        last_updated_at: "2026-08-06T00:00:00.000Z",
+        repo_id: "R_repository",
+        version: 1,
+      },
+      unchanged: 0,
     };
   },
   async addKnowledge() {
