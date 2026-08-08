@@ -153,6 +153,7 @@ export {
   PILOT_DAILY_RECORD_KIND,
   PILOT_RECORD_SCHEMA_VERSION,
   PILOT_SUMMARY_REPORT_KIND,
+  PilotCronRunFailureLineSchema,
   PilotDailyRecordSchema,
   PilotGateStatusSchema,
   PilotQualityGateReportSchema,
@@ -171,6 +172,7 @@ export {
   type PilotDailyRecord,
   type PilotGateStatus,
   type PilotRecordErrorCode,
+  type PilotSyncSummaryLine,
 } from "./pilot-daily-record.js";
 export {
   summarizePilotLog,

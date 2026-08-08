@@ -83,6 +83,8 @@ describe("pilot daily record CLI", () => {
         next_cursor: null,
         unchanged: 0,
       },
+      // Wrapper marker for a run that died before printing its summary.
+      { cron_run_failed: true, exit_code: 1 },
     ];
     await writeFile(
       syncLogPath,
@@ -118,8 +120,8 @@ describe("pilot daily record CLI", () => {
     const record = JSON.parse(stdout) as PilotDailyRecord;
     expect(record.status).toBe("observed");
     if (record.status !== "observed") return;
-    expect(record.sync.runs_total).toBe(2);
-    expect(record.sync.runs_failed).toBe(1);
+    expect(record.sync.runs_total).toBe(3);
+    expect(record.sync.runs_failed).toBe(2);
     expect(record.sync.failed_pull_requests).toEqual([42]);
     expect(record.quality.gate_status).toBe("pass");
     expect(record.backlog.pending_jobs).toBe(3);
@@ -182,7 +184,7 @@ describe("pilot daily record CLI", () => {
     expect(complete.exitCode).toBe(0);
     const summary = JSON.parse(complete.stdout) as PilotSummaryReport;
     expect(summary.coverage.complete).toBe(true);
-    expect(summary.sync.run_success_rate).toBe(0.5);
+    expect(summary.sync.run_success_rate).toBeCloseTo(1 / 3, 10);
     expect(summary.missing_days).toEqual([
       { date: "2026-08-02", reason: "operator offline" },
     ]);

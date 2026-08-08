@@ -15,6 +15,18 @@ M2 完了条件「cron 同期で 2 週間運用し、ランキングが体感に
 開始日・終了日は pilot 開始時に本節へ追記し、以後変更しない。
 中断した場合は新しい `pilot_id`（`-002` 以降）で最初からやり直す。
 
+- **開始日**: 2026-08-09（UTC）。初回同期（全期間、`--since` なし）は 2026-08-08 に完了し、
+  checkpoint は PR #84 / `2026-08-07T13:38:02Z`。同日中に再実行で `discovered: 0` の冪等性を確認済み
+- **終了日**: 2026-08-22（UTC、開始日を day 1 として 14 UTC 日）
+- **rubric checkpoint**: day 1 = 2026-08-09、day 7 = 2026-08-15、day 14 = 2026-08-22
+- **運用ノート**: 実行環境は operator の macOS（常時稼働ではない）。スリープ中の cron 未実行は
+  欠測理由付き日次記録で追跡する。cron の失敗通知は MAILTO ではなく
+  `~/log/repo-knowledge-sync.err` と日次記録の `runs_failed` で追跡する（ローカル MTA 未設定のため）
+- **スケジューラ**: 実行環境の macOS では `crontab` 書き込みが TCC 承認待ちで完了しないため、
+  同一の wrapper script（`sync-cron.sh`）と日次記録 script を launchd LaunchAgent
+  （`jp.tamat.repo-knowledge.sync`: `StartInterval` 900 秒 / `jp.tamat.repo-knowledge.pilot-daily`:
+  09:20 JST = 00:20 UTC）で起動する。実行内容・ログ・記録経路は crontab 例と同一
+
 ## 固定条件
 
 ### 対象 repository
@@ -26,13 +38,45 @@ M2 完了条件「cron 同期で 2 週間運用し、ランキングが体感に
 
 ### cron 頻度
 
-- **15 分間隔**（[sync cron runbook](./sync-cron-runbook.md) の crontab 例と同一）
-- 日次記録を日単位で切り出せるよう、sync summary の log は **UTC 日付単位で分割**する:
+- **15 分間隔**（[sync cron runbook](./sync-cron-runbook.md) の頻度と同一）
+- 日次記録を日単位で切り出せるよう、sync summary の log は **UTC 日付単位で分割**する
+- cron は直接 `repo-knowledge sync` を呼ばず、**wrapper script 経由**で実行する。
+  sync が summary JSON を stdout に出す前に異常終了した run（`LOCK_TIMEOUT` や
+  `gh` 失敗など）は、wrapper が機械可読な失敗マーカー行
+  `{"cron_run_failed":true,"exit_code":<n>}` を sync log へ追記する。
+  マーカー行は日次記録の `runs_total` / `runs_failed` に 1 失敗 run として
+  計上され、rollback 条件「全 run 失敗が 2 UTC 日連続」を summary 欠落時にも
+  正しく判定できる
+
+wrapper（`~/.repo-knowledge/pilot/sync-cron.sh`、パーミッション 700）:
+
+```sh
+#!/bin/sh
+# repo-knowledge sync cron wrapper: summary JSON が出なかった失敗 run も
+# 機械可読マーカーとして sync log (JSONL) に残す
+set -u
+LOG_DIR="$HOME/log"
+SYNC_LOG="$LOG_DIR/repo-knowledge-sync-$(date -u +%F).jsonl"
+ERR_LOG="$LOG_DIR/repo-knowledge-sync.err"
+
+summary="$(repo-knowledge sync TamaT-LLC/repo-knowledge-mcp 2>>"$ERR_LOG")"
+exit_code=$?
+if [ -n "$summary" ]; then
+  printf '%s\n' "$summary" >>"$SYNC_LOG"
+else
+  printf '{"cron_run_failed":true,"exit_code":%d}\n' "$exit_code" >>"$SYNC_LOG"
+fi
+exit "$exit_code"
+```
+
+- summary が出力された部分失敗（exit 1 かつ `failed >= 1`）は summary 行自体が
+  失敗 run として集計されるため、マーカーは追記されない（二重計上なし）
+- stderr の diagnostic は従来どおり `repo-knowledge-sync.err` に残る
 
 ```crontab
 MAILTO=ops@example.com
 PATH=/opt/homebrew/bin:/usr/bin:/bin
-*/15 * * * * repo-knowledge sync TamaT-LLC/repo-knowledge-mcp >> "$HOME/log/repo-knowledge-sync-$(date -u +\%F).jsonl" 2>> "$HOME/log/repo-knowledge-sync.err" || echo "repo-knowledge sync failed with exit $?"
+*/15 * * * * "$HOME/.repo-knowledge/pilot/sync-cron.sh"
 ```
 
 ### provider 経路
