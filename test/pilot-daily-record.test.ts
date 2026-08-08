@@ -153,6 +153,76 @@ describe("buildObservedDailyRecord", () => {
     });
   });
 
+  it("counts cron failure marker lines as failed runs without touching PR counters", () => {
+    const record = buildObservedDailyRecord({
+      date: "2026-08-01",
+      pilotId: PILOT_ID,
+      recordedAt: RECORDED_AT,
+      stats: statsSnapshot(),
+      syncSummaries: [
+        syncSummaryLine({ discovered: 2, ingested: 2 }),
+        // The run aborted before printing its summary (e.g. LOCK_TIMEOUT):
+        // the cron wrapper leaves this marker instead.
+        { cron_run_failed: true, exit_code: 1 },
+        syncSummaryLine({
+          discovered: 1,
+          failed: 1,
+          failures: [{ message: "boom", pr_number: 7 }],
+        }),
+        { cron_run_failed: true, exit_code: 2 },
+      ],
+    });
+
+    expect(record.sync.runs_total).toBe(4);
+    expect(record.sync.runs_failed).toBe(3);
+    // Markers carry no per-PR data: aggregation stays summary-only.
+    expect(record.sync.discovered).toBe(3);
+    expect(record.sync.failed_pull_requests).toEqual([7]);
+    expect(record.sync.retry_attempts).toBe(0);
+  });
+
+  it("rejects a malformed cron failure marker fail-closed", () => {
+    for (const marker of [
+      { cron_run_failed: true },
+      { cron_run_failed: true, exit_code: "one" },
+      { cron_run_failed: false, exit_code: 1 },
+    ]) {
+      expect(() =>
+        buildObservedDailyRecord({
+          date: "2026-08-01",
+          pilotId: PILOT_ID,
+          recordedAt: RECORDED_AT,
+          stats: statsSnapshot(),
+          syncSummaries: [marker],
+        }),
+      ).toThrowError(/PILOT_SYNC_LOG_INVALID/u);
+    }
+  });
+
+  it("round-trips a record built from a mixed marker and summary log", () => {
+    const record = buildObservedDailyRecord({
+      date: "2026-08-01",
+      pilotId: PILOT_ID,
+      recordedAt: RECORDED_AT,
+      stats: statsSnapshot(),
+      syncSummaries: [
+        syncSummaryLine({ discovered: 1, ingested: 1 }),
+        { cron_run_failed: true, exit_code: 1 },
+      ],
+    });
+
+    const parsed = parsePilotLog(`${JSON.stringify(record)}\n`);
+    expect(parsed).toEqual([record]);
+    const summary = summarizePilotLog({
+      durationDays: 1,
+      records: parsed,
+      startDate: "2026-08-01",
+    });
+    expect(summary.sync.runs_total).toBe(2);
+    expect(summary.sync.runs_failed).toBe(1);
+    expect(summary.sync.run_success_rate).toBe(0.5);
+  });
+
   it("records gate_status not_run when no quality gate report is provided", () => {
     const record = buildObservedDailyRecord({
       date: "2026-08-01",

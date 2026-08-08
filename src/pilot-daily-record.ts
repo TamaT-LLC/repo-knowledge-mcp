@@ -44,6 +44,19 @@ export const PilotSyncSummaryLineSchema = z.object({
   unchanged: z.number().int().nonnegative(),
 });
 
+/**
+ * Failure marker the cron wrapper appends to the sync log when a run exits
+ * without printing its summary JSON (for example on `LOCK_TIMEOUT` or a gh
+ * failure before any output). Without the marker such aborted runs would be
+ * invisible to `runs_total` / `runs_failed`, and the pilot's rollback
+ * condition "every run failed on two consecutive UTC days" could never
+ * trigger. The marker counts as one failed run; it carries no per-PR data.
+ */
+export const PilotCronRunFailureLineSchema = z.object({
+  cron_run_failed: z.literal(true),
+  exit_code: z.number().int(),
+});
+
 /** The subset of the `stats` CLI output the pilot records every day. */
 export const PilotStatsSnapshotSchema = z.object({
   canonical_digest: z.string().min(1),
@@ -63,6 +76,22 @@ export const PilotQualityGateReportSchema = z.object({
   schema_version: z.literal(1),
   status: z.enum(["integrity_failure", "metric_failure", "pass"]),
 });
+
+export type PilotSyncSummaryLine = z.infer<typeof PilotSyncSummaryLineSchema>;
+
+/**
+ * A line claiming to be a cron failure marker is validated as one instead
+ * of falling through to the summary schema, so a malformed marker is
+ * reported as a marker problem rather than a misleading summary error.
+ */
+function isCronRunFailureCandidate(line: unknown): boolean {
+  return (
+    typeof line === "object" &&
+    line !== null &&
+    !Array.isArray(line) &&
+    "cron_run_failed" in line
+  );
+}
 
 export const PilotGateStatusSchema = z.enum([
   "integrity_failure",
@@ -184,12 +213,28 @@ export interface BuildObservedDailyRecordRequest {
  * Builds one observed daily record by aggregating the day's sync cron log,
  * the `stats` snapshot, and the optional quality gate report. Duplicate
  * ingest work surfaces as `unchanged` (idempotent re-ingests), and retries
- * surface as repeated failures of the same PR across runs.
+ * surface as repeated failures of the same PR across runs. A sync log line
+ * may be either a summary or a cron failure marker (see
+ * `PilotCronRunFailureLineSchema`); markers count as failed runs, and any
+ * other line stays a fail-closed validation error.
  */
 export function buildObservedDailyRecord(
   request: BuildObservedDailyRecordRequest,
 ): ObservedPilotDailyRecord {
-  const summaries = request.syncSummaries.map((line, index) => {
+  const summaries: PilotSyncSummaryLine[] = [];
+  let abortedRuns = 0;
+  for (const [index, line] of request.syncSummaries.entries()) {
+    if (isCronRunFailureCandidate(line)) {
+      const marker = PilotCronRunFailureLineSchema.safeParse(line);
+      if (!marker.success) {
+        throw new PilotRecordError(
+          "PILOT_SYNC_LOG_INVALID",
+          `cron failure marker line ${String(index + 1)} failed validation: ${formatZodError(marker.error)}`,
+        );
+      }
+      abortedRuns += 1;
+      continue;
+    }
     const parsed = PilotSyncSummaryLineSchema.safeParse(line);
     if (!parsed.success) {
       throw new PilotRecordError(
@@ -197,8 +242,8 @@ export function buildObservedDailyRecord(
         `sync summary line ${String(index + 1)} failed validation: ${formatZodError(parsed.error)}`,
       );
     }
-    return parsed.data;
-  });
+    summaries.push(parsed.data);
+  }
   const stats = PilotStatsSnapshotSchema.safeParse(request.stats);
   if (!stats.success) {
     throw new PilotRecordError(
@@ -239,8 +284,9 @@ export function buildObservedDailyRecord(
       ingested: sumOf(summaries, (summary) => summary.ingested),
       jobs_created: sumOf(summaries, (summary) => summary.jobs_created),
       retry_attempts: failureOccurrences.length - failedPullRequests.length,
-      runs_failed: summaries.filter((summary) => summary.failed > 0).length,
-      runs_total: summaries.length,
+      runs_failed:
+        summaries.filter((summary) => summary.failed > 0).length + abortedRuns,
+      runs_total: summaries.length + abortedRuns,
       unchanged: sumOf(summaries, (summary) => summary.unchanged),
     },
   };

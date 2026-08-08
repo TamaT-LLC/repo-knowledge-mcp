@@ -34,13 +34,45 @@ M2 完了条件「cron 同期で 2 週間運用し、ランキングが体感に
 
 ### cron 頻度
 
-- **15 分間隔**（[sync cron runbook](./sync-cron-runbook.md) の crontab 例と同一）
-- 日次記録を日単位で切り出せるよう、sync summary の log は **UTC 日付単位で分割**する:
+- **15 分間隔**（[sync cron runbook](./sync-cron-runbook.md) の頻度と同一）
+- 日次記録を日単位で切り出せるよう、sync summary の log は **UTC 日付単位で分割**する
+- cron は直接 `repo-knowledge sync` を呼ばず、**wrapper script 経由**で実行する。
+  sync が summary JSON を stdout に出す前に異常終了した run（`LOCK_TIMEOUT` や
+  `gh` 失敗など）は、wrapper が機械可読な失敗マーカー行
+  `{"cron_run_failed":true,"exit_code":<n>}` を sync log へ追記する。
+  マーカー行は日次記録の `runs_total` / `runs_failed` に 1 失敗 run として
+  計上され、rollback 条件「全 run 失敗が 2 UTC 日連続」を summary 欠落時にも
+  正しく判定できる
+
+wrapper（`~/.repo-knowledge/pilot/sync-cron.sh`、パーミッション 700）:
+
+```sh
+#!/bin/sh
+# repo-knowledge sync cron wrapper: summary JSON が出なかった失敗 run も
+# 機械可読マーカーとして sync log (JSONL) に残す
+set -u
+LOG_DIR="$HOME/log"
+SYNC_LOG="$LOG_DIR/repo-knowledge-sync-$(date -u +%F).jsonl"
+ERR_LOG="$LOG_DIR/repo-knowledge-sync.err"
+
+summary="$(repo-knowledge sync TamaT-LLC/repo-knowledge-mcp 2>>"$ERR_LOG")"
+exit_code=$?
+if [ -n "$summary" ]; then
+  printf '%s\n' "$summary" >>"$SYNC_LOG"
+else
+  printf '{"cron_run_failed":true,"exit_code":%d}\n' "$exit_code" >>"$SYNC_LOG"
+fi
+exit "$exit_code"
+```
+
+- summary が出力された部分失敗（exit 1 かつ `failed >= 1`）は summary 行自体が
+  失敗 run として集計されるため、マーカーは追記されない（二重計上なし）
+- stderr の diagnostic は従来どおり `repo-knowledge-sync.err` に残る
 
 ```crontab
 MAILTO=ops@example.com
 PATH=/opt/homebrew/bin:/usr/bin:/bin
-*/15 * * * * repo-knowledge sync TamaT-LLC/repo-knowledge-mcp >> "$HOME/log/repo-knowledge-sync-$(date -u +\%F).jsonl" 2>> "$HOME/log/repo-knowledge-sync.err" || echo "repo-knowledge sync failed with exit $?"
+*/15 * * * * "$HOME/.repo-knowledge/pilot/sync-cron.sh"
 ```
 
 ### provider 経路
