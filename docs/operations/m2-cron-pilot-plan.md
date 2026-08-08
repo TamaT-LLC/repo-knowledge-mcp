@@ -22,6 +22,10 @@ M2 完了条件「cron 同期で 2 週間運用し、ランキングが体感に
 - **運用ノート**: 実行環境は operator の macOS（常時稼働ではない）。スリープ中の cron 未実行は
   欠測理由付き日次記録で追跡する。cron の失敗通知は MAILTO ではなく
   `~/log/repo-knowledge-sync.err` と日次記録の `runs_failed` で追跡する（ローカル MTA 未設定のため）
+- **スケジューラ**: 実行環境の macOS では `crontab` 書き込みが TCC 承認待ちで完了しないため、
+  同一の wrapper script（`sync-cron.sh`）と日次記録 script を launchd LaunchAgent
+  （`jp.tamat.repo-knowledge.sync`: `StartInterval` 900 秒 / `jp.tamat.repo-knowledge.pilot-daily`:
+  09:20 JST = 00:20 UTC）で起動する。実行内容・ログ・記録経路は crontab 例と同一
 
 ## 固定条件
 
