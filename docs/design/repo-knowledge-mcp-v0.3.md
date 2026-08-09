@@ -4,6 +4,7 @@
 - Date: 2026-08-06
 - Status: M1-A 完了、v0.2 本体・補遺 3 本・Errata の統合完了
 - 対応 Issue: RKM-ERRATA-023-TASK-007
+- M3 要件: [個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md)
 
 <a id="reading-rules"></a>
 
@@ -23,6 +24,9 @@
 ### 0.1 規範の優先順位
 
 同じ対象について記述が異なる場合は、次の順序で後の文書層を優先する。
+
+M3 のスコープ、利用者モデル、受け入れ条件には、[M3 個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md)を適用する。
+同文書は、本書に残る「ルール本文 export」「リポジトリ内 `.repo-knowledge/` mode」「Git 共有」を M3 の対象とする記述を差し替える。
 
 1. 本書 5 節の実装・テスト事実
 2. 本書 4 節の Errata
@@ -44,6 +48,7 @@
 | [Write Path](#write-path) | staged payload、read isolation、receipt、recovery、COMMITTED marker、finalize guard | v0.2.2、v0.2.3 |
 | [Errata](#errata) | E-01〜E-04、P-01、I-01 | v0.2.3 Errata |
 | [実装事実](#implementation-facts) | M1-A の実装と kill-point テストで確認した事実 | v0.3 追加 |
+| [M3 個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md) | 個人用ローカルナレッジ、guided setup、readiness、activation、review inbox、npm 配布 | v0.3 M3 改訂 |
 
 ### 0.3 差し替えの統合索引
 
@@ -53,6 +58,7 @@
 | Mutation Path | manifest、recovery、read isolation、receipt、ETag、evidence 追加、distillation key、fingerprint | [v0.2.2](#write-path-v022) と [v0.2.3](#write-path-v023) |
 | v0.2.2 Write Path | receipt replay、FinalizeContext、knowledge_file_state、JSONL envelope、COMMITTED marker、match set | [v0.2.3](#write-path-v023) |
 | v0.2.3 Write Path | replay phase、request hash、source generation bind、集合 sort、skip policy、全件 SHA 検知 | [Errata](#errata) |
+| Architecture §3.1、§3.2、§19 M3 | ルール本文 export、repository-local storage、Git 共有、チーム導入 | [M3 個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md) |
 
 <a id="architecture"></a>
 
@@ -114,7 +120,7 @@ repo-knowledge-mcp は、リポジトリごとの PR レビュー指摘（人間
 | `sync_repo` | v0.2 | カーソル設計確定後 |
 | `record_outcome` | v0.2 | outcome の定義と重み付けが安定してから。誤った自己強化ループを先に作らない |
 | `stats` | v0.2 | 集計定義確定後 |
-| `export`（ルール本文） | v0.3 | trust policy 運用実績後。ただし bootstrap 1 行の出力（§12.3）はルール本文を含まないため M1 から可 |
+| `export`（ルール本文） | 将来検討 | M3 は個人利用を優先する。bootstrap 1 行の出力（§12.3）はルール本文を含まないため M1 から利用可 |
 
 ##### 3.2 やらないこと（Non-goals）
 
@@ -122,7 +128,12 @@ repo-knowledge-mcp は、リポジトリごとの PR レビュー指摘（人間
 - レビュー自体の実行（レビュー bot ではない）
 - GitHub 以外のホスティング対応（当面）
 - クラウド同期・サーバーサイド機能
+- リポジトリ内 `.repo-knowledge/` を正本とする storage mode
+- knowledge、raw review、event log の Git 共有
+- チーム全員で同じルール集合を維持する保証
 - MCP roots / sampling / logging capability への依存（2026-07-28 仕様で deprecated。新規実装では採用しない）
+
+M3 の対象と受け入れ条件は、[M3 個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md)で定義する。
 
 #### 4. 全体アーキテクチャ
 
@@ -197,7 +208,7 @@ repo-knowledge-mcp は、リポジトリごとの PR レビュー指摘（人間
 | 同期カーソル | state.json |
 | 検索・集計用投影 | index.sqlite（**唯一の再生成可能・使い捨てデータ**） |
 
-`reindex` は knowledge / raw / events / state をすべて読み、index.sqlite をゼロから再構築する。**SQLite にしか存在しない永続情報を作らない**ことが本方式の不変条件であり、可搬性・Rust 移植（§20）・git 共有への布石となる。
+`reindex` は knowledge / raw / events / state をすべて読み、index.sqlite をゼロから再構築する。**SQLite にしか存在しない永続情報を作らない**ことが本方式の不変条件であり、可搬性と Rust 移植（§20）の前提となる。
 
 ##### 6.2 knowledge ファイル形式（schema_version: 1）
 
@@ -753,13 +764,19 @@ sync_repo / record_outcome / stats / quality gate 運用開始 / detail への�
 
 ##### M3（v0.3）
 
-export（ルール本文）/ リポジトリ内 `.repo-knowledge/` モード（git 共有）/ npm 公開・README 整備。完了条件: チームメンバーが npx 一発で導入できる。
+npm 公開、guided setup、repository readiness、trusted human の安全な自動 active 化、review inbox、batch review を実装する。
+
+完了条件は、過去のルールと内部 status を知らない開発者が、clean environment から個人用ローカルストアを初期化し、状態と次の操作を理解して `get_rules` を利用できることである。
+
+詳細な要件と検証方法は、[M3 個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md)で定義する。
 
 #### 20. 将来構想
 
 - **Rust 移植 / izanagi 統合**: 正本がすべてファイル（md + jsonl + json）でイベントソーシングされているため言語非依存。`izanagi-core` にリーダー実装を置き、izanagi のスキルレジストリへ「リポジトリの過去指摘」を供給する経路を想定。TS 版はリファレンス実装として維持。
 - **MRTR 移行**: 経路 B を SEP-2322（Multi Round-Trip Requests）ベースへ置き換える検討（クライアント普及後）。
 - **レビュアー比較分析**: evidence の source × category 統計から「どの AI レビュアーがどの領域に強いか」を可視化。Zenn 記事ネタとしても有望。
+- **チーム共有**: 個人利用で異なるルール集合が問題になった場合に、配布 artifact、remote MCP、repository 内 snapshot を比較して共有方式を決める。
+- **ルール本文 export**: 静的なルール配布が必要になった場合に、active rule の決定的な export format を設計する。
 - **org 共有ナレッジ**: org 横断ルール名前空間（Serena の global/ 規約を参考）。
 
 #### 21. 競合との棲み分け（README 記載方針）
@@ -816,7 +833,7 @@ repo-knowledge-mcp/
 | 1 | repo 解決から MCP roots を除外、workspace_path 引数 + workspaceMappings へ | MCP 2026-07-28 で roots deprecated（SEP-2577） |
 | 2 | sampling を全面不採用、prepare/submit_distillation の 2 ツール方式へ | 同上 + SDK v2 は 2026 系接続で sampling が例外。legacy フラグも設けない（維持コストに見合わない） |
 | 3 | SDK を @modelcontextprotocol/server（v2, serveStdio）へ更新 | v1 sdk パッケージは旧世代。v2 が 2026-07-28 対応の安定版 |
-| 4 | ストレージをイベントログ正本方式（案A）へ。events/*.jsonl 追加、SQLite は完全派生 | 「Markdown が正・SQLite 使い捨て」の矛盾解消。可搬性・Rust 移植・git 共有と整合 |
+| 4 | ストレージをイベントログ正本方式（案A）へ。events/*.jsonl 追加、SQLite は完全派生 | 「Markdown が正・SQLite 使い捨て」の矛盾解消。可搬性と Rust 移植に必要 |
 | 5 | occurrences を evidence_count / violation_count / applied_count に分離。outcome は event_id で冪等化 | 異なるシグナルの混在を解消 |
 | 6 | evidence を一級エンティティ化、UNIQUE(knowledge_id, thread_fingerprint) | 二重カウント防止・監査・source 別統計 |
 | 7 | trust policy（ReviewerIdentity / proposed 状態 / 昇格ポリシー / 未知 bot は raw-only） | ナレッジ汚染対策 |
@@ -932,7 +949,8 @@ CREATE TABLE projection_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 | `doctor` | 不整合（counts と events の乖離等）を報告のみ |
 | `reconcile --write-derived-metadata` | 明示操作として counts 等を Markdown へ書き戻す（§1.3 の経路で） |
 
-v0.2 §6.2 の「reindex が frontmatter を修正」は撤回。git 共有時に reindex が不要な Markdown 差分を生まないことを保証する。
+v0.2 §6.2 の「reindex が frontmatter を修正」は撤回する。
+reindex は正本を変更せず、不要な Markdown 差分を生まないことを保証する。
 
 ---
 
@@ -1710,7 +1728,7 @@ YAML 書式について M1 では次を仕様化する: 「ツール経由の更
 
 ###### 8.1 問題
 
-evidence の正本はイベントログなのに、追加を Markdown CAS 経路に通すと、人間が本文を編集した直後の正当な evidence 取り込みが ETag conflict で失敗する。ingest のたびに md 差分も発生し、git 共有時のノイズになる。
+evidence の正本はイベントログなのに、追加を Markdown CAS 経路に通すと、人間が本文を編集した直後の正当な evidence 取り込みが ETag conflict で失敗する。ingest のたびに md 差分も発生し、人間が確認する本文の変更履歴へ派生値の更新が混ざる。
 
 ###### 8.2 仕様（推奨案を採用）
 
@@ -1738,7 +1756,7 @@ updated_at: …
 
 **frontmatter に置かないもの**（events / projection から合成）: `evidence_count` / `violation_count` / `applied_count` / `sources` / `representative_evidence`。
 
-`reconcile --write-derived-metadata` は「git 共有向けに派生値スナップショットを明示的に書き込みたい場合」の任意操作として残す（通常の ingest では一切書かない）。related_ids は finalize の overlaps 判定時、**新規作成される proposed 文書側にのみ**書き、既存 active 文書の md には触れない。
+`reconcile --write-derived-metadata` は、派生値スナップショットを明示的に書き込みたい場合の任意操作として残す（通常の ingest では一切書かない）。related_ids は finalize の overlaps 判定時、**新規作成される proposed 文書側にのみ**書き、既存 active 文書の md には触れない。
 
 利点: evidence 追加が人間編集と競合しない / ingest ごとの md 差分ゼロ / canonical transaction の file_writes が減り簡素になる。
 
