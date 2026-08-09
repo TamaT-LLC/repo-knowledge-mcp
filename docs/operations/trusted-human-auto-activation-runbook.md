@@ -6,6 +6,12 @@
 
 この設定は利用者ごとの trust policy であり、チーム共通の承認状態を表さない。
 
+## 適用開始条件
+
+本 runbook の有効化手順は、[#89](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/89)で severity を含む最終候補に対する安全条件の再判定が実装され、M3-AC-005 と M3-AC-006 が通過したリリースにだけ適用する。
+
+現行の M2 実装は severity が得られる前に initial knowledge status を決定するため、この条件を満たすリリースへ更新するまでは `autoActivateTrustedHuman` を `false` のまま維持し、以下の有効化手順を実行してはならない。
+
 ## 不変条件（コード側）
 
 - `trust.autoActivateTrustedHuman` の**出荷既定値は `false`** であり、
@@ -24,18 +30,19 @@
 
 ## 有効化を検討してよくなる前提条件（すべて必須）
 
-1. **quality gate の継続通過**: `npm run quality:gate` が exit 0
+1. **M3 safety implementation**: #89 の変更を含むリリースであり、severity `must` が proposed のまま review inbox に残ることを policy test と product E2E で確認済みであること
+2. **quality gate の継続通過**: `npm run quality:gate` が exit 0
    （`status: "pass"`）であり、直近の CI（Node 22 / 24 の両方）でも
    gate が通過し続けていること。gate が失敗している間は検討自体を凍結する
-2. **live 実測に基づく閾値**: thresholds の `source` が
+3. **live 実測に基づく閾値**: thresholds の `source` が
    `live_measurement` へ更新済みであること（fixture replay ベースの
    `m2-thresholds-v1` のままでは有効化を検討しない）。更新は
    [golden baseline runbook](./golden-baseline-runbook.md) の
    手順 4 と運用規約 4.1 に従う
-3. **人間による precision 確認**: 実 PR 由来の proposed ルール
+4. **人間による precision 確認**: 実 PR 由来の proposed ルール
    （最低直近 10 PR 分）を人間が確認し、trusted human 由来 candidate の
    precision が運用上十分と判断できること（設計 §2.3 の opt-in 条件）
-4. **M2 運用実績**: cron 同期での 2 週間運用（設計 §19 M2 完了条件）を
+5. **M2 運用実績**: cron 同期での 2 週間運用（設計 §19 M2 完了条件）を
    経ており、ランキング・抽出品質に未解決の回帰報告がないこと
 
 ## 有効化の手順

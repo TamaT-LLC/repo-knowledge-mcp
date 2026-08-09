@@ -99,7 +99,11 @@ setup は、同一人物の alias と bot identity を区別し、未知 bot と
 
 `trust.autoActivateTrustedHuman` の出荷既定値は `false` のまま維持する。
 
-利用者は、M2 pilot が go 判定され、live measurement に基づく quality gate が通過している場合に限り、自分の config で自動 active 化を有効にできる。
+現行の M2 実装は、蒸留結果から `severity` が得られる前に initial knowledge status を決定する。
+
+そのため、[#89](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/89)で severity を含む最終候補に対して安全条件を再判定し、M3-AC-005 と M3-AC-006 が通るまでは、利用者は `autoActivateTrustedHuman` を有効にしてはならない。
+
+この実装条件を満たした後も、利用者は、M2 pilot が go 判定され、live measurement に基づく quality gate が通過している場合に限り、自分の config で自動 active 化を有効にできる。
 
 自動 active 化の対象は、originator が trusted human であり、thread 内の全 comment が trusted human に分類され、severity が `must` ではない候補に限定する。
 
