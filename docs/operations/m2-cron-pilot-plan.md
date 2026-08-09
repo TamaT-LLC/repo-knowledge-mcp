@@ -8,9 +8,9 @@ M2 完了条件「cron 同期で 2 週間運用し、ランキングが体感に
 
 ## pilot 識別子
 
-- `pilot_id`: `m2-cron-pilot-001`
+- `pilot_id`: `m2-cron-pilot-002`
 - 期間: 開始日（`--since` を確定した初回同期の翌 UTC 日）から **14 UTC 日**
-- 日次記録 log: `~/.repo-knowledge/pilot/m2-cron-pilot-001.jsonl`（追記専用 JSONL）
+- 日次記録 log: `~/.repo-knowledge/pilot/m2-cron-pilot-002.jsonl`（追記専用 JSONL）
 
 開始日・終了日は pilot 開始時に本節へ追記し、以後変更しない。
 中断した場合は新しい `pilot_id`（`-002` 以降）で最初からやり直す。
@@ -26,6 +26,19 @@ M2 完了条件「cron 同期で 2 週間運用し、ランキングが体感に
   同一の wrapper script（`sync-cron.sh`）と日次記録 script を launchd LaunchAgent
   （`jp.tamat.repo-knowledge.sync`: `StartInterval` 900 秒 / `jp.tamat.repo-knowledge.pilot-daily`:
   09:20 JST = 00:20 UTC）で起動する。実行内容・ログ・記録経路は crontab 例と同一
+
+### 再開始履歴
+
+2026-08-09 00:20 UTC に、`m2-cron-pilot-001` の日次記録 script が開始日前日の 2026-08-08 を先行記録した。
+
+この記録を `--start 2026-08-09 --days 14` で集約すると、summarizer は `PILOT_DATE_OUT_OF_WINDOW` で拒否する。
+したがって、`m2-cron-pilot-001` は M2 完了判定に使用しない。
+
+無効な記録は監査証跡として `~/.repo-knowledge/pilot/m2-cron-pilot-001.jsonl` に残し、編集または削除しない。
+日次記録 script には固定期間外の日付を追記せず正常終了する guard を追加した。
+
+`m2-cron-pilot-002` は 2026-08-09 の UTC 日初から存在する sync log を使って同日に再開始する。
+開始日の観測を失っていないため、終了日は 2026-08-22 のままとする。
 
 ## 固定条件
 
@@ -122,9 +135,10 @@ incident として最終 report に記録する:
 $ repo-knowledge stats TamaT-LLC/repo-knowledge-mcp > /tmp/stats-$(date -u +%F).json
 $ npm run --silent quality:gate > /tmp/quality-gate-$(date -u +%F).json
 $ npm run --silent pilot:daily -- record \
-    --log ~/.repo-knowledge/pilot/m2-cron-pilot-001.jsonl \
-    --pilot m2-cron-pilot-001 \
+    --log ~/.repo-knowledge/pilot/m2-cron-pilot-002.jsonl \
+    --pilot m2-cron-pilot-002 \
     --date $(date -u +%F) \
+    --start 2026-08-09 --days 14 \
     --sync-log ~/log/repo-knowledge-sync-$(date -u +%F).jsonl \
     --stats /tmp/stats-$(date -u +%F).json \
     --quality-gate /tmp/quality-gate-$(date -u +%F).json
@@ -133,12 +147,14 @@ $ npm run --silent pilot:daily -- record \
 - 記録できなかった日は放置せず、翌日以降に **欠測理由付き**で記録する
   （`--missing --reason "..."`）。summarize は理由のない欠落日を
   `unrecorded_dates` として検出する
+- launchd 用 script は record command に `--start 2026-08-09 --days 14` を渡し、CLI が期間外の日付を追記前に拒否する
+- launchd 用 script 自身も記録対象日を固定期間 `2026-08-09..2026-08-22` と照合し、期間外なら log へ追記せず正常終了する
 - 1 日 1 record。同一日の再記録は CLI が `PILOT_DUPLICATE_DATE` で拒否する
 - 期間終了後（または進捗確認時）に集約する:
 
 ```console
 $ npm run --silent pilot:daily -- summarize \
-    --log ~/.repo-knowledge/pilot/m2-cron-pilot-001.jsonl \
+    --log ~/.repo-knowledge/pilot/m2-cron-pilot-002.jsonl \
     --start <開始日> --days 14 --require-complete
 ```
 
