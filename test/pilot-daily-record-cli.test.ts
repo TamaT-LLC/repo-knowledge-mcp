@@ -10,6 +10,7 @@ import { repositoryRoot } from "./support/quality-gate-fixtures.js";
 
 const CLI = join(repositoryRoot, "dist", "pilot-daily-record-cli.js");
 const PILOT_ID = "m2-cron-pilot-cli-test";
+const RECORD_WINDOW_ARGS = ["--start", "2026-08-01", "--days", "14"] as const;
 
 async function runCli(argv: readonly string[]): Promise<{
   exitCode: number | undefined;
@@ -106,6 +107,7 @@ describe("pilot daily record CLI", () => {
       PILOT_ID,
       "--date",
       "2026-08-01",
+      ...RECORD_WINDOW_ARGS,
       "--sync-log",
       syncLogPath,
       "--stats",
@@ -140,6 +142,7 @@ describe("pilot daily record CLI", () => {
       PILOT_ID,
       "--date",
       "2026-08-01",
+      ...RECORD_WINDOW_ARGS,
       "--missing",
       "--reason",
       "duplicate attempt",
@@ -158,6 +161,7 @@ describe("pilot daily record CLI", () => {
       PILOT_ID,
       "--date",
       "2026-08-02",
+      ...RECORD_WINDOW_ARGS,
       "--missing",
       "--reason",
       "operator offline",
@@ -169,6 +173,56 @@ describe("pilot daily record CLI", () => {
     const record = JSON.parse(stdout) as PilotDailyRecord;
     expect(record.status).toBe("missing");
   });
+
+  it("rejects an out-of-window date before creating the append-only log", async () => {
+    const outOfWindowLog = join(workingDirectory, "out-of-window.jsonl");
+    const { exitCode, stderr } = await runCli([
+      "record",
+      "--log",
+      outOfWindowLog,
+      "--pilot",
+      PILOT_ID,
+      "--date",
+      "2026-07-31",
+      ...RECORD_WINDOW_ARGS,
+      "--missing",
+      "--reason",
+      "scheduler fired before pilot start",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("PILOT_DATE_OUT_OF_WINDOW");
+    await expect(readFile(outOfWindowLog, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it.each(["2026-02-30", "2026/08/01"])(
+    "reports invalid calendar day %s before applying the window guard",
+    async (date) => {
+      const invalidDateLog = join(workingDirectory, "invalid-date.jsonl");
+      const { exitCode, stderr } = await runCli([
+        "record",
+        "--log",
+        invalidDateLog,
+        "--pilot",
+        PILOT_ID,
+        "--date",
+        date,
+        ...RECORD_WINDOW_ARGS,
+        "--missing",
+        "--reason",
+        "invalid scheduler date",
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("PILOT_RECORD_INVALID");
+      expect(stderr).not.toContain("PILOT_DATE_OUT_OF_WINDOW");
+      await expect(readFile(invalidDateLog, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    },
+  );
 
   it("summarizes the log and enforces coverage with --require-complete", async () => {
     const complete = await runCli([
@@ -217,6 +271,7 @@ describe("pilot daily record CLI", () => {
       PILOT_ID,
       "--date",
       "2026-08-05",
+      ...RECORD_WINDOW_ARGS,
       "--missing",
       "--reason",
       reason,
@@ -254,6 +309,7 @@ describe("pilot daily record CLI", () => {
       PILOT_ID,
       "--date",
       "2026-08-06",
+      ...RECORD_WINDOW_ARGS,
       "--missing",
       "--reason",
       "alias contention",
@@ -291,6 +347,7 @@ describe("pilot daily record CLI", () => {
       PILOT_ID,
       "--date",
       "2026-08-07",
+      ...RECORD_WINDOW_ARGS,
       "--missing",
       "--reason",
       "dangling alias contention",
@@ -325,6 +382,7 @@ describe("pilot daily record CLI", () => {
       PILOT_ID,
       "--date",
       "2026-08-08",
+      ...RECORD_WINDOW_ARGS,
       "--missing",
       "--reason",
       "cycle",
@@ -343,6 +401,7 @@ describe("pilot daily record CLI", () => {
       PILOT_ID,
       "--date",
       "2026-08-01",
+      ...RECORD_WINDOW_ARGS,
       "--sync-log",
       join(workingDirectory, "does-not-exist.jsonl"),
       "--stats",
@@ -366,10 +425,26 @@ describe("pilot daily record CLI", () => {
       PILOT_ID,
       "--date",
       "2026-08-03",
+      ...RECORD_WINDOW_ARGS,
       "--missing",
     ]);
     expect(missingReason.exitCode).toBe(2);
     expect(missingReason.stderr).toContain("--reason is required");
+
+    const missingWindow = await runCli([
+      "record",
+      "--log",
+      join(workingDirectory, "missing-window.jsonl"),
+      "--pilot",
+      PILOT_ID,
+      "--date",
+      "2026-08-03",
+      "--missing",
+      "--reason",
+      "missing window declaration",
+    ]);
+    expect(missingWindow.exitCode).toBe(2);
+    expect(missingWindow.stderr).toContain("--start is required");
 
     const badDays = await runCli([
       "summarize",

@@ -4,8 +4,10 @@ import { basename, dirname, join, resolve } from "node:path";
 import {
   DEFAULT_PILOT_DURATION_DAYS,
   PilotRecordError,
+  UtcDaySchema,
   buildMissingDailyRecord,
   buildObservedDailyRecord,
+  listPilotWindowDates,
   parsePilotLog,
   type PilotDailyRecord,
 } from "./pilot-daily-record.js";
@@ -15,10 +17,12 @@ import { withPosixFileLock } from "./posix-file-lock.js";
 const USAGE = [
   "Usage:",
   "  pilot-daily-record-cli record --log <pilot-log.jsonl> --pilot <id> --date <YYYY-MM-DD>",
+  "                               --start <YYYY-MM-DD> [--days <n>]",
   "                               --sync-log <sync-YYYY-MM-DD.jsonl> --stats <stats.json>",
   "                               [--quality-gate <report.json>] [--notes <text>]",
   "                               [--recorded-at <iso>]",
   "  pilot-daily-record-cli record --log <pilot-log.jsonl> --pilot <id> --date <YYYY-MM-DD>",
+  "                               --start <YYYY-MM-DD> [--days <n>]",
   "                               --missing --reason <text> [--notes <text>] [--recorded-at <iso>]",
   "  pilot-daily-record-cli summarize --log <pilot-log.jsonl> --start <YYYY-MM-DD>",
   "                               [--days <n>] [--require-complete]",
@@ -52,6 +56,7 @@ const MAX_SYMLINK_RESOLUTION_DEPTH = 40;
 interface RecordArguments {
   readonly command: "record";
   readonly date: string;
+  readonly days: number;
   readonly logPath: string;
   readonly missing: boolean;
   readonly notes?: string;
@@ -60,6 +65,7 @@ interface RecordArguments {
   readonly reason?: string;
   readonly recordedAt?: string;
   readonly statsPath?: string;
+  readonly startDate: string;
   readonly syncLogPath?: string;
 }
 
@@ -94,17 +100,19 @@ try {
 }
 
 async function runRecord(parsed: RecordArguments): Promise<void> {
+  const date = parseRecordDate(parsed.date);
+  assertRecordDateInWindow(date, parsed.startDate, parsed.days);
   const recordedAt = parsed.recordedAt ?? new Date().toISOString();
   const record = parsed.missing
     ? buildMissingDailyRecord({
-        date: parsed.date,
+        date,
         ...(parsed.notes === undefined ? {} : { notes: parsed.notes }),
         pilotId: parsed.pilotId,
         reason: parsed.reason!,
         recordedAt,
       })
     : buildObservedDailyRecord({
-        date: parsed.date,
+        date,
         ...(parsed.notes === undefined ? {} : { notes: parsed.notes }),
         pilotId: parsed.pilotId,
         ...(parsed.qualityGatePath === undefined
@@ -128,6 +136,28 @@ async function runRecord(parsed: RecordArguments): Promise<void> {
     },
   );
   process.stdout.write(`${JSON.stringify(record, null, 2)}\n`);
+}
+
+function parseRecordDate(value: string): string {
+  const parsed = UtcDaySchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  throw new PilotRecordError(
+    "PILOT_RECORD_INVALID",
+    `date: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
+  );
+}
+
+function assertRecordDateInWindow(
+  date: string,
+  startDate: string,
+  days: number,
+): void {
+  const expectedDates = listPilotWindowDates(startDate, days);
+  if (expectedDates.includes(date)) return;
+  throw new PilotRecordError(
+    "PILOT_DATE_OUT_OF_WINDOW",
+    `record date ${date} is outside the declared pilot window ${expectedDates[0]!}..${expectedDates.at(-1)!}`,
+  );
 }
 
 /**
@@ -258,6 +288,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 
 function parseRecordArguments(argv: readonly string[]): RecordArguments {
   let date: string | undefined;
+  let days = DEFAULT_PILOT_DURATION_DAYS;
   let logPath: string | undefined;
   let missing = false;
   let notes: string | undefined;
@@ -266,12 +297,17 @@ function parseRecordArguments(argv: readonly string[]): RecordArguments {
   let reason: string | undefined;
   let recordedAt: string | undefined;
   let statsPath: string | undefined;
+  let startDate: string | undefined;
   let syncLogPath: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
     switch (argument) {
       case "--date":
         date = requireValue(argv, index, argument);
+        index += 1;
+        break;
+      case "--days":
+        days = parseDays(requireValue(argv, index, argument));
         index += 1;
         break;
       case "--log":
@@ -305,6 +341,10 @@ function parseRecordArguments(argv: readonly string[]): RecordArguments {
         statsPath = requireValue(argv, index, argument);
         index += 1;
         break;
+      case "--start":
+        startDate = requireValue(argv, index, argument);
+        index += 1;
+        break;
       case "--sync-log":
         syncLogPath = requireValue(argv, index, argument);
         index += 1;
@@ -316,6 +356,7 @@ function parseRecordArguments(argv: readonly string[]): RecordArguments {
   if (logPath === undefined) throw new UsageError("--log is required");
   if (pilotId === undefined) throw new UsageError("--pilot is required");
   if (date === undefined) throw new UsageError("--date is required");
+  if (startDate === undefined) throw new UsageError("--start is required");
   if (missing) {
     if (reason === undefined) {
       throw new UsageError("--reason is required with --missing");
@@ -336,6 +377,7 @@ function parseRecordArguments(argv: readonly string[]): RecordArguments {
   return {
     command: "record",
     date,
+    days,
     logPath,
     missing,
     ...(notes === undefined ? {} : { notes }),
@@ -344,6 +386,7 @@ function parseRecordArguments(argv: readonly string[]): RecordArguments {
     ...(reason === undefined ? {} : { reason }),
     ...(recordedAt === undefined ? {} : { recordedAt }),
     ...(statsPath === undefined ? {} : { statsPath }),
+    startDate,
     ...(syncLogPath === undefined ? {} : { syncLogPath }),
   };
 }
@@ -357,13 +400,7 @@ function parseSummarizeArguments(argv: readonly string[]): SummarizeArguments {
     const argument = argv[index]!;
     switch (argument) {
       case "--days": {
-        const value = requireValue(argv, index, argument);
-        days = Number.parseInt(value, 10);
-        if (!Number.isInteger(days) || days < 1 || String(days) !== value) {
-          throw new UsageError(
-            `--days must be a positive integer, got ${value}`,
-          );
-        }
+        days = parseDays(requireValue(argv, index, argument));
         index += 1;
         break;
       }
@@ -385,6 +422,14 @@ function parseSummarizeArguments(argv: readonly string[]): SummarizeArguments {
   if (logPath === undefined) throw new UsageError("--log is required");
   if (startDate === undefined) throw new UsageError("--start is required");
   return { command: "summarize", days, logPath, requireComplete, startDate };
+}
+
+function parseDays(value: string): number {
+  const days = Number.parseInt(value, 10);
+  if (!Number.isInteger(days) || days < 1 || String(days) !== value) {
+    throw new UsageError(`--days must be a positive integer, got ${value}`);
+  }
+  return days;
 }
 
 function requireValue(
