@@ -1314,6 +1314,7 @@ NFKC と lowercase を適用したあと、文字・数字からなる 3 code po
 user が入力した `OR` や記号は operator として実行されない。
 
 この `literal_terms` mode は read plane の `get_rules.task` と `search_knowledge.query` に適用する。
+read plane は term OR で広がった active 候補を有限件で先に切らず、一貫した exhaustive snapshot を順位付けしてから caller の最終 limit を適用する。
 蒸留時の merge candidate search と admin plane の possible-match search は、候補集合を不必要に広げないため従来の `literal_phrase` mode を維持する。
 低レベル search API の既定も後方互換のため `literal_phrase` とする。
 
