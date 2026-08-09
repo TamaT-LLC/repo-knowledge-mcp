@@ -92,20 +92,29 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin
 */15 * * * * "$HOME/.repo-knowledge/pilot/sync-cron.sh"
 ```
 
-### provider 経路
+### 蒸留経路
 
 - cron 同期は **provider 送信なし**（`llm.allowCloudTransmission` は無効のまま）。
   runbook の推奨どおり、cron は raw 保存と job 化までを担う
-- 蒸留は operator が対話セッションで実行する（頻度は任意、ただし
-  backlog（`pending_jobs`）が日次記録で単調増加し続けないよう週 2 回以上を目安とする）
+- operator は Anthropic API key ではなく Claude Max subscription を利用しているため、
+  蒸留は Claude Code から MCP の **host-assisted distillation** を対話実行する。
+  `llm.mode` / `llm.allowCloudTransmission` は無効のままとする
+- 実行時だけ `hostAssistedDistillation.enabled` と
+  `hostAssistedDistillation.allowReviewContentTransmission` を明示的に有効化し、
+  終了後に無効へ戻す。`includeDiffHunk` は `false`、1 job ずつ lease して完了後に
+  次を取得する
+- 頻度は任意だが、backlog（`pending_jobs`）が日次記録で単調増加し続けないよう
+  週 2 回以上を目安とする
+- この経路確定は初回蒸留前の 2026-08-09 に行った。pilot window、固定 query、
+  rubric を変更しないため pilot は再開始しない
 
 ### privacy 条件
 
 - GitHub トークンを保存しない（認証は `gh` CLI に委譲）
 - cron 環境・log ファイルに review content（コメント本文）を書かない。
   sync summary は件数と PR 番号のみ、日次記録 log も件数・PR 番号・digest のみを持つ
-- クラウド送信は上記 provider 経路の明示実行のみ。pilot 期間中に
-  `allowCloudTransmission` の既定を変更しない
+- review content の送信は上記 host-assisted 経路の明示実行時だけ許可する。
+  pilot 期間中に provider の `allowCloudTransmission` の既定を変更しない
 - 日次記録 log と最終 report に secret・コード断片を含めない
 
 ### rollback 条件

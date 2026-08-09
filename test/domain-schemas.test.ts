@@ -209,6 +209,17 @@ describe("distillation schemas", () => {
         skip_reason: "pr_specific",
       }),
     ).toThrow("candidate output must not include skip_reason");
+    for (const serverReason of [
+      "superseded_context",
+      "source_removed",
+    ] as const) {
+      expect(() =>
+        DistillationOutputSchema.parse({
+          candidates: [],
+          skip_reason: serverReason,
+        }),
+      ).toThrow();
+    }
   });
 
   it("enforces relation-specific merge targets", () => {
@@ -260,6 +271,28 @@ describe("distillation schemas", () => {
       }),
     ).toMatchObject({ state: "processing" });
   });
+
+  it.each(["superseded_context", "source_removed"] as const)(
+    "accepts the server-only %s reason for skipped jobs",
+    (skipReason) => {
+      expect(
+        DistillJobSchema.parse({
+          attempts: 0,
+          distillation_key: SHA_A,
+          job_id: createDomainId("job"),
+          lease_generation: 0,
+          repo_id: "R_kgDOExample",
+          skip_reason: skipReason,
+          state: "skipped",
+          thread_id: "PRRT_example",
+          updated_at: NOW,
+        }),
+      ).toMatchObject({
+        skip_reason: skipReason,
+        state: "skipped",
+      });
+    },
+  );
 });
 
 describe("evidence and receipt schemas", () => {

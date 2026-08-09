@@ -459,7 +459,8 @@ const fingerprint = sha256(canonicalJson({
 | 状態 | 処理 |
 |---|---|
 | thread_id + fingerprint が既存 | スキップ |
-| thread_id は既存、fingerprint が変化 | 再蒸留候補として新 job 作成。旧 fingerprint 由来の evidence は削除せず `superseded_by` を付与 |
+| thread_id は既存、fingerprint が変化 | 再蒸留候補として新 job 作成。旧 fingerprint 由来の未完了 job は `skipped / superseded_context` へ遷移し、active lease を fence する。旧 evidence は削除せず、新 job の finalize で `superseded_by` を付与 |
+| complete snapshot から thread_id が消えた | 旧未完了 job を `skipped / source_removed` へ遷移し、active lease を fence する |
 | thread_id が新規 | 新規蒸留 job |
 
 #### 9. 蒸留パイプライン（distill）
@@ -497,6 +498,13 @@ const SkipReason = z.enum([
 ```
 
 **skipped（内容評価の結果ナレッジでない）と failed（システム/モデルの処理失敗）を区別する。** job 状態は `pending | processing | done | skipped | failed`。属性として `attempts / last_error / next_retry_at / lease_expires_at` を保持。JSON 検証失敗は 1 回だけ再試行（エラー内容をプロンプトに添付）し、それでも失敗なら **failed**（skipped にしない）。プロセスが蒸留中に落ちた場合、`lease_expires_at` を過ぎた processing を pending へ戻す。
+
+`superseded_context` と `source_removed` は ingest が付ける server-side の job 終了理由であり、
+モデル出力用の `SkipReason` には含めない。新しい distillation key が同じ thread に
+作られる場合、または complete snapshot から thread が消えた場合、旧 context の
+`pending | processing | awaiting_finalize` job を raw observation と同じ transaction で
+終了させる。これにより古い job が backlog に残り続けず、遅延 worker の submit も
+lease fencing で拒否される。
 
 ##### 9.3 プロンプト設計方針（品質の最重要レバー）
 

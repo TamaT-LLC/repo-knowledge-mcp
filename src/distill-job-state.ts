@@ -3,6 +3,7 @@ import { z } from "zod";
 import { compareCodeUnits } from "./canonical.js";
 import type { CanonicalJsonlRecord } from "./canonical-jsonl.js";
 import {
+  DistillJobSkipReasonSchema,
   DistillJobSchema,
   EventIdSchema,
   IsoDateTimeSchema,
@@ -25,6 +26,7 @@ export const DISTILLATION_JOB_AWAITING_FINALIZE =
 export const DISTILLATION_JOB_SUCCEEDED = "DistillationJobSucceeded";
 export const DISTILLATION_JOB_SKIPPED = "DistillationJobSkipped";
 export const DISTILLATION_JOB_FAILED = "DistillationJobFailed";
+export const DISTILLATION_JOB_OBSOLETED = "DistillationJobObsoleted";
 export const DISTILLATION_JOB_REDISTILL_REQUESTED =
   "DistillationJobRedistillRequested";
 
@@ -39,6 +41,7 @@ export const DISTILLATION_JOB_RECORD_TYPES = new Set<string>([
   DISTILLATION_JOB_SUCCEEDED,
   DISTILLATION_JOB_SKIPPED,
   DISTILLATION_JOB_FAILED,
+  DISTILLATION_JOB_OBSOLETED,
   DISTILLATION_JOB_REDISTILL_REQUESTED,
 ]);
 
@@ -91,6 +94,22 @@ const FailedPayloadSchema = GenerationPayloadSchema.extend({
   next_retry_at: IsoDateTimeSchema.nullable(),
 }).strict();
 
+const ObsoletedPayloadSchema = z.discriminatedUnion("reason", [
+  z
+    .object({
+      job_id: JobIdSchema,
+      reason: z.literal("superseded_context"),
+      superseded_by_distillation_key: Sha256DigestSchema,
+    })
+    .strict(),
+  z
+    .object({
+      job_id: JobIdSchema,
+      reason: z.literal("source_removed"),
+    })
+    .strict(),
+]);
+
 const RedistillRequestedPayloadSchema = GenerationPayloadSchema.extend({
   distillation_key: Sha256DigestSchema,
 }).strict();
@@ -112,6 +131,7 @@ export interface DistillationJobEventPayloadByType {
   >;
   readonly DistillationJobSkipped: z.infer<typeof SkippedPayloadSchema>;
   readonly DistillationJobSucceeded: z.infer<typeof GenerationPayloadSchema>;
+  readonly DistillationJobObsoleted: z.infer<typeof ObsoletedPayloadSchema>;
 }
 
 export type DistillationJobEventType = keyof DistillationJobEventPayloadByType;
@@ -272,6 +292,7 @@ function transitionRank(record: CanonicalJsonlRecord): number {
     case DISTILLATION_JOB_SUCCEEDED:
     case DISTILLATION_JOB_SKIPPED:
     case DISTILLATION_JOB_FAILED:
+    case DISTILLATION_JOB_OBSOLETED:
       return 3;
     case DISTILLATION_JOB_LEASE_EXPIRED:
       return 4;
@@ -415,6 +436,33 @@ export function applyDistillationJobRecord(
         assertMatchingJob(current, payload.job_id, record);
         assertActiveGeneration(current, payload.lease_generation, record);
         return applyFailed(current, payload, recordedAt, record);
+      }
+      case DISTILLATION_JOB_OBSOLETED: {
+        const payload = ObsoletedPayloadSchema.parse(record.payload);
+        assertMatchingJob(current, payload.job_id, record);
+        if (
+          payload.reason === "superseded_context" &&
+          payload.superseded_by_distillation_key === current.distillation_key
+        ) {
+          throw transition(
+            record,
+            "a job cannot be superseded by its own distillation key",
+          );
+        }
+        if (
+          current.state === "done" ||
+          current.state === "skipped" ||
+          current.state === "failed"
+        ) {
+          throw transition(record, "only unfinished jobs can be superseded");
+        }
+        return terminalJob(
+          current,
+          "skipped",
+          recordedAt,
+          null,
+          payload.reason,
+        );
       }
       case DISTILLATION_JOB_REDISTILL_REQUESTED: {
         const payload = RedistillRequestedPayloadSchema.parse(record.payload);
@@ -666,7 +714,7 @@ function terminalJob(
   state: "done" | "skipped",
   updatedAt: string,
   lastError: string | null,
-  skipReason: z.infer<typeof SkipReasonSchema> | null,
+  skipReason: z.infer<typeof DistillJobSkipReasonSchema> | null,
 ): DistillJob {
   return DistillJobSchema.parse({
     ...jobIdentity(current),
@@ -744,6 +792,10 @@ function parseEventPayload<TType extends DistillationJobEventType>(
       ) as DistillationJobEventPayloadByType[TType];
     case DISTILLATION_JOB_FAILED:
       return FailedPayloadSchema.parse(
+        payload,
+      ) as DistillationJobEventPayloadByType[TType];
+    case DISTILLATION_JOB_OBSOLETED:
+      return ObsoletedPayloadSchema.parse(
         payload,
       ) as DistillationJobEventPayloadByType[TType];
     case DISTILLATION_JOB_REDISTILL_REQUESTED:

@@ -297,6 +297,17 @@ export const SkipReasonSchema = z.enum([
   "insufficient_context",
 ]);
 
+/**
+ * Job-only terminal reasons used when server-side ingest makes unfinished
+ * work obsolete. They are intentionally separate from `SkipReasonSchema`: a
+ * model may classify review content with a public skip reason, but may never
+ * claim that canonical context changed or disappeared.
+ */
+export const DistillJobSkipReasonSchema = z.union([
+  SkipReasonSchema,
+  z.enum(["superseded_context", "source_removed"]),
+]);
+
 export const ScopePatternSchema = NonEmptyStringSchema.max(512).refine(
   (value) => !value.startsWith("!"),
   "negative scope patterns are not supported in M1",
@@ -417,7 +428,7 @@ export const DistillJobSchema = z
     lease_token_hash: Sha256DigestSchema.optional(),
     next_retry_at: IsoDateTimeSchema.nullable().optional(),
     repo_id: RepositoryIdSchema,
-    skip_reason: SkipReasonSchema.nullable().optional(),
+    skip_reason: DistillJobSkipReasonSchema.nullable().optional(),
     state: DistillJobStateSchema,
     thread_id: NonEmptyStringSchema,
     updated_at: IsoDateTimeSchema,
@@ -660,6 +671,7 @@ export type KnowledgeCategory = z.infer<typeof KnowledgeCategorySchema>;
 export type KnowledgeStatus = z.infer<typeof KnowledgeStatusSchema>;
 export type Severity = z.infer<typeof SeveritySchema>;
 export type SkipReason = z.infer<typeof SkipReasonSchema>;
+export type DistillJobSkipReason = z.infer<typeof DistillJobSkipReasonSchema>;
 export type GeneratedCodeExample = z.infer<typeof GeneratedCodeExampleSchema>;
 export type DistilledCandidate = z.infer<typeof DistilledCandidateSchema>;
 export type DistillationOutput = z.infer<typeof DistillationOutputSchema>;
