@@ -113,6 +113,7 @@ export const REPO_KNOWLEDGE_CLI_EXIT = Object.freeze({
 });
 
 export interface RepoKnowledgeCliIo {
+  close?(): void;
   confirm?(request: SetupConfirmationRequest): Promise<boolean>;
   input?(request: SetupTextInputRequest): Promise<string>;
   readonly stdinIsTTY: boolean;
@@ -357,6 +358,8 @@ export async function runRepoKnowledgeCli(
     const diagnostic = cliDiagnostic(error);
     options.io.writeStderr(`${diagnostic.code}: ${diagnostic.message}\n`);
     return diagnostic.exitCode;
+  } finally {
+    options.io.close?.();
   }
 }
 

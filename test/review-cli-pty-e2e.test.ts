@@ -140,6 +140,25 @@ describe("repo-knowledge review PTY E2E", () => {
     expect(rule(snapshot, CANDIDATE_A)).toBe("Concurrent human edit");
   }, 20_000);
 
+  it("preserves multiple answers pasted before later prompts", async () => {
+    const fixture = await createFixture({
+      candidates: [
+        { createdAt: T0, id: CANDIDATE_A, rule: "Approve pasted answer" },
+        { createdAt: T1, id: CANDIDATE_B, rule: "Reject pasted answer" },
+      ],
+    });
+    const session = await startPty(fixture);
+
+    await session.waitFor("Action [approve/reject/skip/edit/quit]");
+    session.send("approve\nreject\n");
+    const result = await session.finish();
+
+    expect(result.exitCode, result.output).toBe(0);
+    const snapshot = await fixture.store.readSnapshot();
+    expect(status(snapshot, CANDIDATE_A)).toBe("active");
+    expect(status(snapshot, CANDIDATE_B)).toBe("rejected");
+  }, 20_000);
+
   it("rejects pipes and --yes without mutating canonical status", async () => {
     const fixture = await createFixture({
       candidates: [
