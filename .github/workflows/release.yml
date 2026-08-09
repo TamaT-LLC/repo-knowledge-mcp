@@ -1,0 +1,134 @@
+name: Release npm package
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_NPM_VERSION: 11.19.0
+
+jobs:
+  verify:
+    name: verify release (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          registry-url: https://registry.npmjs.org
+      - name: Install trusted-publishing npm version
+        run: npm install --global "npm@${RELEASE_NPM_VERSION}"
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify immutable release identity
+        run: >-
+          npm run --silent release:verify --
+          --tag "${{ github.event.release.tag_name }}"
+          --commit "${{ github.sha }}"
+          --repository-visibility "${{ github.event.repository.visibility }}"
+      - name: Run source checks
+        run: npm run check
+      - name: Run golden evaluations
+        run: npm run golden
+      - name: Run quality gate
+        run: npm run quality:gate
+      - name: Smoke packed package
+        run: npm run package:smoke
+
+  publish:
+    name: publish exact tarball
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm
+    outputs:
+      name: ${{ steps.artifact.outputs.name }}
+      version: ${{ steps.artifact.outputs.version }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Install trusted-publishing npm version
+        run: npm install --global "npm@${RELEASE_NPM_VERSION}"
+      - name: Install dependencies
+        run: npm ci
+      - name: Re-verify immutable release identity
+        run: >-
+          npm run --silent release:verify --
+          --tag "${{ github.event.release.tag_name }}"
+          --commit "${{ github.sha }}"
+          --repository-visibility "${{ github.event.repository.visibility }}"
+      - name: Build and inspect release artifact
+        id: artifact
+        run: >-
+          node scripts/package-artifact-gate.mjs
+          --pack-destination "${RUNNER_TEMP}/npm-release"
+          --report "${RUNNER_TEMP}/npm-release/package-artifact-report.json"
+      - name: Smoke the exact release tarball
+        run: >-
+          node scripts/package-smoke.mjs
+          --tarball "${{ steps.artifact.outputs.tarball }}"
+          --expected-name "${{ steps.artifact.outputs.name }}"
+          --expected-version "${{ steps.artifact.outputs.version }}"
+      - name: Publish with npm trusted publishing and provenance
+        run: >-
+          npm publish "${{ steps.artifact.outputs.tarball }}"
+          --access public
+          --provenance
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-release-${{ github.event.release.tag_name }}
+          path: |
+            ${{ steps.artifact.outputs.report }}
+            ${{ steps.artifact.outputs.tarball }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  registry-smoke:
+    name: registry smoke (Node ${{ matrix.node-version }})
+    needs: publish
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          registry-url: https://registry.npmjs.org
+      - name: Install release npm version
+        run: npm install --global "npm@${RELEASE_NPM_VERSION}"
+      - name: Smoke exact version from npm registry
+        run: >-
+          node scripts/registry-smoke.mjs
+          --name "${{ needs.publish.outputs.name }}"
+          --version "${{ needs.publish.outputs.version }}"

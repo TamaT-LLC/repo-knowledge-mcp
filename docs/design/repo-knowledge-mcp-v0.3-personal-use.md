@@ -145,6 +145,18 @@ MCP plane は status を active または rejected へ変更しない。
 
 公開 package だけを使って guided setup、stdio MCP server、既存 CLI command を実行できる。
 
+release workflow は version、Git tag、commit、main への到達性、clean working tree、Node.js、npm、registry 上の version 未使用を公開前に検査する。
+
+公開 tarball は明示 allowlist に一致し、local knowledge、review content、fixture、database、credential を含まないことを dry-run と実 artifact の双方で検査する。
+
+通常公開は GitHub Actions OIDC による npm trusted publishing と provenance を使い、長期 npm credential を repository secret に保存しない。
+
+provenance を生成できない private repository からの公開は拒否する。
+
+publish 後は registry の exact version から CLI と stdio MCP server を再検証する。
+
+運用手順と rollback は [npm release runbook](../operations/npm-release-runbook.md) に定義する。
+
 ## 非機能要件
 
 ### M3-NFR-001 Privacy
@@ -217,5 +229,6 @@ Windows、network filesystem、同期フォルダは引き続き保証対象外�
 - [repo-knowledge-mcp 統合仕様書 v0.3](./repo-knowledge-mcp-v0.3.md)
 - [M2 受け入れ matrix](../testing/m2-acceptance-matrix.md)
 - [trusted-human auto activation runbook](../operations/trusted-human-auto-activation-runbook.md)
+- [npm release runbook](../operations/npm-release-runbook.md)
 - [M2 cron pilot plan](../operations/m2-cron-pilot-plan.md)
 - [M2 cron pilot report template](../operations/m2-cron-pilot-report-template.md)

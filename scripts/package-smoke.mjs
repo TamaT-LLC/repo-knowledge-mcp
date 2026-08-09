@@ -5,15 +5,24 @@ import { constants } from "node:fs";
 import {
   access,
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, delimiter, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { delimiter, join, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import {
+  EXPECTED_PACKAGE_NAME,
+  createPackageArtifact,
+  scanPackageSourceFiles,
+  validatePackageManifest,
+} from "./package-artifact-gate.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const smokeRepository = "owner/repository";
@@ -34,30 +43,47 @@ const expectedTools = [
 const expectedHelpCommands = ["sync [repo]", "stats [repo]", "distill [repo]"];
 
 async function main() {
+  const options = parseArguments(process.argv.slice(2));
   const temporaryRoot = await mkdtemp(join(tmpdir(), "rkm-package-smoke-"));
   try {
     const packDirectory = join(temporaryRoot, "pack");
     const installDirectory = join(temporaryRoot, "install");
     const runtimeDirectory = join(temporaryRoot, "runtime");
     const binDirectory = join(temporaryRoot, "bin");
+    const workspaceDirectory = join(temporaryRoot, "workspace");
+    const setupRunnerPath = join(temporaryRoot, "setup-runner.mjs");
     await Promise.all([
       mkdir(packDirectory, { recursive: true }),
       mkdir(installDirectory, { recursive: true }),
       mkdir(runtimeDirectory, { recursive: true }),
       mkdir(binDirectory, { recursive: true }),
+      mkdir(workspaceDirectory, { recursive: true }),
     ]);
     const fakeGhPath = join(binDirectory, "gh");
     await writeFile(fakeGhPath, fakeGhSource(), "utf8");
     await chmod(fakeGhPath, 0o755);
 
-    const packed = await runNpm(
-      ["pack", "--json", "--pack-destination", packDirectory],
-      repositoryRoot,
-    );
-    const packResult = parsePackResult(packed.stdout);
-    verifyPackageContents(packResult.files);
-    const tarball = join(packDirectory, basename(packResult.filename));
-    await access(tarball, constants.R_OK);
+    let installSpec;
+    let packageSource;
+    let expectedName = options.expectedName ?? EXPECTED_PACKAGE_NAME;
+    let expectedVersion = options.expectedVersion;
+    if (options.tarball !== undefined) {
+      installSpec = resolve(options.tarball);
+      packageSource = "tarball";
+      await access(installSpec, constants.R_OK);
+    } else if (options.packageSpec !== undefined) {
+      installSpec = options.packageSpec;
+      packageSource = "registry";
+    } else {
+      const artifact = await createPackageArtifact({
+        cwd: repositoryRoot,
+        packDestination: packDirectory,
+      });
+      installSpec = artifact.tarball;
+      packageSource = "local-pack";
+      expectedName = artifact.packResult.name;
+      expectedVersion = artifact.packResult.version;
+    }
 
     await writeFile(
       join(installDirectory, "package.json"),
@@ -65,19 +91,48 @@ async function main() {
       "utf8",
     );
     await runNpm(
-      ["install", "--no-audit", "--no-fund", "--loglevel=error", tarball],
+      ["install", "--no-audit", "--no-fund", "--loglevel=error", installSpec],
       installDirectory,
     );
 
     const installedPackagePath = join(
       installDirectory,
       "node_modules",
-      "repo-knowledge-mcp",
+      expectedName,
       "package.json",
     );
     const installedPackage = JSON.parse(
       await readFile(installedPackagePath, "utf8"),
     );
+    assert(
+      installedPackage.name === expectedName,
+      `installed package name was ${String(installedPackage.name)}, expected ${expectedName}`,
+    );
+    if (expectedVersion !== undefined) {
+      assert(
+        installedPackage.version === expectedVersion,
+        `installed package version was ${String(installedPackage.version)}, expected ${expectedVersion}`,
+      );
+    }
+    const installedPackageRoot = join(
+      installDirectory,
+      "node_modules",
+      expectedName,
+    );
+    await writeFile(
+      setupRunnerPath,
+      setupRunnerSource(
+        pathToFileURL(join(installedPackageRoot, "dist", "index.js")).href,
+      ),
+      "utf8",
+    );
+    const installedFiles = await collectPackageFiles(installedPackageRoot);
+    validatePackageManifest({
+      files: installedFiles,
+      name: installedPackage.name,
+      version: installedPackage.version,
+    });
+    await scanPackageSourceFiles(installedPackageRoot, installedFiles);
     assert(
       installedPackage.mcpName === "io.github.tamat-llc/repo-knowledge",
       "installed package lost mcpName",
@@ -101,7 +156,7 @@ async function main() {
       REPO_KNOWLEDGE_HOME: join(runtimeDirectory, ".repo-knowledge"),
     };
     const help = await run(executable, ["--help"], {
-      cwd: installDirectory,
+      cwd: workspaceDirectory,
       env: environment,
     });
     assert(help.stderr === "", "CLI help wrote to stderr");
@@ -115,10 +170,49 @@ async function main() {
         `installed CLI help does not document ${command}`,
       );
     }
+    const setupHelp = await run(executable, ["setup", "--help"], {
+      cwd: workspaceDirectory,
+      env: environment,
+    });
+    assert(
+      setupHelp.stderr === "" && setupHelp.stdout.includes("setup [repo]"),
+      "installed guided setup help was not available",
+    );
+    const reviewHelp = await run(executable, ["review", "--help"], {
+      cwd: workspaceDirectory,
+      env: environment,
+    });
+    assert(
+      reviewHelp.stderr === "" && reviewHelp.stdout.includes("review [repo]"),
+      "installed batch review help was not available",
+    );
+
+    const setup = await run(process.execPath, [setupRunnerPath], {
+      cwd: workspaceDirectory,
+      env: environment,
+    });
+    assert(setup.stderr === "", "installed guided setup wrote to stderr");
+    const setupJsonStart = setup.stdout.indexOf('{"config_path":');
+    assert(
+      setupJsonStart >= 0,
+      `installed guided setup returned no result document: ${setup.stdout}`,
+    );
+    const setupResult = asRecord(
+      JSON.parse(setup.stdout.slice(setupJsonStart).trim()),
+    );
+    const setupTransmission = asRecord(setupResult.transmission);
+    const setupSync = asRecord(asRecord(setupResult.initial_sync).summary);
+    assert(
+      asRecord(setupResult.repository).name === smokeRepository &&
+        setupTransmission.provider === false &&
+        setupTransmission.host_assisted === false &&
+        setupSync.jobs_created === 1,
+      "installed guided setup did not complete with safe transmission defaults",
+    );
 
     const client = new JsonRpcProcess(
       executable,
-      installDirectory,
+      workspaceDirectory,
       environment,
     );
     await client.start();
@@ -181,9 +275,10 @@ async function main() {
         rulesStructured.matched_count === 0 &&
           Array.isArray(rulesStructured.rules) &&
           rulesStructured.rules.length === 0 &&
-          readiness.state === "setup_required" &&
-          String(readiness.next_action).includes("repo-knowledge setup"),
-        "installed get_rules did not explain the empty repository state",
+          readiness.state === "learning" &&
+          typeof readiness.next_action === "string" &&
+          readiness.next_action.length > 0,
+        "installed get_rules did not report the initialized learning state",
       );
     } finally {
       await client.close();
@@ -197,17 +292,23 @@ async function main() {
       join(runtimeDirectory, ".repo-knowledge", "config.json"),
       constants.R_OK,
     );
+    await assertPathMissing(join(workspaceDirectory, ".repo-knowledge"));
 
     process.stdout.write(
       `${JSON.stringify(
         {
           cli_help: true,
-          m3_readiness: "setup_required",
+          guided_setup: true,
+          guided_setup_help: true,
+          m3_readiness: "learning",
           m2_tool_calls: ["sync_repo", "stats", "get_rules"],
           mcp_tools: expectedTools.length,
-          package: `${packResult.name}@${packResult.version}`,
-          package_files: packResult.files.length,
+          package: `${String(installedPackage.name)}@${String(installedPackage.version)}`,
+          package_files: installedFiles.length,
+          package_source: packageSource,
+          review_help: true,
           stdio_json_rpc: true,
+          workspace_clean: true,
         },
         null,
         2,
@@ -244,6 +345,13 @@ function fakeGhSource() {
 const REPOSITORY = ${JSON.stringify(smokeRepository)};
 const REPO_ID = "R_package_smoke_repository";
 const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  process.stdout.write("gh version 0.0.0-package-smoke\\n");
+  process.exit(0);
+}
+if (args[0] === "auth" && args[1] === "status") {
+  process.exit(0);
+}
 if (args[0] !== "api" || args[1] !== "graphql") {
   process.stderr.write("fake gh: unsupported invocation\\n");
   process.exit(1);
@@ -256,8 +364,20 @@ for (let index = 2; index < args.length; index += 1) {
   index += 1;
   if (pair.startsWith("query=")) query = pair.slice("query=".length);
 }
+const closedPage = { endCursor: null, hasNextPage: false };
+const pullRequest = {
+  baseRefOid: "base-package-smoke",
+  headRefOid: "head-package-smoke",
+  id: "PR_package_smoke",
+  mergedAt: "2026-08-08T01:00:00.000Z",
+  number: 1,
+  title: "Package smoke review",
+  updatedAt: "2026-08-08T00:00:00.000Z",
+};
 let data;
-if (query.includes("query ResolveRepository")) {
+if (query.includes("query RepoKnowledgeDoctor")) {
+  data = { viewer: { login: "package-smoke" } };
+} else if (query.includes("query ResolveRepository")) {
   data = { repository: { id: REPO_ID, nameWithOwner: REPOSITORY } };
 } else if (query.includes("query ListUpdatedPullRequests")) {
   data = {
@@ -265,8 +385,76 @@ if (query.includes("query ResolveRepository")) {
       id: REPO_ID,
       nameWithOwner: REPOSITORY,
       pullRequests: {
-        nodes: [],
-        pageInfo: { endCursor: null, hasNextPage: false },
+        nodes: [
+          {
+            id: pullRequest.id,
+            number: pullRequest.number,
+            updatedAt: pullRequest.updatedAt,
+          },
+        ],
+        pageInfo: closedPage,
+      },
+    },
+  };
+} else if (query.includes("query FetchPullRequestSnapshot")) {
+  data = {
+    repository: {
+      id: REPO_ID,
+      nameWithOwner: REPOSITORY,
+      pullRequest: {
+        ...pullRequest,
+        reviewThreads: {
+          nodes: [
+            {
+              comments: {
+                nodes: [
+                  {
+                    author: {
+                      __typename: "User",
+                      id: "U_package_smoke_reviewer",
+                      login: "package-smoke-reviewer",
+                    },
+                    authorAssociation: "MEMBER",
+                    body: "Validate input before using the repository helper.",
+                    createdAt: pullRequest.updatedAt,
+                    diffHunk: "@@ -1 +1 @@",
+                    id: "C_package_smoke_review",
+                    updatedAt: pullRequest.updatedAt,
+                    url: "https://github.com/" + REPOSITORY + "/pull/1#discussion_r1",
+                  },
+                ],
+                pageInfo: closedPage,
+              },
+              id: "RT_package_smoke",
+              isOutdated: false,
+              isResolved: true,
+              path: "src/index.ts",
+            },
+          ],
+          pageInfo: closedPage,
+        },
+        reviews: { nodes: [], pageInfo: closedPage },
+      },
+    },
+  };
+} else if (query.includes("query ValidatePullRequestSnapshot")) {
+  data = {
+    nodes: [
+      {
+        __typename: "PullRequestReviewThread",
+        comments: { totalCount: 1 },
+        id: "RT_package_smoke",
+        isOutdated: false,
+        isResolved: true,
+        path: "src/index.ts",
+      },
+    ],
+    repository: {
+      id: REPO_ID,
+      pullRequest: {
+        ...pullRequest,
+        reviewThreads: { totalCount: 1 },
+        reviews: { totalCount: 0 },
       },
     },
   };
@@ -278,57 +466,108 @@ process.stdout.write(JSON.stringify({ data }) + "\\n");
 `;
 }
 
-function parsePackResult(stdout) {
-  let value;
-  try {
-    value = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error("npm pack did not emit machine-readable JSON", {
-      cause: error,
-    });
-  }
-  const result = Array.isArray(value) ? value[0] : undefined;
-  if (
-    result === undefined ||
-    typeof result.filename !== "string" ||
-    typeof result.name !== "string" ||
-    typeof result.version !== "string" ||
-    !Array.isArray(result.files)
-  ) {
-    throw new TypeError("npm pack returned an invalid result envelope");
-  }
-  return result;
+function setupRunnerSource(indexUrl) {
+  return `import { runDefaultRepoKnowledgeCli } from ${JSON.stringify(indexUrl)};
+
+const confirmations = [];
+const exitCode = await runDefaultRepoKnowledgeCli({
+  argv: [
+    "setup",
+    ${JSON.stringify(smokeRepository)},
+    "--since",
+    "2026-01-01T00:00:00Z",
+  ],
+  io: {
+    close() {},
+    async confirm(request) {
+      if (request.defaultValue !== false) {
+        throw new Error("package smoke only accepts safe-default setup prompts");
+      }
+      confirmations.push(request.id);
+      return false;
+    },
+    async input() {
+      throw new Error("safe-default setup must not request text input");
+    },
+    stdinIsTTY: true,
+    stdoutIsTTY: true,
+    writeStderr(value) {
+      process.stderr.write(value);
+    },
+    writeStdout(value) {
+      process.stdout.write(value);
+    },
+  },
+});
+if (exitCode !== 0 || confirmations.length < 2) process.exitCode = 1;
+`;
 }
 
-function verifyPackageContents(files) {
-  const entries = new Map(
-    files.map((entry) => [String(asRecord(entry).path), asRecord(entry)]),
+async function collectPackageFiles(root) {
+  const files = [];
+  async function visit(directory) {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const absolutePath = join(directory, entry.name);
+      const path = relative(root, absolutePath).split("\\").join("/");
+      if (entry.isDirectory()) {
+        await visit(absolutePath);
+        continue;
+      }
+      assert(
+        entry.isFile(),
+        `installed package contains non-file entry ${path}`,
+      );
+      const metadata = await lstat(absolutePath);
+      files.push({ mode: metadata.mode & 0o777, path, size: metadata.size });
+    }
+  }
+  await visit(root);
+  return files;
+}
+
+async function assertPathMissing(path) {
+  try {
+    await access(path, constants.F_OK);
+  } catch (error) {
+    if (asErrorCode(error) === "ENOENT") return;
+    throw error;
+  }
+  throw new Error(`package smoke created forbidden workspace data at ${path}`);
+}
+
+function parseArguments(argv) {
+  const options = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    const value = argv[index + 1];
+    if (argument === "--tarball" && value !== undefined) {
+      options.tarball = value;
+      index += 1;
+    } else if (argument === "--package-spec" && value !== undefined) {
+      options.packageSpec = value;
+      index += 1;
+    } else if (argument === "--expected-name" && value !== undefined) {
+      options.expectedName = value;
+      index += 1;
+    } else if (argument === "--expected-version" && value !== undefined) {
+      options.expectedVersion = value;
+      index += 1;
+    } else {
+      throw new Error(`unknown or incomplete argument ${String(argument)}`);
+    }
+  }
+  assert(
+    options.tarball === undefined || options.packageSpec === undefined,
+    "choose either --tarball or --package-spec",
   );
-  for (const path of [
-    "README.md",
-    "SECURITY.md",
-    "dist/bin.js",
-    "dist/index.d.ts",
-    "dist/index.js",
-    "package.json",
-    "prompts/distill.md",
-  ]) {
-    assert(entries.has(path), `packed artifact is missing ${path}`);
-  }
-  for (const path of entries.keys()) {
-    assert(
-      path.startsWith("dist/") ||
-        path.startsWith("prompts/") ||
-        [
-          "LICENSE",
-          "LICENSE.md",
-          "README.md",
-          "SECURITY.md",
-          "package.json",
-        ].includes(path),
-      `packed artifact contains unexpected path ${path}`,
-    );
-  }
+  return options;
+}
+
+function asErrorCode(error) {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : null;
 }
 
 function runNpm(args, cwd) {
@@ -366,7 +605,7 @@ function run(command, args, options) {
       }
       rejectPromise(
         new Error(
-          `${command} ${args.join(" ")} failed (${String(code)}, ${String(signal)}): ${stderr.trim()}`,
+          `${command} ${args.join(" ")} failed (${String(code)}, ${String(signal)}): stdout=${stdout.trim()} stderr=${stderr.trim()}`,
         ),
       );
     });

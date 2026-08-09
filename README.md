@@ -465,8 +465,12 @@ npm run quality:gate
 npm run package:smoke
 ```
 
-`package:smoke` は `npm pack` の tarball だけを一時 project へ install し、公開 file、M2 command を含む CLI help、stdio initialize、全 11 tool の list、ローカル `gh` stand-in 経由の `sync_repo` / `stats` / `get_rules` call、stdout の JSON-RPC 純度を検証します。
+`package:smoke` は allowlist と secret pattern の検査を通過した `npm pack` の tarball だけを clean temporary project へ install します。
+その tarball から safe default の guided setup、review help、stdio initialize、全 11 tool の list、ローカル `gh` stand-in 経由の `sync_repo` / `stats` / `get_rules` call、stdout の JSON-RPC 純度を検証します。
+smoke 用 workspace に `.repo-knowledge/` が作成されず、runtime data が外部の `REPO_KNOWLEDGE_HOME` だけに保存されることも確認します。
 CI は Node 22 と 24 の両方で同じ check、golden、quality gate、package smoke を実行します。
+npm 公開時は exact tag と commit を再検証し、GitHub OIDC による trusted publishing で provenance 付き tarball を公開した後、registry の exact version を再度 smoke します。
+初回公開の bootstrap、npm と GitHub の設定、通常公開、rollback は [npm release runbook](./docs/operations/npm-release-runbook.md) を参照してください。
 M2 要件から test・運用手順への追跡は [M2 acceptance matrix](./docs/testing/m2-acceptance-matrix.md) を参照してください。
 
 脅威モデル、admin plane、直接編集、外部送信の詳細は [SECURITY.md](./SECURITY.md) を参照してください。
