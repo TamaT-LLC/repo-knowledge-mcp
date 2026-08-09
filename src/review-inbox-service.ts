@@ -95,6 +95,7 @@ export const ReviewInboxItemSchema = z.discriminatedUnion("kind", [
     .object({
       ...ReviewInboxItemBaseShape,
       kind: z.literal("knowledge"),
+      proposal_etag: z.null(),
       proposal_id: z.null(),
       proposal_patch: z.null(),
       status: z.enum(["proposed", "stale"]),
@@ -104,6 +105,7 @@ export const ReviewInboxItemSchema = z.discriminatedUnion("kind", [
     .object({
       ...ReviewInboxItemBaseShape,
       kind: z.literal("revision_proposal"),
+      proposal_etag: z.string().regex(/^[a-f0-9]{64}$/u),
       proposal_id: NonEmptyStringSchema,
       proposal_patch: KnowledgeRevisionPatchSchema,
       status: z.literal("pending"),
@@ -332,6 +334,7 @@ export class ReviewInboxService {
         item_id: descriptor.itemId,
         kind: "knowledge",
         knowledge_status: descriptor.knowledge.status,
+        proposal_etag: null,
         proposal_id: null,
         proposal_patch: null,
         status: descriptor.knowledge.status,
@@ -355,6 +358,7 @@ export class ReviewInboxService {
       item_id: descriptor.itemId,
       kind: "revision_proposal",
       knowledge_status: review.knowledge.status,
+      proposal_etag: sha256Jcs(review.proposal),
       proposal_id: descriptor.proposal.proposal_id,
       proposal_patch: patch,
       rule: patch.rule ?? review.knowledge.rule,
@@ -414,6 +418,9 @@ function collectInboxDescriptors(
         "REVIEW_INBOX_PROJECTION_INVALID",
         `pending revision proposal ${proposal.proposal_id} targets missing knowledge ${proposal.knowledge_id}`,
       );
+    }
+    if (knowledge.status === "rejected" || knowledge.status === "deprecated") {
+      continue;
     }
     assertDocumentBinding(documentById, knowledge);
     const evidence = proposal.evidence_ids.map((evidenceId) => {

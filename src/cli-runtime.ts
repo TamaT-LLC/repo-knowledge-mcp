@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import type { Transport } from "@modelcontextprotocol/server";
 
 import {
+  REPO_KNOWLEDGE_CLI_EXIT,
+  RepoKnowledgeCliError,
   runRepoKnowledgeCli,
   type CliRepositoryOperationsResolver,
   type RepoKnowledgeCliIo,
@@ -160,7 +162,7 @@ export async function runDefaultRepoKnowledgeCli(
       ghRunner,
       storageRoot,
     }),
-    io: options.io ?? processCliIo(),
+    io: options.io ?? createProcessCliIo(),
     mutationServiceResolver: {
       async resolve(input) {
         return (await loadRuntime()).mutationServiceResolver.resolve(input);
@@ -192,40 +194,23 @@ function defaultStorageRoot(explicit: string | undefined): string {
   );
 }
 
-function processCliIo(): RepoKnowledgeCliIo {
+/** Real terminal adapter with explicit EOF and interrupt completion. */
+export function createProcessCliIo(): RepoKnowledgeCliIo {
   return {
     async confirm(request) {
       const suffix = request.defaultValue ? "[Y/n]" : "[y/N]";
-      const terminal = createInterface({
-        input: process.stdin,
-        output: process.stderr,
-      });
-      try {
-        for (;;) {
-          const answer = (
-            await terminal.question(`${request.message} ${suffix} `)
-          )
-            .trim()
-            .toLocaleLowerCase("en-US");
-          if (answer.length === 0) return request.defaultValue;
-          if (answer === "y" || answer === "yes") return true;
-          if (answer === "n" || answer === "no") return false;
-          process.stderr.write("Please answer yes or no.\n");
-        }
-      } finally {
-        terminal.close();
+      for (;;) {
+        const answer = (await terminalQuestion(`${request.message} ${suffix} `))
+          .trim()
+          .toLocaleLowerCase("en-US");
+        if (answer.length === 0) return request.defaultValue;
+        if (answer === "y" || answer === "yes") return true;
+        if (answer === "n" || answer === "no") return false;
+        process.stderr.write("Please answer yes or no.\n");
       }
     },
     async input(request) {
-      const terminal = createInterface({
-        input: process.stdin,
-        output: process.stderr,
-      });
-      try {
-        return await terminal.question(`${request.message}: `);
-      } finally {
-        terminal.close();
-      }
+      return terminalQuestion(`${request.message}: `);
     },
     stdinIsTTY: process.stdin.isTTY === true,
     stdoutIsTTY: process.stdout.isTTY === true,
@@ -236,6 +221,54 @@ function processCliIo(): RepoKnowledgeCliIo {
       process.stdout.write(value);
     },
   };
+}
+
+async function terminalQuestion(prompt: string): Promise<string> {
+  const terminal = createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+  let settled = false;
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      terminal.once("SIGINT", () => {
+        if (settled) return;
+        settled = true;
+        reject(
+          new RepoKnowledgeCliError(
+            "CLI_INPUT_INTERRUPTED",
+            "interactive input was interrupted",
+            130,
+          ),
+        );
+      });
+      terminal.once("close", () => {
+        if (settled) return;
+        settled = true;
+        reject(
+          new RepoKnowledgeCliError(
+            "CLI_INPUT_ENDED",
+            "interactive input ended before an answer was provided",
+            REPO_KNOWLEDGE_CLI_EXIT.failure,
+          ),
+        );
+      });
+      void terminal.question(prompt).then(
+        (answer) => {
+          if (settled) return;
+          settled = true;
+          resolve(answer);
+        },
+        (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        },
+      );
+    });
+  } finally {
+    terminal.close();
+  }
 }
 
 interface CreateGuidedSetupServiceOptions extends CreateDefaultCliRuntimeOptions {

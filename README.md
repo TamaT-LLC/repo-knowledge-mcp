@@ -256,6 +256,7 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 | `ingest [repo] <pr>` | 一つの complete PR snapshot を取り込む |
 | `distill [repo]` | Provider Adapter で pending job を処理 |
 | `list [repo] [--status proposed]` | canonical knowledge と revision proposal を列挙 |
+| `review [repo]` | proposed knowledge と pending revision proposal を一つの TTY セッションで確認 |
 | `reindex [repo]` | canonical files から `index.sqlite` を再構築 |
 | `redistill [repo] <selector>` | `--all`、`--author`、`--prompt-version`、`--failed`、`--outdated` で再 job 化。`--outdated` は現在の prompt / output schema / trust policy digest に対応する job が無い thread だけを queue し、既存 job は reset しない（M2 prompt への選択的再蒸留経路） |
 | `reconcile [repo] --write-derived-metadata` | 派生 metadata snapshot を明示的に書く |
@@ -267,6 +268,11 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 `sync` / `sync_repo`、`record_outcome`、`stats` は M2 で追加されました。
 `stats` は MCP tool と CLI command が同じ schema version と集計値を返します（下記「stats の読み方と運用」参照）。
 引数なしで TTY から起動すると help、pipe から起動すると stdio server になります。
+
+`repo-knowledge review owner/repository` は、判断に必要な rule、scope、severity、origin、trust、evidence、possible match を表示し、`approve` / `reject` / `skip` / `edit` を順に受け付けます。
+`skip` と途中終了では状態を変更しないため、次回の実行で再表示されます。
+表示後に候補が変更された場合は古い revision / ETag で書き込まず、最新内容を再表示します。
+このコマンドは stdin と stdout の両方が実 TTY の場合だけ状態を変更し、pipe、redirect、`--yes` は受け付けません。
 
 ## cron 同期の運用
 

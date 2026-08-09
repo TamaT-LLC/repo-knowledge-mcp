@@ -2,16 +2,19 @@ export {
   DEFAULT_ADMIN_POSSIBLE_MATCH_LIMIT,
   AdminPlaneError,
   AdminPlaneService,
+  safeTerminalValue,
   type AdminAddActiveInput,
   type AdminEvidenceReview,
   type AdminInteractionResult,
   type AdminKnowledgeReview,
+  type AdminKnowledgeReviewBinding,
   type AdminKnowledgeSummary,
   type AdminPlaneErrorCode,
   type AdminPlaneServiceOptions,
   type AdminPossibleMatch,
   type AdminReviewQueue,
   type AdminRevisionProposalReview,
+  type AdminRevisionProposalReviewBinding,
   type AdminRevisionProposalSummary,
 } from "./admin-plane-service.js";
 export {
@@ -960,6 +963,7 @@ export {
   type CliRepositoryOperationsFactoryContext,
 } from "./cli-maintenance-service.js";
 export {
+  createProcessCliIo,
   createDefaultCliRuntime,
   runDefaultRepoKnowledgeCli,
   type CreateDefaultCliRuntimeOptions,

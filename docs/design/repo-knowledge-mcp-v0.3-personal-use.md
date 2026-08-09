@@ -129,6 +129,10 @@ inbox が未処理でも、既存の active rule の検索と利用を妨げな�
 
 利用者は各項目を approve、reject、skip、edit のいずれかで処理し、途中終了後に未処理項目から再開できる。
 
+knowledge candidate の edit は候補本文を更新して未処理状態を維持する。
+revision proposal の edit は pending patch を更新し、reject は対象の active knowledge を変更せず proposal だけを解決する。
+各判断は表示した knowledge の revision / ETag と proposal の ETag に束縛し、競合時は最新内容を再表示する。
+
 MCP plane は status を active または rejected へ変更しない。
 
 ### M3-FR-008 npm 配布
