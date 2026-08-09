@@ -34,6 +34,7 @@ const PROPOSED_EVIDENCE_ID = "ev_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const STALE_EVIDENCE_ID = "ev_01ARZ3NDEKTSV4RRFFQ69G5FAW";
 const REVISION_EVIDENCE_ID = "ev_01ARZ3NDEKTSV4RRFFQ69G5FAX";
 const PROPOSAL_ID = "proposal-inbox-pending";
+const REJECTED_TARGET_PROPOSAL_ID = "proposal-inbox-rejected-target";
 const RESOLVED_PROPOSAL_ID = "proposal-inbox-resolved";
 const T0 = "2026-08-06T00:00:00.000Z";
 const T1 = "2026-08-06T00:01:00.000Z";
@@ -72,6 +73,9 @@ describe("ReviewInboxService", () => {
       STALE_ID,
       PROPOSAL_ID,
     ]);
+    expect(result.items.map((item) => item.item_id)).not.toContain(
+      REJECTED_TARGET_PROPOSAL_ID,
+    );
     expect(result.items[0]).toMatchObject({
       evidence: [
         {
@@ -98,6 +102,7 @@ describe("ReviewInboxService", () => {
       kind: "revision_proposal",
       knowledge_id: ACTIVE_ID,
       knowledge_status: "active",
+      proposal_etag: expect.stringMatching(/^[a-f0-9]{64}$/u),
       proposal_id: PROPOSAL_ID,
       proposal_patch: {
         detail: "Apply the proposed revision detail.",
@@ -339,6 +344,15 @@ async function createFixture(): Promise<Fixture> {
     canonicalRecord(
       "KnowledgeRevisionProposal",
       revisionProposal({
+        evidenceIds: [],
+        knowledgeId: REJECTED_ID,
+        proposalId: REJECTED_TARGET_PROPOSAL_ID,
+      }),
+      T2,
+    ),
+    canonicalRecord(
+      "KnowledgeRevisionProposal",
+      revisionProposal({
         proposalId: RESOLVED_PROPOSAL_ID,
         status: "approved",
       }),
@@ -463,6 +477,7 @@ function evidence(input: {
 function revisionProposal(
   overrides: {
     readonly evidenceIds?: readonly string[];
+    readonly knowledgeId?: string;
     readonly proposalId?: string;
     readonly status?: KnowledgeRevisionProposal["status"];
   } = {},
@@ -470,7 +485,7 @@ function revisionProposal(
   return {
     created_at: T2,
     evidence_ids: [...(overrides.evidenceIds ?? [REVISION_EVIDENCE_ID])],
-    knowledge_id: ACTIVE_ID,
+    knowledge_id: overrides.knowledgeId ?? ACTIVE_ID,
     patch: {
       detail: "Apply the proposed revision detail.",
       rule: "Validate inbox cursor updates",

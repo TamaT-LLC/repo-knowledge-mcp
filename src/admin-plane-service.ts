@@ -3,6 +3,7 @@ import { createInterface } from "node:readline/promises";
 import {
   canonicalizeJson,
   compareCodeUnits,
+  sha256Jcs,
   sortAndDedupeStrings,
 } from "./canonical.js";
 import type { CanonicalJsonlRecord } from "./canonical-jsonl.js";
@@ -136,6 +137,20 @@ export interface AdminRevisionProposalReview {
   readonly proposal: KnowledgeRevisionProposal;
 }
 
+/** Exact canonical knowledge generation displayed by an interactive reviewer. */
+export interface AdminKnowledgeReviewBinding {
+  readonly etag: string;
+  readonly id: string;
+  readonly revision: number;
+}
+
+/** Exact pending proposal and target generation displayed by a reviewer. */
+export interface AdminRevisionProposalReviewBinding {
+  readonly knowledge: AdminKnowledgeReviewBinding;
+  readonly proposalEtag: string;
+  readonly proposalId: string;
+}
+
 export type AdminInteractionResult<T> =
   | { readonly confirmed: false }
   | { readonly confirmed: true; readonly value: T };
@@ -166,12 +181,6 @@ interface CurrentKnowledge {
   readonly projected: ProjectedKnowledge;
 }
 
-interface MutationBinding {
-  readonly etag: string;
-  readonly id: string;
-  readonly revision: number;
-}
-
 interface AdminSearchSubject {
   readonly category: KnowledgeCategory;
   readonly detail: string;
@@ -181,8 +190,9 @@ interface AdminSearchSubject {
 
 /**
  * Human-only review and mutation service. Every state-changing public method
- * verifies a real TTY, renders the current canonical generation, and requires
- * an action-specific phrase before entering the CAS write path.
+ * verifies a real TTY and enters an exact-generation CAS write path. Ordinary
+ * admin commands render and confirm here; batch methods consume the binding
+ * already rendered and explicitly selected by the review session.
  */
 export class AdminPlaneService {
   readonly repo: string;
@@ -380,9 +390,81 @@ export class AdminPlaneService {
       confirmed: true,
       value: await this.mutateRevisionProposal(
         binding(review.knowledge),
-        review.proposal,
+        revisionBinding(review),
       ),
     };
+  }
+
+  /** Applies an already-rendered batch-review decision with exact CAS binding. */
+  async approveReviewedKnowledge(
+    expected: AdminKnowledgeReviewBinding,
+  ): Promise<KnowledgeDocument> {
+    this.assertInteractiveTerminal();
+    return this.mutateKnowledgeStatus(
+      parseKnowledgeBinding(expected),
+      "active",
+      true,
+    );
+  }
+
+  /** Applies an already-rendered batch-review rejection with exact CAS binding. */
+  async rejectReviewedKnowledge(
+    expected: AdminKnowledgeReviewBinding,
+  ): Promise<KnowledgeDocument> {
+    this.assertInteractiveTerminal();
+    return this.mutateKnowledgeStatus(
+      parseKnowledgeBinding(expected),
+      "rejected",
+      false,
+    );
+  }
+
+  /** Edits an already-rendered knowledge candidate without resolving it. */
+  async editReviewedKnowledge(
+    expected: AdminKnowledgeReviewBinding,
+    patch: KnowledgeRevisionPatch,
+  ): Promise<KnowledgeDocument> {
+    this.assertInteractiveTerminal();
+    return this.mutateKnowledgeEdit(
+      parseKnowledgeBinding(expected),
+      KnowledgeRevisionPatchSchema.parse(patch),
+    );
+  }
+
+  /** Applies an already-rendered pending revision with exact proposal binding. */
+  async approveReviewedRevision(
+    expected: AdminRevisionProposalReviewBinding,
+  ): Promise<KnowledgeDocument> {
+    this.assertInteractiveTerminal();
+    const parsed = parseRevisionBinding(expected);
+    return this.mutateRevisionProposal(parsed.knowledge, parsed);
+  }
+
+  /** Rejects a pending revision without changing its target knowledge. */
+  async rejectReviewedRevision(
+    expected: AdminRevisionProposalReviewBinding,
+  ): Promise<KnowledgeRevisionProposal> {
+    this.assertInteractiveTerminal();
+    const parsed = parseRevisionBinding(expected);
+    return this.mutateRevisionProposalStatus(
+      parsed.knowledge,
+      parsed,
+      "rejected",
+    );
+  }
+
+  /** Merges a human patch into a pending revision and leaves it pending. */
+  async editReviewedRevision(
+    expected: AdminRevisionProposalReviewBinding,
+    patch: KnowledgeRevisionPatch,
+  ): Promise<KnowledgeRevisionProposal> {
+    this.assertInteractiveTerminal();
+    const parsed = parseRevisionBinding(expected);
+    return this.mutateRevisionProposalEdit(
+      parsed.knowledge,
+      parsed,
+      KnowledgeRevisionPatchSchema.parse(patch),
+    );
   }
 
   async addActive(
@@ -447,7 +529,7 @@ export class AdminPlaneService {
   }
 
   private async mutateKnowledgeStatus(
-    expected: MutationBinding,
+    expected: AdminKnowledgeReviewBinding,
     status: "active" | "rejected",
     humanActivation: boolean,
   ): Promise<KnowledgeDocument> {
@@ -482,7 +564,7 @@ export class AdminPlaneService {
   }
 
   private async mutateKnowledgeEdit(
-    expected: MutationBinding,
+    expected: AdminKnowledgeReviewBinding,
     patch: KnowledgeRevisionPatch,
   ): Promise<KnowledgeDocument> {
     return this.repository.runLockedMutation((snapshot) => {
@@ -511,36 +593,16 @@ export class AdminPlaneService {
   }
 
   private async mutateRevisionProposal(
-    expected: MutationBinding,
-    expectedProposal: KnowledgeRevisionProposal,
+    expected: AdminKnowledgeReviewBinding,
+    expectedProposal: AdminRevisionProposalReviewBinding,
   ): Promise<KnowledgeDocument> {
     return this.repository.runLockedMutation((snapshot) => {
-      const current = findKnowledge(snapshot, expected.id, this.repoId);
-      assertMutationBinding(current.document, expected);
-      assertEditableStatus(current.projected.status);
-      const proposal = findProposal(
+      const { current, proposal } = findRevisionMutation(
         snapshot,
-        expectedProposal.proposal_id,
         this.repoId,
+        expected,
+        expectedProposal,
       );
-      if (proposal.knowledge_id !== current.projected.id) {
-        throw new AdminPlaneError(
-          "ADMIN_PROJECTION_INVALID",
-          `proposal ${proposal.proposal_id} changed its knowledge target`,
-        );
-      }
-      if (proposal.status !== "pending") {
-        throw new AdminPlaneError(
-          "REVISION_PROPOSAL_NOT_PENDING",
-          `revision proposal ${proposal.proposal_id} is ${proposal.status}`,
-        );
-      }
-      if (canonicalizeJson(proposal) !== canonicalizeJson(expectedProposal)) {
-        throw new AdminPlaneError(
-          "REVISION_PROPOSAL_CHANGED",
-          `revision proposal ${proposal.proposal_id} changed after confirmation`,
-        );
-      }
       const operation = operationTime(
         this.now(),
         latestIso(current.projected.updatedAt, proposal.updated_at),
@@ -558,14 +620,13 @@ export class AdminPlaneService {
         status: "approved",
         updated_at: operation.recordedAt,
       });
-      const event: CanonicalJsonlRecord<KnowledgeRevisionProposal> = {
-        payload: approved,
-        record_id: EventIdSchema.parse(this.nextEventId(operation.timestamp)),
-        record_type: "KnowledgeRevisionProposalApproved",
-        recorded_at: operation.recordedAt,
-        schema_version: 1,
-        transaction_id: transactionId,
-      };
+      const event = revisionProposalEvent(
+        approved,
+        "KnowledgeRevisionProposalApproved",
+        operation.recordedAt,
+        EventIdSchema.parse(this.nextEventId(operation.timestamp)),
+        transactionId,
+      );
       return {
         transaction: {
           appendRecords: [
@@ -582,6 +643,107 @@ export class AdminPlaneService {
           transactionId,
         },
         value: parseKnowledgeDocument(current.document.path, content),
+      };
+    });
+  }
+
+  private async mutateRevisionProposalStatus(
+    expected: AdminKnowledgeReviewBinding,
+    expectedProposal: AdminRevisionProposalReviewBinding,
+    status: "rejected",
+  ): Promise<KnowledgeRevisionProposal> {
+    return this.repository.runLockedMutation((snapshot) => {
+      const { current, proposal } = findRevisionMutation(
+        snapshot,
+        this.repoId,
+        expected,
+        expectedProposal,
+      );
+      const operation = operationTime(
+        this.now(),
+        latestIso(current.projected.updatedAt, proposal.updated_at),
+      );
+      const transactionId = TransactionIdSchema.parse(
+        this.nextTransactionId(operation.timestamp),
+      );
+      const rejected = KnowledgeRevisionProposalSchema.parse({
+        ...proposal,
+        status,
+        updated_at: operation.recordedAt,
+      });
+      return {
+        transaction: {
+          appendRecords: [
+            {
+              record: revisionProposalEvent(
+                rejected,
+                "KnowledgeRevisionProposalRejected",
+                operation.recordedAt,
+                EventIdSchema.parse(this.nextEventId(operation.timestamp)),
+                transactionId,
+              ),
+              targetPath: this.proposalEventPath,
+            },
+          ],
+          createdAt: operation.recordedAt,
+          fileWrites: [],
+          transactionId,
+        },
+        value: rejected,
+      };
+    });
+  }
+
+  private async mutateRevisionProposalEdit(
+    expected: AdminKnowledgeReviewBinding,
+    expectedProposal: AdminRevisionProposalReviewBinding,
+    patch: KnowledgeRevisionPatch,
+  ): Promise<KnowledgeRevisionProposal> {
+    return this.repository.runLockedMutation((snapshot) => {
+      const { current, proposal } = findRevisionMutation(
+        snapshot,
+        this.repoId,
+        expected,
+        expectedProposal,
+      );
+      const mergedPatch = KnowledgeRevisionPatchSchema.parse({
+        ...proposal.patch,
+        ...patch,
+      });
+      if (canonicalizeJson(mergedPatch) === canonicalizeJson(proposal.patch)) {
+        return { transaction: null, value: proposal };
+      }
+      const operation = operationTime(
+        this.now(),
+        latestIso(current.projected.updatedAt, proposal.updated_at),
+      );
+      const transactionId = TransactionIdSchema.parse(
+        this.nextTransactionId(operation.timestamp),
+      );
+      const edited = KnowledgeRevisionProposalSchema.parse({
+        ...proposal,
+        patch: mergedPatch,
+        updated_at: operation.recordedAt,
+      });
+      return {
+        transaction: {
+          appendRecords: [
+            {
+              record: revisionProposalEvent(
+                edited,
+                "KnowledgeRevisionProposalEdited",
+                operation.recordedAt,
+                EventIdSchema.parse(this.nextEventId(operation.timestamp)),
+                transactionId,
+              ),
+              targetPath: this.proposalEventPath,
+            },
+          ],
+          createdAt: operation.recordedAt,
+          fileWrites: [],
+          transactionId,
+        },
+        value: edited,
       };
     });
   }
@@ -841,13 +1003,112 @@ function possibleMatchesForReview(
   return matches;
 }
 
-function binding(review: AdminKnowledgeReview): MutationBinding {
+function findRevisionMutation(
+  snapshot: CanonicalProjectionSnapshot,
+  repoId: string,
+  expectedKnowledge: AdminKnowledgeReviewBinding,
+  expectedProposal: AdminRevisionProposalReviewBinding,
+): {
+  readonly current: CurrentKnowledge;
+  readonly proposal: KnowledgeRevisionProposal;
+} {
+  if (
+    canonicalizeJson(expectedProposal.knowledge) !==
+    canonicalizeJson(expectedKnowledge)
+  ) {
+    throw new TypeError("reviewed proposal and knowledge bindings must match");
+  }
+  const current = findKnowledge(snapshot, expectedKnowledge.id, repoId);
+  assertMutationBinding(current.document, expectedKnowledge);
+  assertEditableStatus(current.projected.status);
+  const proposal = findProposal(snapshot, expectedProposal.proposalId, repoId);
+  if (proposal.knowledge_id !== current.projected.id) {
+    throw new AdminPlaneError(
+      "ADMIN_PROJECTION_INVALID",
+      `proposal ${proposal.proposal_id} changed its knowledge target`,
+    );
+  }
+  if (proposal.status !== "pending") {
+    throw new AdminPlaneError(
+      "REVISION_PROPOSAL_NOT_PENDING",
+      `revision proposal ${proposal.proposal_id} is ${proposal.status}`,
+    );
+  }
+  if (sha256Jcs(proposal) !== expectedProposal.proposalEtag) {
+    throw new AdminPlaneError(
+      "REVISION_PROPOSAL_CHANGED",
+      `revision proposal ${proposal.proposal_id} changed after review`,
+    );
+  }
+  return { current, proposal };
+}
+
+function revisionProposalEvent(
+  payload: KnowledgeRevisionProposal,
+  recordType:
+    | "KnowledgeRevisionProposalApproved"
+    | "KnowledgeRevisionProposalEdited"
+    | "KnowledgeRevisionProposalRejected",
+  recordedAt: string,
+  recordId: string,
+  transactionId: string,
+): CanonicalJsonlRecord<KnowledgeRevisionProposal> {
+  return {
+    payload,
+    record_id: recordId,
+    record_type: recordType,
+    recorded_at: recordedAt,
+    schema_version: 1,
+    transaction_id: transactionId,
+  };
+}
+
+function binding(review: AdminKnowledgeReview): AdminKnowledgeReviewBinding {
   return { etag: review.etag, id: review.id, revision: review.revision };
+}
+
+function revisionBinding(
+  review: AdminRevisionProposalReview,
+): AdminRevisionProposalReviewBinding {
+  return {
+    knowledge: binding(review.knowledge),
+    proposalEtag: sha256Jcs(review.proposal),
+    proposalId: review.proposal.proposal_id,
+  };
+}
+
+function parseKnowledgeBinding(
+  value: AdminKnowledgeReviewBinding,
+): AdminKnowledgeReviewBinding {
+  const id = KnowledgeIdSchema.parse(value.id);
+  if (!Number.isSafeInteger(value.revision) || value.revision < 1) {
+    throw new TypeError(
+      "reviewed knowledge revision must be a positive integer",
+    );
+  }
+  if (!/^[a-f0-9]{64}$/u.test(value.etag)) {
+    throw new TypeError("reviewed knowledge ETag must be a lowercase SHA-256");
+  }
+  return { etag: value.etag, id, revision: value.revision };
+}
+
+function parseRevisionBinding(
+  value: AdminRevisionProposalReviewBinding,
+): AdminRevisionProposalReviewBinding {
+  const proposalId = NonEmptyStringSchema.parse(value.proposalId);
+  if (!/^[a-f0-9]{64}$/u.test(value.proposalEtag)) {
+    throw new TypeError("reviewed proposal ETag must be a lowercase SHA-256");
+  }
+  return {
+    knowledge: parseKnowledgeBinding(value.knowledge),
+    proposalEtag: value.proposalEtag,
+    proposalId,
+  };
 }
 
 function assertMutationBinding(
   current: KnowledgeDocument,
-  expected: MutationBinding,
+  expected: AdminKnowledgeReviewBinding,
 ): void {
   if (
     current.frontmatter.id !== expected.id ||
@@ -1060,7 +1321,7 @@ function knowledgeReviewLines(review: AdminKnowledgeReview): string[] {
   ];
 }
 
-function safeTerminalValue(value: unknown): string {
+export function safeTerminalValue(value: unknown): string {
   return (JSON.stringify(value) ?? "null").replaceAll(
     /[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/gu,
     (character) =>

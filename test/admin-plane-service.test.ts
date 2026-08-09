@@ -12,6 +12,7 @@ import {
   createDomainId,
   parseKnowledgeDocument,
   serializeKnowledgeDocument,
+  sha256Jcs,
   type CanonicalJsonlRecord,
   type KnowledgeEvidence,
   type KnowledgeRevisionProposal,
@@ -149,9 +150,59 @@ describe("AdminPlaneService TTY boundary", () => {
     const admin = service(fixture.store, terminal);
     const mutations = [
       () => admin.approve(PROPOSED_ID),
+      () =>
+        admin.approveReviewedKnowledge({
+          etag: "a".repeat(64),
+          id: PROPOSED_ID,
+          revision: 1,
+        }),
       () => admin.reject(PROPOSED_ID),
+      () =>
+        admin.rejectReviewedKnowledge({
+          etag: "a".repeat(64),
+          id: PROPOSED_ID,
+          revision: 1,
+        }),
       () => admin.edit(PROPOSED_ID, { rule: "Blocked edit" }),
+      () =>
+        admin.editReviewedKnowledge(
+          { etag: "a".repeat(64), id: PROPOSED_ID, revision: 1 },
+          { rule: "Blocked reviewed edit" },
+        ),
       () => admin.approveRevision(PROPOSAL_ID),
+      () =>
+        admin.approveReviewedRevision({
+          knowledge: {
+            etag: "a".repeat(64),
+            id: ACTIVE_ID,
+            revision: 1,
+          },
+          proposalEtag: "b".repeat(64),
+          proposalId: PROPOSAL_ID,
+        }),
+      () =>
+        admin.rejectReviewedRevision({
+          knowledge: {
+            etag: "a".repeat(64),
+            id: ACTIVE_ID,
+            revision: 1,
+          },
+          proposalEtag: "b".repeat(64),
+          proposalId: PROPOSAL_ID,
+        }),
+      () =>
+        admin.editReviewedRevision(
+          {
+            knowledge: {
+              etag: "a".repeat(64),
+              id: ACTIVE_ID,
+              revision: 1,
+            },
+            proposalEtag: "b".repeat(64),
+            proposalId: PROPOSAL_ID,
+          },
+          { rule: "Blocked proposal edit" },
+        ),
       () =>
         admin.addActive({
           category: "test",
@@ -173,6 +224,25 @@ describe("AdminPlaneService TTY boundary", () => {
 });
 
 describe("AdminPlaneService knowledge mutations", () => {
+  it("applies an already displayed batch decision without a second prompt", async () => {
+    const fixture = await createFixture();
+    const terminal = new FakeTerminal();
+    const admin = service(fixture.store, terminal);
+    const review = await admin.getKnowledgeReview(PROPOSED_ID);
+
+    const result = await admin.approveReviewedKnowledge({
+      etag: review.etag,
+      id: review.id,
+      revision: review.revision,
+    });
+
+    expect(result.frontmatter).toMatchObject({
+      activation: { origin: "human", pinned: false },
+      status: "active",
+    });
+    expect(terminal.output).toEqual([]);
+  });
+
   it("approves a reviewed proposed rule and marks human activation", async () => {
     const fixture = await createFixture();
     const terminal = new FakeTerminal({
@@ -342,6 +412,70 @@ describe("AdminPlaneService knowledge mutations", () => {
 });
 
 describe("AdminPlaneService revision proposals", () => {
+  it("edits and rejects a reviewed proposal without changing target Markdown", async () => {
+    const fixture = await createFixture();
+    const before = await knowledgeBytes(fixture.root, ACTIVE_ID);
+    const terminal = new FakeTerminal();
+    const admin = service(fixture.store, terminal);
+    const initial = await admin.getRevisionProposalReview(PROPOSAL_ID);
+
+    const edited = await admin.editReviewedRevision(
+      reviewedRevisionBinding(initial),
+      { severity: "should" },
+    );
+
+    expect(edited).toMatchObject({
+      patch: {
+        detail: "Approved revision detail",
+        rule: "Approved revision rule",
+        scope: ["src/revised/**"],
+        severity: "should",
+      },
+      status: "pending",
+    });
+    const refreshed = await admin.getRevisionProposalReview(PROPOSAL_ID);
+    const rejected = await admin.rejectReviewedRevision(
+      reviewedRevisionBinding(refreshed),
+    );
+
+    expect(rejected.status).toBe("rejected");
+    expect(await knowledgeBytes(fixture.root, ACTIVE_ID)).toEqual(before);
+    const snapshot = await fixture.store.readSnapshot();
+    expect(snapshot.domain.revisionProposals).toEqual([
+      expect.objectContaining({
+        patch: expect.objectContaining({ severity: "should" }),
+        proposal_id: PROPOSAL_ID,
+        status: "rejected",
+      }),
+    ]);
+    expect(snapshot.records.map(({ record }) => record.record_type)).toEqual(
+      expect.arrayContaining([
+        "KnowledgeRevisionProposalEdited",
+        "KnowledgeRevisionProposalRejected",
+      ]),
+    );
+    expect(terminal.output).toEqual([]);
+  });
+
+  it("rejects a stale reviewed proposal ETag", async () => {
+    const fixture = await createFixture();
+    const terminal = new FakeTerminal();
+    const admin = service(fixture.store, terminal);
+    const review = await admin.getRevisionProposalReview(PROPOSAL_ID);
+    const expected = reviewedRevisionBinding(review);
+    await replaceProposal(fixture.store);
+
+    await expect(admin.approveReviewedRevision(expected)).rejects.toMatchObject(
+      { code: "REVISION_PROPOSAL_CHANGED" },
+    );
+    expect(
+      (await fixture.store.readSnapshot()).domain.revisionProposals[0],
+    ).toMatchObject({
+      patch: { rule: "Unreviewed replacement" },
+      status: "pending",
+    });
+  });
+
   it("keeps active Markdown unchanged until approve-revision and commits both artifacts", async () => {
     const fixture = await createFixture();
     const before = await knowledgeBytes(fixture.root, ACTIVE_ID);
@@ -694,6 +828,20 @@ function service(
     repository: store,
     ...overrides,
   });
+}
+
+function reviewedRevisionBinding(
+  review: Awaited<ReturnType<AdminPlaneService["getRevisionProposalReview"]>>,
+) {
+  return {
+    knowledge: {
+      etag: review.knowledge.etag,
+      id: review.knowledge.id,
+      revision: review.knowledge.revision,
+    },
+    proposalEtag: sha256Jcs(review.proposal),
+    proposalId: review.proposal.proposal_id,
+  };
 }
 
 function readService(store: CanonicalTransactionStore): KnowledgeReadService {

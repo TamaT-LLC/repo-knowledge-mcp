@@ -697,6 +697,7 @@ repo-knowledge sync [repo] [--since]  # cron 用（v0.2）
 repo-knowledge ingest <repo> <pr>
 repo-knowledge distill <repo>         # pending job の消化（経路 A 前提）
 repo-knowledge list <repo> [--status proposed]   # 棚卸し・承認対象の確認
+repo-knowledge review <repo>          # review inbox を一つの TTY session で処理
 repo-knowledge approve <id> / reject <id>        # proposed の処理
 repo-knowledge reindex <repo>         # 正本群 → index.sqlite 全再構築
 repo-knowledge export <repo> --bootstrap         # §12.2 の 1 行生成

@@ -2,13 +2,19 @@ import {
   IsoDateTimeSchema,
   KnowledgeCategorySchema,
   KnowledgeIdSchema,
+  KnowledgeRevisionPatchSchema,
   KnowledgeStatusSchema,
   NonEmptyStringSchema,
   SeveritySchema,
   type KnowledgeRevisionPatch,
   type KnowledgeStatus,
 } from "./domain-schemas.js";
-import type { AdminPlaneService } from "./admin-plane-service.js";
+import {
+  safeTerminalValue,
+  type AdminKnowledgeReviewBinding,
+  type AdminPlaneService,
+  type AdminRevisionProposalReviewBinding,
+} from "./admin-plane-service.js";
 import type { RepoKnowledgeDoctorLike } from "./doctor-service.js";
 import type {
   KnowledgeMutationServiceResolutionInput,
@@ -32,6 +38,7 @@ import type {
   SetupTextInputRequest,
 } from "./setup-service.js";
 import type {
+  ReviewInboxItem,
   ReviewInboxRequest,
   ReviewInboxResult,
 } from "./review-inbox-service.js";
@@ -50,6 +57,7 @@ Commands:
   ingest [repo] <pr>            Ingest one complete pull-request snapshot
   distill [repo]                Consume provider-enabled pending jobs
   list [repo] [--status value]  List canonical knowledge
+  review [repo]                 Review pending candidates in one TTY session
   reindex [repo]                Rebuild index.sqlite from canonical files
   redistill [repo] <selector>   Queue canonical review threads again
   reconcile [repo] --write-derived-metadata
@@ -105,6 +113,7 @@ export const REPO_KNOWLEDGE_CLI_EXIT = Object.freeze({
 });
 
 export interface RepoKnowledgeCliIo {
+  close?(): void;
   confirm?(request: SetupConfirmationRequest): Promise<boolean>;
   input?(request: SetupTextInputRequest): Promise<string>;
   readonly stdinIsTTY: boolean;
@@ -182,9 +191,15 @@ export interface CliReconcileResult {
 export interface CliAdminOperations {
   addActive: AdminPlaneService["addActive"];
   approve: AdminPlaneService["approve"];
+  approveReviewedKnowledge: AdminPlaneService["approveReviewedKnowledge"];
+  approveReviewedRevision: AdminPlaneService["approveReviewedRevision"];
   approveRevision: AdminPlaneService["approveRevision"];
   edit: AdminPlaneService["edit"];
+  editReviewedKnowledge: AdminPlaneService["editReviewedKnowledge"];
+  editReviewedRevision: AdminPlaneService["editReviewedRevision"];
   reject: AdminPlaneService["reject"];
+  rejectReviewedKnowledge: AdminPlaneService["rejectReviewedKnowledge"];
+  rejectReviewedRevision: AdminPlaneService["rejectReviewedRevision"];
 }
 
 export interface CliRepositoryOperations {
@@ -260,6 +275,10 @@ export type ParsedCliCommand =
       readonly status?: KnowledgeStatus;
     }
   | {
+      readonly kind: "review";
+      readonly selection: CliRepositorySelection;
+    }
+  | {
       readonly kind: "reindex";
       readonly selection: CliRepositorySelection;
     }
@@ -304,7 +323,12 @@ export interface CliRepositorySelection {
 }
 
 export type RepoKnowledgeCliErrorCode =
-  "CLI_ARGUMENT_INVALID" | "CLI_COMMAND_UNAVAILABLE" | "CLI_TTY_REQUIRED";
+  | "CLI_ARGUMENT_INVALID"
+  | "CLI_COMMAND_UNAVAILABLE"
+  | "CLI_INPUT_ENDED"
+  | "CLI_INPUT_INTERRUPTED"
+  | "CLI_REVIEW_UNSTABLE"
+  | "CLI_TTY_REQUIRED";
 
 export class RepoKnowledgeCliError extends Error {
   constructor(
@@ -334,6 +358,8 @@ export async function runRepoKnowledgeCli(
     const diagnostic = cliDiagnostic(error);
     options.io.writeStderr(`${diagnostic.code}: ${diagnostic.message}\n`);
     return diagnostic.exitCode;
+  } finally {
+    options.io.close?.();
   }
 }
 
@@ -373,6 +399,8 @@ export function parseRepoKnowledgeCliArguments(
       return parseRepositoryOnly("distill", argv.slice(1));
     case "list":
       return parseList(argv.slice(1));
+    case "review":
+      return parseRepositoryOnly("review", argv.slice(1));
     case "reindex":
       return parseRepositoryOnly("reindex", argv.slice(1));
     case "redistill":
@@ -492,6 +520,13 @@ async function executeCliCommand(
       );
       return;
     }
+    case "review": {
+      assertReviewTerminal(options.io);
+      const service = await options.operationsResolver.resolve(
+        command.selection,
+      );
+      return executeReviewSession(service, options.io);
+    }
     case "reindex": {
       const service = await options.operationsResolver.resolve(
         command.selection,
@@ -567,6 +602,432 @@ async function executeAdminCommand(
       writeJson(options.io, await service.admin.addActive(command.input));
       return;
   }
+}
+
+const REVIEW_INBOX_PAGE_LIMIT = 100;
+const REVIEW_INBOX_READ_RETRIES = 2;
+const REVIEW_REFRESH_ERROR_CODES: ReadonlySet<string> = new Set([
+  "INVALID_ADMIN_STATE",
+  "KNOWLEDGE_CONFLICT",
+  "KNOWLEDGE_NOT_FOUND",
+  "REVISION_PROPOSAL_CHANGED",
+  "REVISION_PROPOSAL_NOT_FOUND",
+  "REVISION_PROPOSAL_NOT_PENDING",
+]);
+
+type ReviewAction = "approve" | "edit" | "quit" | "reject" | "skip";
+
+interface ReviewSessionProgress {
+  readonly edited: number;
+  readonly resolved: number;
+  readonly skipped: number;
+}
+
+interface NextReviewItem {
+  readonly item: ReviewInboxItem;
+  readonly repo: string;
+  readonly totalCount: number;
+}
+
+function assertReviewTerminal(io: RepoKnowledgeCliIo): void {
+  if (!io.stdinIsTTY || !io.stdoutIsTTY || io.input === undefined) {
+    throw new RepoKnowledgeCliError(
+      "CLI_TTY_REQUIRED",
+      "review requires real TTY stdin and stdout",
+      REPO_KNOWLEDGE_CLI_EXIT.failure,
+    );
+  }
+}
+
+async function executeReviewSession(
+  service: CliRepositoryOperations,
+  io: RepoKnowledgeCliIo,
+): Promise<number> {
+  const skipped = new Set<string>();
+  let edited = 0;
+  let reloadItemKey: string | undefined;
+  let resolved = 0;
+  let displayed = false;
+
+  try {
+    for (;;) {
+      let next: NextReviewItem | null;
+      if (reloadItemKey === undefined) {
+        next = await nextReviewItem(service, skipped);
+      } else {
+        const preferredKey = reloadItemKey;
+        reloadItemKey = undefined;
+        next =
+          (await reviewItemByKey(service, preferredKey)) ??
+          (await nextReviewItem(service, skipped));
+      }
+      if (next === null) {
+        const progress = { edited, resolved, skipped: skipped.size };
+        io.writeStdout(
+          displayed
+            ? renderReviewSessionComplete(progress)
+            : "Review inbox is empty.\n",
+        );
+        return REPO_KNOWLEDGE_CLI_EXIT.success;
+      }
+      displayed = true;
+      io.writeStdout(renderReviewInboxItem(next));
+      const action = await promptReviewAction(io, next.item);
+      if (action === "quit") {
+        io.writeStdout(
+          renderReviewSessionPaused({
+            edited,
+            resolved,
+            skipped: skipped.size,
+          }),
+        );
+        return REPO_KNOWLEDGE_CLI_EXIT.success;
+      }
+      if (action === "skip") {
+        skipped.add(reviewItemKey(next.item));
+        io.writeStdout("Skipped for this session; the item remains pending.\n");
+        continue;
+      }
+
+      let patch: KnowledgeRevisionPatch | undefined;
+      if (action === "edit") {
+        patch = await promptReviewPatch(io, next.item);
+        if (patch === undefined) {
+          io.writeStdout("Edit cancelled; the item remains pending.\n");
+          continue;
+        }
+      }
+
+      try {
+        await applyReviewAction(service.admin, next.item, action, patch);
+      } catch (error) {
+        if (!isReviewRefreshError(error)) throw error;
+        reloadItemKey = reviewItemKey(next.item);
+        io.writeStderr(
+          `REVIEW_ITEM_CHANGED: ${safeDiagnosticMessage(
+            error instanceof Error ? error.message : String(error),
+          )}; reloading the latest inbox item.\n`,
+        );
+        continue;
+      }
+
+      if (action === "edit") {
+        edited += 1;
+        io.writeStdout(
+          "Edited successfully; review the refreshed item before resolving it.\n",
+        );
+      } else {
+        resolved += 1;
+        io.writeStdout(
+          `${action === "approve" ? "Approved" : "Rejected"} successfully.\n`,
+        );
+      }
+    }
+  } catch (error) {
+    const termination = reviewInputTermination(error);
+    if (termination === null) throw error;
+    io.writeStdout(
+      renderReviewSessionPaused({
+        edited,
+        resolved,
+        skipped: skipped.size,
+      }),
+    );
+    return termination;
+  }
+}
+
+async function nextReviewItem(
+  service: CliRepositoryOperations,
+  skipped: ReadonlySet<string>,
+): Promise<NextReviewItem | null> {
+  return findReviewItem(
+    service,
+    (candidate) => !skipped.has(reviewItemKey(candidate)),
+  );
+}
+
+async function reviewItemByKey(
+  service: CliRepositoryOperations,
+  key: string,
+): Promise<NextReviewItem | null> {
+  return findReviewItem(
+    service,
+    (candidate) => reviewItemKey(candidate) === key,
+  );
+}
+
+async function findReviewItem(
+  service: CliRepositoryOperations,
+  select: (candidate: ReviewInboxItem) => boolean,
+): Promise<NextReviewItem | null> {
+  for (let attempt = 0; attempt <= REVIEW_INBOX_READ_RETRIES; attempt += 1) {
+    let cursor: string | undefined;
+    try {
+      do {
+        const page = await service.reviewInbox({
+          ...(cursor === undefined ? {} : { cursor }),
+          limit: REVIEW_INBOX_PAGE_LIMIT,
+        });
+        const item = page.items.find(select);
+        if (item !== undefined) {
+          return { item, repo: page.repo, totalCount: page.total_count };
+        }
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor !== undefined);
+      return null;
+    } catch (error) {
+      const code = errorCode(error);
+      if (
+        code !== "REVIEW_INBOX_CURSOR_STALE" &&
+        code !== "REVIEW_INBOX_PROJECTION_CHANGED"
+      ) {
+        throw error;
+      }
+    }
+  }
+  throw new RepoKnowledgeCliError(
+    "CLI_REVIEW_UNSTABLE",
+    "review inbox changed repeatedly while the session was reading it; retry the command",
+    REPO_KNOWLEDGE_CLI_EXIT.failure,
+  );
+}
+
+async function promptReviewAction(
+  io: RepoKnowledgeCliIo,
+  item: ReviewInboxItem,
+): Promise<ReviewAction> {
+  for (;;) {
+    const answer = (
+      await io.input!({
+        id: `review.action.${reviewItemKey(item)}`,
+        message: "Action [approve/reject/skip/edit/quit]",
+      })
+    )
+      .trim()
+      .toLocaleLowerCase("en-US");
+    const action = reviewAction(answer);
+    if (action !== null) return action;
+    io.writeStderr(
+      "REVIEW_ACTION_INVALID: enter approve, reject, skip, edit, or quit.\n",
+    );
+  }
+}
+
+function reviewAction(value: string): ReviewAction | null {
+  switch (value) {
+    case "a":
+    case "approve":
+      return "approve";
+    case "e":
+    case "edit":
+      return "edit";
+    case "q":
+    case "quit":
+      return "quit";
+    case "r":
+    case "reject":
+      return "reject";
+    case "s":
+    case "skip":
+      return "skip";
+    default:
+      return null;
+  }
+}
+
+async function promptReviewPatch(
+  io: RepoKnowledgeCliIo,
+  item: ReviewInboxItem,
+): Promise<KnowledgeRevisionPatch | undefined> {
+  for (;;) {
+    const field = (
+      await io.input!({
+        id: `review.edit-field.${reviewItemKey(item)}`,
+        message: "Field [rule/detail/category/severity/scope] (or cancel)",
+      })
+    )
+      .trim()
+      .toLocaleLowerCase("en-US");
+    if (field === "cancel" || field === "c") return undefined;
+    if (!isReviewPatchField(field)) {
+      io.writeStderr(
+        "REVIEW_EDIT_FIELD_INVALID: choose rule, detail, category, severity, scope, or cancel.\n",
+      );
+      continue;
+    }
+
+    for (;;) {
+      const value = await io.input!({
+        id: `review.edit-value.${field}.${reviewItemKey(item)}`,
+        message:
+          field === "scope"
+            ? 'New scope (JSON array, for example ["src/**"])'
+            : `New ${field}`,
+      });
+      const patch = parseReviewPatch(field, value);
+      if (patch !== null) return patch;
+      io.writeStderr(
+        `REVIEW_EDIT_VALUE_INVALID: ${field} does not accept that value.\n`,
+      );
+    }
+  }
+}
+
+type ReviewPatchField = "category" | "detail" | "rule" | "scope" | "severity";
+
+function isReviewPatchField(value: string): value is ReviewPatchField {
+  return (
+    value === "category" ||
+    value === "detail" ||
+    value === "rule" ||
+    value === "scope" ||
+    value === "severity"
+  );
+}
+
+function parseReviewPatch(
+  field: ReviewPatchField,
+  rawValue: string,
+): KnowledgeRevisionPatch | null {
+  let value: unknown = rawValue.trim();
+  if (field === "scope") {
+    try {
+      value = JSON.parse(rawValue) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  const parsed = KnowledgeRevisionPatchSchema.safeParse({ [field]: value });
+  return parsed.success ? parsed.data : null;
+}
+
+async function applyReviewAction(
+  admin: CliAdminOperations,
+  item: ReviewInboxItem,
+  action: Exclude<ReviewAction, "quit" | "skip">,
+  patch: KnowledgeRevisionPatch | undefined,
+): Promise<void> {
+  if (item.kind === "knowledge") {
+    const expected: AdminKnowledgeReviewBinding = {
+      etag: item.etag,
+      id: item.knowledge_id,
+      revision: item.revision,
+    };
+    if (action === "approve") {
+      await admin.approveReviewedKnowledge(expected);
+    } else if (action === "reject") {
+      await admin.rejectReviewedKnowledge(expected);
+    } else {
+      await admin.editReviewedKnowledge(expected, requiredReviewPatch(patch));
+    }
+    return;
+  }
+
+  const expected: AdminRevisionProposalReviewBinding = {
+    knowledge: {
+      etag: item.etag,
+      id: item.knowledge_id,
+      revision: item.revision,
+    },
+    proposalEtag: item.proposal_etag,
+    proposalId: item.proposal_id,
+  };
+  if (action === "approve") {
+    await admin.approveReviewedRevision(expected);
+  } else if (action === "reject") {
+    await admin.rejectReviewedRevision(expected);
+  } else {
+    await admin.editReviewedRevision(expected, requiredReviewPatch(patch));
+  }
+}
+
+function requiredReviewPatch(
+  patch: KnowledgeRevisionPatch | undefined,
+): KnowledgeRevisionPatch {
+  if (patch === undefined) {
+    throw new TypeError("edit review action requires a validated patch");
+  }
+  return patch;
+}
+
+function renderReviewInboxItem(next: NextReviewItem): string {
+  const { item } = next;
+  const evidence = item.evidence.map((entry) => ({
+    actors: entry.actors.map((actor) => ({
+      comment_id: actor.comment_id,
+      login: actor.login ?? null,
+      provider: actor.provider,
+      trust: actor.trust,
+    })),
+    evidence_id: entry.evidence_id,
+    sources: entry.sources,
+    status: entry.status,
+    url: entry.url ?? null,
+  }));
+  return `${[
+    "REVIEW INBOX ITEM",
+    `Repository: ${safeTerminalValue(next.repo)}`,
+    `Pending items: ${String(next.totalCount)}`,
+    `Kind: ${safeTerminalValue(item.kind)}`,
+    `Item ID: ${safeTerminalValue(item.item_id)}`,
+    `Knowledge ID: ${safeTerminalValue(item.knowledge_id)}`,
+    `Status: ${safeTerminalValue(item.status)}`,
+    `Revision: ${String(item.revision)}`,
+    `ETag: ${item.etag}`,
+    `Proposal ID: ${safeTerminalValue(item.proposal_id)}`,
+    `Proposal ETag: ${safeTerminalValue(item.proposal_etag)}`,
+    `Proposal patch: ${safeTerminalValue(item.proposal_patch)}`,
+    `Rule: ${safeTerminalValue(item.rule)}`,
+    `Detail: ${safeTerminalValue(item.detail)}`,
+    `Category: ${safeTerminalValue(item.category)}`,
+    `Severity: ${safeTerminalValue(item.severity)}`,
+    `Scope: ${safeTerminalValue(item.scope)}`,
+    `Origin: ${safeTerminalValue(item.origin)}`,
+    `Trust: ${safeTerminalValue(item.trust_classes)}`,
+    `Evidence: ${safeTerminalValue(evidence)}`,
+    `Related IDs: ${safeTerminalValue(item.related_ids)}`,
+    `Possible matches: ${safeTerminalValue(item.possible_matches)}`,
+  ].join("\n")}\n`;
+}
+
+function renderReviewSessionComplete(progress: ReviewSessionProgress): string {
+  if (progress.skipped > 0) {
+    return renderReviewSessionPaused(progress);
+  }
+  return `Review inbox complete: ${String(progress.resolved)} resolved, ${String(progress.edited)} edit(s).\n`;
+}
+
+function renderReviewSessionPaused(progress: ReviewSessionProgress): string {
+  return (
+    `Review session paused: ${String(progress.resolved)} resolved, ` +
+    `${String(progress.edited)} edit(s), ${String(progress.skipped)} skipped; ` +
+    "unresolved items remain available on the next run.\n"
+  );
+}
+
+function reviewItemKey(item: ReviewInboxItem): string {
+  return `${item.kind}:${item.item_id}`;
+}
+
+function isReviewRefreshError(error: unknown): boolean {
+  const code = errorCode(error);
+  return code !== null && REVIEW_REFRESH_ERROR_CODES.has(code);
+}
+
+function reviewInputTermination(error: unknown): number | null {
+  const code = errorCode(error);
+  if (code === "CLI_INPUT_ENDED") return REPO_KNOWLEDGE_CLI_EXIT.success;
+  if (code === "CLI_INPUT_INTERRUPTED") return 130;
+  return null;
+}
+
+function errorCode(error: unknown): string | null {
+  return error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string"
+    ? error.code
+    : null;
 }
 
 interface ParsedOptions {
@@ -696,7 +1157,7 @@ function parseIngest(args: readonly string[]): ParsedCliCommand {
 }
 
 function parseRepositoryOnly(
-  kind: "distill" | "reindex",
+  kind: "distill" | "reindex" | "review",
   args: readonly string[],
 ): ParsedCliCommand {
   const parsed = parseOptions(args, REPOSITORY_OPTION_DEFINITION);

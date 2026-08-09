@@ -4,6 +4,7 @@ import {
   REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION,
   REPO_KNOWLEDGE_CLI_EXIT,
   REPO_KNOWLEDGE_CLI_HELP,
+  RepoKnowledgeCliError,
   StatsReadError,
   parseRepoKnowledgeCliArguments,
   runRepoKnowledgeCli,
@@ -15,6 +16,7 @@ import {
   type RepoKnowledgeDoctorLike,
   type RepoKnowledgeCliIo,
   type RepositoryStats,
+  type ReviewInboxItem,
 } from "../src/index.js";
 
 const REPOSITORY = "owner/repository";
@@ -225,6 +227,226 @@ describe("repo-knowledge CLI", () => {
     expect(current.operations.admin.approve).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { stdinIsTTY: false, stdoutIsTTY: true },
+    { stdinIsTTY: true, stdoutIsTTY: false },
+    { stdinIsTTY: false, stdoutIsTTY: false },
+  ])("rejects review without real input and output TTY %#", async (tty) => {
+    const current = fixture(["review", REPOSITORY], tty);
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(1);
+
+    expect(current.stderr()).toContain("CLI_TTY_REQUIRED");
+    expect(current.resolveOperations).not.toHaveBeenCalled();
+    expect(current.operations.reviewInbox).not.toHaveBeenCalled();
+  });
+
+  it("reviews multiple knowledge and revision items in one session", async () => {
+    const current = fixture(["review", REPOSITORY], {
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    });
+    const knowledge = knowledgeInboxItem();
+    const revision = revisionInboxItem();
+    const skipped = knowledgeInboxItem({
+      id: "kn_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      rule: "Leave this item pending",
+    });
+    vi.mocked(current.operations.reviewInbox)
+      .mockResolvedValueOnce(inboxPage([knowledge, revision, skipped]))
+      .mockResolvedValueOnce(inboxPage([revision, skipped]))
+      .mockResolvedValueOnce(inboxPage([skipped]))
+      .mockResolvedValueOnce(inboxPage([skipped]));
+    vi.mocked(current.options.io.input!)
+      .mockResolvedValueOnce("approve")
+      .mockResolvedValueOnce("reject")
+      .mockResolvedValueOnce("skip");
+    vi.mocked(
+      current.operations.admin.approveReviewedKnowledge,
+    ).mockResolvedValueOnce(undefined as never);
+    vi.mocked(
+      current.operations.admin.rejectReviewedRevision,
+    ).mockResolvedValueOnce(undefined as never);
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+    expect(
+      current.operations.admin.approveReviewedKnowledge,
+    ).toHaveBeenCalledWith({
+      etag: knowledge.etag,
+      id: knowledge.knowledge_id,
+      revision: knowledge.revision,
+    });
+    expect(
+      current.operations.admin.rejectReviewedRevision,
+    ).toHaveBeenCalledWith({
+      knowledge: {
+        etag: revision.etag,
+        id: revision.knowledge_id,
+        revision: revision.revision,
+      },
+      proposalEtag: revision.proposal_etag,
+      proposalId: revision.proposal_id,
+    });
+    expect(current.stdout()).toContain("REVIEW INBOX ITEM");
+    expect(current.stdout()).toContain("Leave this item pending");
+    expect(current.stdout()).toContain("discussion_r1");
+    expect(current.stdout()).toContain("trusted");
+    expect(current.stdout()).toContain("Possible active match");
+    expect(current.stdout()).toContain("1 skipped");
+  });
+
+  it("edits a candidate, displays its refreshed generation, and approves it", async () => {
+    const current = fixture(["review", REPOSITORY], {
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    });
+    const initial = knowledgeInboxItem();
+    const edited = knowledgeInboxItem({
+      etag: "d".repeat(64),
+      revision: 2,
+      rule: "Human edited rule",
+    });
+    vi.mocked(current.operations.reviewInbox)
+      .mockResolvedValueOnce(inboxPage([initial]))
+      .mockResolvedValueOnce(inboxPage([edited]))
+      .mockResolvedValueOnce(inboxPage([]));
+    vi.mocked(current.options.io.input!)
+      .mockResolvedValueOnce("edit")
+      .mockResolvedValueOnce("rule")
+      .mockResolvedValueOnce("Human edited rule")
+      .mockResolvedValueOnce("approve");
+    vi.mocked(
+      current.operations.admin.editReviewedKnowledge,
+    ).mockResolvedValueOnce(undefined as never);
+    vi.mocked(
+      current.operations.admin.approveReviewedKnowledge,
+    ).mockResolvedValueOnce(undefined as never);
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+    expect(current.operations.admin.editReviewedKnowledge).toHaveBeenCalledWith(
+      {
+        etag: initial.etag,
+        id: initial.knowledge_id,
+        revision: 1,
+      },
+      { rule: "Human edited rule" },
+    );
+    expect(
+      current.operations.admin.approveReviewedKnowledge,
+    ).toHaveBeenLastCalledWith({
+      etag: edited.etag,
+      id: edited.knowledge_id,
+      revision: 2,
+    });
+    expect(current.stdout()).toContain("Human edited rule");
+    expect(current.stdout()).toContain("1 resolved, 1 edit(s)");
+  });
+
+  it("reloads only the conflicting item before accepting a later decision", async () => {
+    const current = fixture(["review", REPOSITORY], {
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    });
+    const initial = knowledgeInboxItem();
+    const latest = knowledgeInboxItem({
+      etag: "e".repeat(64),
+      revision: 2,
+      rule: "Concurrent human edit",
+    });
+    const unrelated = knowledgeInboxItem({
+      id: "kn_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      rule: "Unrelated newly ordered item",
+    });
+    vi.mocked(current.operations.reviewInbox)
+      .mockResolvedValueOnce(inboxPage([initial]))
+      .mockResolvedValueOnce(inboxPage([unrelated, latest]))
+      .mockResolvedValueOnce(inboxPage([]));
+    vi.mocked(current.options.io.input!)
+      .mockResolvedValueOnce("approve")
+      .mockResolvedValueOnce("approve");
+    vi.mocked(current.operations.admin.approveReviewedKnowledge)
+      .mockRejectedValueOnce(
+        Object.assign(new Error("knowledge changed"), {
+          code: "KNOWLEDGE_CONFLICT",
+        }),
+      )
+      .mockResolvedValueOnce(undefined as never);
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+    expect(current.stderr()).toContain("REVIEW_ITEM_CHANGED");
+    expect(current.stdout()).toContain("Concurrent human edit");
+    expect(current.stdout()).not.toContain("Unrelated newly ordered item");
+    expect(
+      current.operations.admin.approveReviewedKnowledge,
+    ).toHaveBeenLastCalledWith({
+      etag: latest.etag,
+      id: latest.knowledge_id,
+      revision: 2,
+    });
+  });
+
+  it("handles empty, EOF, interrupt, and mid-session failure safely", async () => {
+    const empty = fixture(["review", REPOSITORY], {
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    });
+    await expect(runRepoKnowledgeCli(empty.options)).resolves.toBe(0);
+    expect(empty.stdout()).toBe("Review inbox is empty.\n");
+    expect(empty.options.io.input).not.toHaveBeenCalled();
+
+    for (const inputCase of [
+      {
+        code: "CLI_INPUT_ENDED" as const,
+        expectedExit: 0,
+        message: "input ended",
+      },
+      {
+        code: "CLI_INPUT_INTERRUPTED" as const,
+        expectedExit: 130,
+        message: "input interrupted",
+      },
+    ]) {
+      const current = fixture(["review", REPOSITORY], {
+        stdinIsTTY: true,
+        stdoutIsTTY: true,
+      });
+      vi.mocked(current.operations.reviewInbox).mockResolvedValueOnce(
+        inboxPage([knowledgeInboxItem()]),
+      );
+      vi.mocked(current.options.io.input!).mockRejectedValueOnce(
+        new RepoKnowledgeCliError(
+          inputCase.code,
+          inputCase.message,
+          inputCase.expectedExit,
+        ),
+      );
+      await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(
+        inputCase.expectedExit,
+      );
+      expect(current.stdout()).toContain("Review session paused");
+      expect(
+        current.operations.admin.approveReviewedKnowledge,
+      ).not.toHaveBeenCalled();
+    }
+
+    const failed = fixture(["review", REPOSITORY], {
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    });
+    vi.mocked(failed.operations.reviewInbox).mockResolvedValueOnce(
+      inboxPage([knowledgeInboxItem()]),
+    );
+    vi.mocked(failed.options.io.input!).mockResolvedValueOnce("approve");
+    vi.mocked(
+      failed.operations.admin.approveReviewedKnowledge,
+    ).mockRejectedValueOnce(new Error("disk unavailable"));
+    await expect(runRepoKnowledgeCli(failed.options)).resolves.toBe(1);
+    expect(failed.stderr()).toContain("disk unavailable");
+  });
+
   it("routes TTY-only approve, edit, approve-revision, and add --active", async () => {
     const approve = fixture(["approve", KNOWLEDGE_ID, "--repo", REPOSITORY], {
       stdinIsTTY: true,
@@ -318,6 +540,7 @@ describe("repo-knowledge CLI", () => {
     [["setup", REPOSITORY, "--since", "yesterday"], "CLI_ARGUMENT_INVALID"],
     [["sync", REPOSITORY, "--workspace", "/work/repo"], "CLI_ARGUMENT_INVALID"],
     [["list", REPOSITORY, "--status", "unknown"], "CLI_ARGUMENT_INVALID"],
+    [["review", REPOSITORY, "--yes"], "CLI_ARGUMENT_INVALID"],
     [["redistill", REPOSITORY, "--all", "--failed"], "CLI_ARGUMENT_INVALID"],
     [["reconcile", REPOSITORY], "CLI_ARGUMENT_INVALID"],
     [["serve", "--repo", "not-a-repository"], "CLI_ARGUMENT_INVALID"],
@@ -338,6 +561,7 @@ describe("repo-knowledge CLI", () => {
     expect(REPO_KNOWLEDGE_CLI_HELP).toContain(
       "stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]",
     );
+    expect(REPO_KNOWLEDGE_CLI_HELP).toContain("review [repo]");
     expect(REPO_KNOWLEDGE_CLI_HELP).not.toContain("\n  record_outcome");
     expect(parseRepoKnowledgeCliArguments([], false)).toEqual({
       kind: "serve",
@@ -507,6 +731,114 @@ describe("repo-knowledge CLI", () => {
   });
 });
 
+type KnowledgeInboxItem = Extract<ReviewInboxItem, { kind: "knowledge" }>;
+type RevisionInboxItem = Extract<
+  ReviewInboxItem,
+  { kind: "revision_proposal" }
+>;
+
+function knowledgeInboxItem(
+  overrides: {
+    readonly etag?: string;
+    readonly id?: string;
+    readonly revision?: number;
+    readonly rule?: string;
+  } = {},
+): KnowledgeInboxItem {
+  const id = overrides.id ?? KNOWLEDGE_ID;
+  const actor = {
+    actor_id: "U_reviewer",
+    actor_kind: "user" as const,
+    comment_id: "comment-review-1",
+    login: "alice",
+    provider: "human" as const,
+    trust: "trusted" as const,
+  };
+  return {
+    category: "architecture",
+    created_at: "2026-08-09T00:00:00.000Z",
+    detail: "Review this candidate detail.",
+    etag: overrides.etag ?? "a".repeat(64),
+    evidence: [
+      {
+        actors: [actor],
+        comment_ids: [actor.comment_id],
+        evidence_id: "ev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        observed_at: "2026-08-09T00:00:00.000Z",
+        originator: actor,
+        sources: ["human"],
+        status: "active",
+        url: "https://github.com/owner/repository/pull/1#discussion_r1",
+      },
+    ],
+    item_id: id,
+    kind: "knowledge",
+    knowledge_id: id,
+    knowledge_status: "proposed",
+    origin: { type: "distilled" },
+    possible_matches: [
+      {
+        etag: "f".repeat(64),
+        id: "kn_01ARZ3NDEKTSV4RRFFQ69G5FAY",
+        revision: 1,
+        rule: "Possible active match",
+        scope: ["src/**"],
+        severity: "should",
+        status: "active",
+      },
+    ],
+    proposal_etag: null,
+    proposal_id: null,
+    proposal_patch: null,
+    related_ids: [],
+    revision: overrides.revision ?? 1,
+    rule: overrides.rule ?? "Review this candidate",
+    scope: ["src/**"],
+    severity: "should",
+    sources: ["human"],
+    status: "proposed",
+    trust_classes: ["trusted"],
+    updated_at: "2026-08-09T00:00:00.000Z",
+  };
+}
+
+function revisionInboxItem(): RevisionInboxItem {
+  return {
+    category: "architecture",
+    created_at: "2026-08-09T00:01:00.000Z",
+    detail: "Review this revision detail.",
+    etag: "b".repeat(64),
+    evidence: [],
+    item_id: "proposal-cli-review",
+    kind: "revision_proposal",
+    knowledge_id: "kn_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+    knowledge_status: "active",
+    origin: { type: "manual" },
+    possible_matches: [],
+    proposal_etag: "c".repeat(64),
+    proposal_id: "proposal-cli-review",
+    proposal_patch: { rule: "Review this revision" },
+    related_ids: [],
+    revision: 1,
+    rule: "Review this revision",
+    scope: ["src/**"],
+    severity: "should",
+    sources: [],
+    status: "pending",
+    trust_classes: [],
+    updated_at: "2026-08-09T00:01:00.000Z",
+  };
+}
+
+function inboxPage(items: readonly ReviewInboxItem[]) {
+  return {
+    items: [...items],
+    next_cursor: null,
+    repo: REPOSITORY,
+    total_count: items.length,
+  };
+}
+
 function fixture(
   argv: readonly string[],
   tty: { readonly stdinIsTTY: boolean; readonly stdoutIsTTY: boolean } = {
@@ -568,9 +900,27 @@ function fixture(
     admin: {
       addActive: vi.fn(async () => ({ confirmed: false as const })),
       approve: vi.fn(async () => ({ confirmed: false as const })),
+      approveReviewedKnowledge: vi.fn(async () => {
+        throw new Error("not used by CLI fixture");
+      }),
+      approveReviewedRevision: vi.fn(async () => {
+        throw new Error("not used by CLI fixture");
+      }),
       approveRevision: vi.fn(async () => ({ confirmed: false as const })),
       edit: vi.fn(async () => ({ confirmed: false as const })),
+      editReviewedKnowledge: vi.fn(async () => {
+        throw new Error("not used by CLI fixture");
+      }),
+      editReviewedRevision: vi.fn(async () => {
+        throw new Error("not used by CLI fixture");
+      }),
       reject: vi.fn(async () => ({ confirmed: false as const })),
+      rejectReviewedKnowledge: vi.fn(async () => {
+        throw new Error("not used by CLI fixture");
+      }),
+      rejectReviewedRevision: vi.fn(async () => {
+        throw new Error("not used by CLI fixture");
+      }),
     },
     distill: vi.fn(async () => ({ distilled: 0, pending: 1 })),
     listKnowledge: vi.fn(async () => ({

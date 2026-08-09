@@ -48,6 +48,7 @@ const EVIDENCE_RECORD_TYPES = new Set([
 const PROPOSAL_RECORD_TYPES = new Set([
   "KnowledgeRevisionProposal",
   "KnowledgeRevisionProposalApproved",
+  "KnowledgeRevisionProposalEdited",
   "KnowledgeRevisionProposalRejected",
 ]);
 

@@ -1,11 +1,13 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import type { Transport } from "@modelcontextprotocol/server";
 
 import {
+  REPO_KNOWLEDGE_CLI_EXIT,
+  RepoKnowledgeCliError,
   runRepoKnowledgeCli,
   type CliRepositoryOperationsResolver,
   type RepoKnowledgeCliIo,
@@ -160,7 +162,7 @@ export async function runDefaultRepoKnowledgeCli(
       ghRunner,
       storageRoot,
     }),
-    io: options.io ?? processCliIo(),
+    io: options.io ?? createProcessCliIo(),
     mutationServiceResolver: {
       async resolve(input) {
         return (await loadRuntime()).mutationServiceResolver.resolve(input);
@@ -192,40 +194,29 @@ function defaultStorageRoot(explicit: string | undefined): string {
   );
 }
 
-function processCliIo(): RepoKnowledgeCliIo {
+/** Real terminal adapter with explicit EOF and interrupt completion. */
+export function createProcessCliIo(): RepoKnowledgeCliIo {
+  const terminal = createTerminalQuestionQueue();
   return {
+    close() {
+      terminal.close();
+    },
     async confirm(request) {
       const suffix = request.defaultValue ? "[Y/n]" : "[y/N]";
-      const terminal = createInterface({
-        input: process.stdin,
-        output: process.stderr,
-      });
-      try {
-        for (;;) {
-          const answer = (
-            await terminal.question(`${request.message} ${suffix} `)
-          )
-            .trim()
-            .toLocaleLowerCase("en-US");
-          if (answer.length === 0) return request.defaultValue;
-          if (answer === "y" || answer === "yes") return true;
-          if (answer === "n" || answer === "no") return false;
-          process.stderr.write("Please answer yes or no.\n");
-        }
-      } finally {
-        terminal.close();
+      for (;;) {
+        const answer = (
+          await terminal.question(`${request.message} ${suffix} `)
+        )
+          .trim()
+          .toLocaleLowerCase("en-US");
+        if (answer.length === 0) return request.defaultValue;
+        if (answer === "y" || answer === "yes") return true;
+        if (answer === "n" || answer === "no") return false;
+        process.stderr.write("Please answer yes or no.\n");
       }
     },
     async input(request) {
-      const terminal = createInterface({
-        input: process.stdin,
-        output: process.stderr,
-      });
-      try {
-        return await terminal.question(`${request.message}: `);
-      } finally {
-        terminal.close();
-      }
+      return terminal.question(`${request.message}: `);
     },
     stdinIsTTY: process.stdin.isTTY === true,
     stdoutIsTTY: process.stdout.isTTY === true,
@@ -234,6 +225,99 @@ function processCliIo(): RepoKnowledgeCliIo {
     },
     writeStdout(value) {
       process.stdout.write(value);
+    },
+  };
+}
+
+interface PendingTerminalQuestion {
+  readonly reject: (reason: unknown) => void;
+  readonly resolve: (answer: string) => void;
+}
+
+interface TerminalQuestionQueue {
+  close(): void;
+  question(prompt: string): Promise<string>;
+}
+
+/**
+ * Keeps one readline interface and an explicit line queue for the full CLI
+ * invocation. Readline can emit several pasted lines before the next prompt;
+ * retaining them here prevents answers typed ahead from being discarded.
+ */
+function createTerminalQuestionQueue(): TerminalQuestionQueue {
+  const bufferedLines: string[] = [];
+  let closedByOwner = false;
+  let pending: PendingTerminalQuestion | undefined;
+  let stopped: RepoKnowledgeCliError | undefined;
+  let terminal: Interface | undefined;
+
+  const stop = (error: RepoKnowledgeCliError): void => {
+    if (stopped !== undefined) return;
+    stopped = error;
+    bufferedLines.length = 0;
+    const current = pending;
+    pending = undefined;
+    current?.reject(error);
+  };
+
+  const ensureTerminal = (): void => {
+    if (terminal !== undefined) return;
+    terminal = createInterface({
+      input: process.stdin,
+      output: process.stderr,
+    });
+    terminal.on("line", (line) => {
+      if (stopped !== undefined) return;
+      const current = pending;
+      if (current === undefined) {
+        bufferedLines.push(line);
+        return;
+      }
+      pending = undefined;
+      current.resolve(line);
+    });
+    terminal.once("SIGINT", () => {
+      stop(
+        new RepoKnowledgeCliError(
+          "CLI_INPUT_INTERRUPTED",
+          "interactive input was interrupted",
+          130,
+        ),
+      );
+    });
+    terminal.once("close", () => {
+      if (closedByOwner) return;
+      stop(
+        new RepoKnowledgeCliError(
+          "CLI_INPUT_ENDED",
+          "interactive input ended before an answer was provided",
+          REPO_KNOWLEDGE_CLI_EXIT.failure,
+        ),
+      );
+    });
+  };
+
+  return {
+    close() {
+      if (terminal === undefined) return;
+      closedByOwner = true;
+      terminal.close();
+      terminal = undefined;
+    },
+    question(prompt) {
+      ensureTerminal();
+      process.stderr.write(prompt);
+      if (stopped !== undefined) return Promise.reject(stopped);
+      const buffered = bufferedLines.shift();
+      if (buffered !== undefined) return Promise.resolve(buffered);
+      if (pending !== undefined) {
+        return Promise.reject(
+          new TypeError("terminal questions must be requested sequentially"),
+        );
+      }
+      return new Promise<string>((resolve, reject) => {
+        pending = { reject, resolve };
+      });
     },
   };
 }
