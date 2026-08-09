@@ -15,7 +15,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   EXPECTED_PACKAGE_NAME,
@@ -51,7 +51,7 @@ async function main() {
     const runtimeDirectory = join(temporaryRoot, "runtime");
     const binDirectory = join(temporaryRoot, "bin");
     const workspaceDirectory = join(temporaryRoot, "workspace");
-    const ptyBridgePath = join(temporaryRoot, "pty-bridge.py");
+    const setupRunnerPath = join(temporaryRoot, "setup-runner.mjs");
     await Promise.all([
       mkdir(packDirectory, { recursive: true }),
       mkdir(installDirectory, { recursive: true }),
@@ -62,7 +62,6 @@ async function main() {
     const fakeGhPath = join(binDirectory, "gh");
     await writeFile(fakeGhPath, fakeGhSource(), "utf8");
     await chmod(fakeGhPath, 0o755);
-    await writeFile(ptyBridgePath, ptyBridgeSource(), "utf8");
 
     let installSpec;
     let packageSource;
@@ -119,6 +118,13 @@ async function main() {
       installDirectory,
       "node_modules",
       expectedName,
+    );
+    await writeFile(
+      setupRunnerPath,
+      setupRunnerSource(
+        pathToFileURL(join(installedPackageRoot, "dist", "index.js")).href,
+      ),
+      "utf8",
     );
     const installedFiles = await collectPackageFiles(installedPackageRoot);
     validatePackageManifest({
@@ -181,22 +187,10 @@ async function main() {
       "installed batch review help was not available",
     );
 
-    const setup = await run(
-      "python3",
-      [
-        ptyBridgePath,
-        executable,
-        "setup",
-        smokeRepository,
-        "--since",
-        "2026-01-01T00:00:00Z",
-      ],
-      {
-        cwd: workspaceDirectory,
-        env: environment,
-        input: "n\nn\nn\n",
-      },
-    );
+    const setup = await run(process.execPath, [setupRunnerPath], {
+      cwd: workspaceDirectory,
+      env: environment,
+    });
     assert(setup.stderr === "", "installed guided setup wrote to stderr");
     const setupJsonStart = setup.stdout.indexOf('{"config_path":');
     assert(
@@ -472,36 +466,40 @@ process.stdout.write(JSON.stringify({ data }) + "\\n");
 `;
 }
 
-function ptyBridgeSource() {
-  return `import os
-import pty
-import select
-import sys
+function setupRunnerSource(indexUrl) {
+  return `import { runDefaultRepoKnowledgeCli } from ${JSON.stringify(indexUrl)};
 
-pid, master = pty.fork()
-if pid == 0:
-    os.execvpe(sys.argv[1], sys.argv[1:], os.environ)
-
-inputs = [master, sys.stdin.fileno()]
-while True:
-    readable, _, _ = select.select(inputs, [], [])
-    if master in readable:
-        try:
-            data = os.read(master, 4096)
-        except OSError:
-            break
-        if not data:
-            break
-        os.write(sys.stdout.fileno(), data)
-    if sys.stdin.fileno() in readable:
-        data = os.read(sys.stdin.fileno(), 4096)
-        if data:
-            os.write(master, data)
-        else:
-            inputs.remove(sys.stdin.fileno())
-
-_, status = os.waitpid(pid, 0)
-sys.exit(os.waitstatus_to_exitcode(status))
+const confirmations = [];
+const exitCode = await runDefaultRepoKnowledgeCli({
+  argv: [
+    "setup",
+    ${JSON.stringify(smokeRepository)},
+    "--since",
+    "2026-01-01T00:00:00Z",
+  ],
+  io: {
+    close() {},
+    async confirm(request) {
+      if (request.defaultValue !== false) {
+        throw new Error("package smoke only accepts safe-default setup prompts");
+      }
+      confirmations.push(request.id);
+      return false;
+    },
+    async input() {
+      throw new Error("safe-default setup must not request text input");
+    },
+    stdinIsTTY: true,
+    stdoutIsTTY: true,
+    writeStderr(value) {
+      process.stderr.write(value);
+    },
+    writeStdout(value) {
+      process.stdout.write(value);
+    },
+  },
+});
+if (exitCode !== 0 || confirmations.length < 2) process.exitCode = 1;
 `;
 }
 
@@ -587,7 +585,7 @@ function run(command, args, options) {
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
@@ -599,7 +597,6 @@ function run(command, args, options) {
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
     });
-    if (options.input !== undefined) child.stdin.end(options.input);
     child.once("error", rejectPromise);
     child.once("close", (code, signal) => {
       if (code === 0) {
