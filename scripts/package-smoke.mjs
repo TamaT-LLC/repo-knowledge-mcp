@@ -176,11 +176,14 @@ async function main() {
         repo: smokeRepository,
       });
       const rulesStructured = asRecord(rules.structuredContent);
+      const readiness = asRecord(rulesStructured.readiness);
       assert(
         rulesStructured.matched_count === 0 &&
           Array.isArray(rulesStructured.rules) &&
-          rulesStructured.rules.length === 0,
-        "installed get_rules did not return an empty active rule set",
+          rulesStructured.rules.length === 0 &&
+          readiness.state === "setup_required" &&
+          String(readiness.next_action).includes("repo-knowledge setup"),
+        "installed get_rules did not explain the empty repository state",
       );
     } finally {
       await client.close();
@@ -199,6 +202,7 @@ async function main() {
       `${JSON.stringify(
         {
           cli_help: true,
+          m3_readiness: "setup_required",
           m2_tool_calls: ["sync_repo", "stats", "get_rules"],
           mcp_tools: expectedTools.length,
           package: `${packResult.name}@${packResult.version}`,

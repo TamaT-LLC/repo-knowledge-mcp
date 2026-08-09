@@ -15,12 +15,14 @@ import {
   serializeCanonicalJsonlRecord,
   serializeKnowledgeDocument,
   type CanonicalJsonlRecord,
+  type DistillJob,
   type GeneratedCodeExample,
   type KnowledgeCategory,
   type KnowledgeEvidence,
   type KnowledgeOutcome,
   type KnowledgeStatus,
   type Severity,
+  type SyncCheckpoint,
 } from "../src/index.js";
 
 const NOW = "2026-08-06T00:00:00.000Z";
@@ -193,6 +195,118 @@ describe("KnowledgeReadService.getRules", () => {
     expect(result.rules).toEqual([
       expect.objectContaining({ id: mustId, severity: "must" }),
     ]);
+  });
+
+  it("reports setup_required for a repository without sync, jobs, or knowledge", async () => {
+    const repository = await createRepository();
+
+    const result = await service(repository).getRules({
+      filePaths: ["src/index.ts"],
+    });
+
+    expect(result).toMatchObject({
+      matched_count: 0,
+      readiness: {
+        next_action: expect.stringContaining(
+          `repo-knowledge setup ${REPO_NAME}`,
+        ),
+        state: "setup_required",
+      },
+      rules: [],
+      truncated: false,
+    });
+  });
+
+  it("reports learning for pending jobs or proposed knowledge", async () => {
+    const pendingRepository = await createRepository();
+    await writeRecords(pendingRepository, [
+      canonicalRecord("DistillJob", distillJob("pending")),
+    ]);
+    const proposedRepository = await createRepository();
+    await writeKnowledge(proposedRepository, {
+      rule: "Review this proposed guidance",
+      status: "proposed",
+    });
+
+    const pending = await service(pendingRepository).getRules();
+    const proposed = await service(proposedRepository).getRules();
+
+    expect(pending.readiness).toMatchObject({
+      next_action: expect.stringContaining(
+        `repo-knowledge distill ${REPO_NAME}`,
+      ),
+      state: "learning",
+    });
+    expect(pending.readiness.next_action).toContain("llm.mode");
+    expect(pending.readiness.next_action).toContain("hostAssistedDistillation");
+    expect(proposed.readiness).toMatchObject({
+      next_action: expect.stringContaining(
+        `repo-knowledge list ${REPO_NAME} --status proposed`,
+      ),
+      state: "learning",
+    });
+  });
+
+  it("reports ready for a normal mismatch when any active rule exists", async () => {
+    const repository = await createRepository();
+    await writeKnowledge(repository, {
+      rule: "Backend-only guidance",
+      scope: ["backend/**"],
+    });
+
+    const result = await service(repository).getRules({
+      filePaths: ["frontend/view.ts"],
+      task: "render a frontend view",
+    });
+
+    expect(result).toMatchObject({
+      matched_count: 0,
+      readiness: {
+        next_action: expect.stringContaining("no active rule matched"),
+        state: "ready",
+      },
+      rules: [],
+    });
+  });
+
+  it("reports empty after sync when no reusable candidate remains", async () => {
+    const repository = await createRepository();
+    await writeKnowledge(repository, {
+      rule: "Rejected guidance",
+      status: "rejected",
+    });
+
+    const result = await service(repository, checkpoint()).getRules();
+
+    expect(result).toMatchObject({
+      matched_count: 0,
+      readiness: {
+        next_action: expect.stringContaining(
+          `repo-knowledge sync ${REPO_NAME}`,
+        ),
+        state: "empty",
+      },
+      rules: [],
+    });
+  });
+
+  it("fails closed for a foreign checkpoint instead of returning readiness", async () => {
+    const repository = await createRepository();
+
+    await expect(
+      service(repository, checkpoint("R_other_repo")).getRules(),
+    ).rejects.toMatchObject({
+      code: "READINESS_SYNC_CHECKPOINT_REPOSITORY_MISMATCH",
+    });
+  });
+
+  it("does not hide a broken canonical projection behind a readiness state", async () => {
+    const repository = await createRepository();
+    await writeFile(join(repository, "knowledge", "broken.md"), "not markdown");
+
+    await expect(service(repository).getRules()).rejects.toMatchObject({
+      code: "KNOWLEDGE_STORE_INVALID",
+    });
   });
 
   it.each(["/absolute.ts", "../escape.ts", "src/../escape.ts", "C:\\root.ts"])(
@@ -501,12 +615,44 @@ async function createRepository(): Promise<string> {
   return repository;
 }
 
-function service(repository: string): KnowledgeReadService {
+function service(
+  repository: string,
+  syncCheckpoint: SyncCheckpoint | null = null,
+): KnowledgeReadService {
   return new KnowledgeReadService({
     repo: REPO_NAME,
     repoId: REPO_ID,
     repository: new CanonicalTransactionStore(repository),
+    syncCheckpoints: { read: async () => syncCheckpoint },
   });
+}
+
+function checkpoint(repoId = REPO_ID): SyncCheckpoint {
+  return {
+    cursor: {
+      last_pr_number: 7,
+      last_updated_at: NOW,
+      repo_id: repoId,
+      version: 1,
+    },
+    schema_version: 1,
+    updated_at: NOW,
+  };
+}
+
+function distillJob(state: DistillJob["state"]): DistillJob {
+  const jobId = createDomainId("job");
+  return {
+    attempts: 0,
+    distillation_key: HASH_A,
+    job_id: jobId,
+    lease_generation: 0,
+    repo_id: REPO_ID,
+    state,
+    thread_id: `thread-${jobId}`,
+    updated_at: NOW,
+    validation_failures: 0,
+  };
 }
 
 async function writeKnowledge(

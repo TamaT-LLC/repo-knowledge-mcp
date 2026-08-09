@@ -262,6 +262,10 @@ const read = {
   async getRules() {
     return {
       matched_count: 1,
+      readiness: {
+        next_action: "Use the returned rules.",
+        state: "ready",
+      },
       repo,
       rules: [{
         evidence_count: 1,
