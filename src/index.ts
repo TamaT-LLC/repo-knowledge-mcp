@@ -35,9 +35,11 @@ export {
   loadRepoKnowledgeConfig,
   parseRepoKnowledgeConfig,
   resolveRepositoryPolicy,
+  updateRepoKnowledgeConfig,
   type ConfigErrorCode,
   type EffectiveRepositoryPolicy,
   type InitializedStorage,
+  type UpdateRepoKnowledgeConfigOptions,
 } from "./config.js";
 export {
   executeBufferedCommand,
@@ -939,6 +941,28 @@ export {
   type DefaultCliRuntime,
   type RunDefaultRepoKnowledgeCliOptions,
 } from "./cli-runtime.js";
+export {
+  DEFAULT_SETUP_LOOKBACK_DAYS,
+  GuidedSetupError,
+  GuidedSetupService,
+  collectSetupTrustCandidates,
+  type GuidedSetupDependencies,
+  type GuidedSetupErrorCode,
+  type GuidedSetupPrompt,
+  type GuidedSetupRequest,
+  type GuidedSetupResult,
+  type SetupConfirmationRequest,
+  type SetupTextInputRequest,
+  type SetupTrustCandidate,
+} from "./setup-service.js";
+export {
+  SetupPhaseSchema,
+  SetupStateSchema,
+  SetupStateStore,
+  SetupStateStoreError,
+  type SetupState,
+  type SetupStateStoreErrorCode,
+} from "./setup-state-store.js";
 export {
   RepoKnowledgeDoctor,
   type DoctorCheck,

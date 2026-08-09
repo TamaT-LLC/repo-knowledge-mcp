@@ -6,6 +6,7 @@ import {
   mkdir,
   open,
   readFile,
+  rename,
   unlink,
 } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -20,10 +21,12 @@ import {
   type TrustConfig,
 } from "./domain-schemas.js";
 import { createDomainId } from "./ids.js";
+import { withPosixFileLock } from "./posix-file-lock.js";
 
 export const DEFAULT_CONFIG_FILE_NAME = "config.json";
 
 export type ConfigErrorCode =
+  | "CONFIG_CONFLICT"
   | "CONFIG_INVALID"
   | "CONFIG_IO_ERROR"
   | "CONFIG_PATH_UNSAFE"
@@ -49,6 +52,10 @@ export interface InitializedStorage {
   readonly config: RepoKnowledgeConfig;
   readonly configPath: string;
   readonly rootPath: string;
+}
+
+export interface UpdateRepoKnowledgeConfigOptions {
+  readonly lockTimeoutMs?: number;
 }
 
 /** Validates unknown JSON-compatible input and applies all safe defaults. */
@@ -180,6 +187,63 @@ export async function initializeStorage(
   };
 }
 
+/** Atomically updates a validated config while preserving private permissions. */
+export async function updateRepoKnowledgeConfig(
+  configPath: string,
+  update: (current: RepoKnowledgeConfig) => unknown,
+  options: UpdateRepoKnowledgeConfigOptions = {},
+): Promise<RepoKnowledgeConfig> {
+  const absolutePath = resolve(configPath);
+  const lockPath = `${absolutePath}.lock`;
+  return withPosixFileLock(
+    lockPath,
+    options.lockTimeoutMs ?? 5_000,
+    async () => {
+      await assertRegularFile(absolutePath);
+      const previousBytes = await readFile(absolutePath);
+      const previous = await loadRepoKnowledgeConfig(absolutePath);
+      const next = parseRepoKnowledgeConfig(update(previous), absolutePath);
+      const nextBytes = serializeConfig(next);
+      if (previousBytes.equals(nextBytes)) {
+        await chmod(absolutePath, 0o600);
+        return next;
+      }
+
+      const temporaryPath = join(
+        dirname(absolutePath),
+        `.${basename(absolutePath)}.${createDomainId("transaction")}.tmp`,
+      );
+      try {
+        await writePrivateFile(temporaryPath, nextBytes);
+        const currentBytes = await readFile(absolutePath);
+        if (!currentBytes.equals(previousBytes)) {
+          throw new RepoKnowledgeConfigError(
+            "CONFIG_CONFLICT",
+            absolutePath,
+            "config changed while setup was preparing an update",
+          );
+        }
+        await rename(temporaryPath, absolutePath);
+        await chmod(absolutePath, 0o600);
+        await syncDirectory(dirname(absolutePath));
+      } catch (error) {
+        if (error instanceof RepoKnowledgeConfigError) throw error;
+        throw new RepoKnowledgeConfigError(
+          "CONFIG_IO_ERROR",
+          absolutePath,
+          errorMessage(error),
+          { cause: error },
+        );
+      } finally {
+        await unlink(temporaryPath).catch((error: unknown) => {
+          if (!hasErrorCode(error, "ENOENT")) throw error;
+        });
+      }
+      return loadRepoKnowledgeConfig(absolutePath);
+    },
+  );
+}
+
 function serializeConfig(config: RepoKnowledgeConfig): Buffer {
   return Buffer.from(`${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
@@ -284,6 +348,19 @@ async function createPrivateFileIfMissing(
     await unlink(temporaryPath).catch((error: unknown) => {
       if (!hasErrorCode(error, "ENOENT")) throw error;
     });
+  }
+}
+
+async function writePrivateFile(
+  path: string,
+  content: Uint8Array,
+): Promise<void> {
+  const handle = await open(path, "wx", 0o600);
+  try {
+    await handle.writeFile(content);
+    await handle.sync();
+  } finally {
+    await handle.close();
   }
 }
 
