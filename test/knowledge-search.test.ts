@@ -17,6 +17,7 @@ import {
   createDomainId,
   evidenceBoost,
   falsePositivePenalty,
+  normalizeKnowledgeSearchQuery,
   notApplicablePenalty,
   outcomeScore,
   serializeCanonicalJsonlRecord,
@@ -56,10 +57,22 @@ afterEach(async () => {
 });
 
 describe("knowledge search query handling", () => {
-  it("uses literal FTS, NFKC, and a two-code-point LIKE fallback", async () => {
+  it("uses literal-safe term FTS, NFKC, and a two-code-point LIKE fallback", async () => {
     const repository = await createRepository();
     const syntaxId = await writeKnowledge(repository, {
       rule: 'Parser handles OR - "quoted" (group): safely',
+    });
+    const alphaId = await writeKnowledge(repository, {
+      rule: "Alpha guidance",
+    });
+    const betaId = await writeKnowledge(repository, {
+      rule: "Beta guidance",
+    });
+    const failClosedId = await writeKnowledge(repository, {
+      rule: "Always fail closed on invalid input",
+    });
+    const shortTermId = await writeKnowledge(repository, {
+      rule: "Use C++ only",
     });
     const japaneseId = await writeKnowledge(repository, {
       rule: "例外処理を統一する",
@@ -85,6 +98,21 @@ describe("knowledge search query handling", () => {
       query: "API",
       repoId: "repo-a",
     });
+    const terms = await projection.searchKnowledge({
+      query: "error handling fail-closed",
+      queryMode: "literal_terms",
+      repoId: "repo-a",
+    });
+    const operators = await projection.searchKnowledge({
+      query: 'alpha OR -"beta"',
+      queryMode: "literal_terms",
+      repoId: "repo-a",
+    });
+    const shortTerms = await projection.searchKnowledge({
+      query: "C++",
+      queryMode: "literal_terms",
+      repoId: "repo-a",
+    });
 
     expect(syntax.hits.map((hit) => hit.id)).toContain(syntaxId);
     expect(operatorWord).toMatchObject({
@@ -96,6 +124,22 @@ describe("knowledge search query handling", () => {
       mode: "like",
     });
     expect(nfkc.hits.map((hit) => hit.id)).toContain(nfkcId);
+    expect(terms.hits.map((hit) => hit.id)).toContain(failClosedId);
+    expect(operators.hits.map((hit) => hit.id).sort()).toEqual(
+      [alphaId, betaId].sort(),
+    );
+    expect(shortTerms).toMatchObject({
+      hits: [expect.objectContaining({ id: shortTermId })],
+      mode: "like",
+    });
+    expect(
+      normalizeKnowledgeSearchQuery('Alpha OR -"beta"', "literal_terms"),
+    ).toMatchObject({
+      ftsLiteral: '"alpha or -""beta"""',
+      ftsQuery: '"alpha" OR "beta"',
+      mode: "fts",
+      queryMode: "literal_terms",
+    });
   });
 
   it("escapes percent and underscore in LIKE patterns", async () => {

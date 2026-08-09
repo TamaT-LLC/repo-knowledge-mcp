@@ -829,6 +829,7 @@ export {
   type ExhaustiveKnowledgeSearchRequest,
   type KnowledgeSearchHit,
   type KnowledgeSearchMode,
+  type KnowledgeSearchQueryMode,
   type KnowledgeSearchRequest,
   type KnowledgeSearchResult,
   type NormalizedKnowledgeSearchQuery,

@@ -224,6 +224,7 @@ export class KnowledgeReadService {
         ? undefined
         : {
             query: request.task,
+            queryMode: "literal_terms",
             repoId: this.repoId,
             statuses: ["active"],
           };
@@ -319,6 +320,7 @@ export class KnowledgeReadService {
       ),
       ...(request.category === undefined ? {} : { category: request.category }),
       query: request.query,
+      queryMode: "literal_terms",
       repoId: this.repoId,
       statuses: ["active"],
     });

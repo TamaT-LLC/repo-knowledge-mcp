@@ -131,10 +131,12 @@ describe("KnowledgeReadService.getRules", () => {
     });
     const readService = service(repository);
 
-    const taskOnly = await readService.getRules({ task: "retry failures" });
+    const taskOnly = await readService.getRules({
+      task: "retry backend failures",
+    });
     const pathConstrained = await readService.getRules({
       filePaths: ["frontend/view.ts"],
-      task: "retry failures",
+      task: "retry backend failures",
     });
 
     expect(taskOnly.rules.map((rule) => rule.id).sort()).toEqual(

@@ -33,7 +33,7 @@ M1 の完了条件と受け入れテスト 1〜63 を、実行可能な test ま
 | 19 | 撤回 thread の evidence を withdrawn、rule を stale にする | [canonical finalize test](../../test/canonical-finalize-service.test.ts)、[GitHub ingest test](../../test/github-ingest-service.test.ts) | automated |
 | 20 | unknown bot を設定追加後、GitHub 再取得なしで redistill する | [CLI maintenance test](../../test/cli-maintenance-service.test.ts) | automated |
 | 21 | repository rename 後も同じ repo ID store を使う | [repository registry test](../../test/repository-registry.test.ts)、[repository resolver test](../../test/repository-resolver.test.ts) | automated |
-| 22 | FTS operator を含む query でも syntax error にしない | [knowledge search test](../../test/knowledge-search.test.ts) | automated |
+| 22 | 複数語 query を literal-safe な term 検索にし、FTS operator を user 構文として実行せず syntax error にもしない | [knowledge search test](../../test/knowledge-search.test.ts) | automated |
 | 23 | proposed rule を通常検索と get_rules に混入させない | [knowledge read test](../../test/knowledge-read-service.test.ts)、[model-plane test](../../test/model-plane-knowledge-service.test.ts) | automated |
 | 24 | 不完全な GraphQL pagination から job を作らない | [GitHub client test](../../test/github-pull-request-client.test.ts)、[GitHub ingest test](../../test/github-ingest-service.test.ts) | automated |
 

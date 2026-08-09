@@ -10,11 +10,13 @@ export const MAX_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT = 500;
 export const MAX_KNOWLEDGE_SEARCH_QUERY_CODE_POINTS = 512;
 
 export type KnowledgeSearchMode = "fts" | "like";
+export type KnowledgeSearchQueryMode = "literal_phrase" | "literal_terms";
 
 export interface KnowledgeSearchRequest {
   readonly candidateLimit?: number;
   readonly category?: KnowledgeCategory;
   readonly query: string;
+  readonly queryMode?: KnowledgeSearchQueryMode;
   readonly repoId: string;
   readonly statuses?: readonly KnowledgeStatus[];
 }
@@ -53,13 +55,16 @@ export interface NormalizedKnowledgeSearchQuery {
   readonly codePointLength: number;
   readonly folded: string;
   readonly ftsLiteral: string;
+  readonly ftsQuery: string | null;
   readonly likePattern: string;
   readonly mode: KnowledgeSearchMode;
   readonly normalized: string;
+  readonly queryMode: KnowledgeSearchQueryMode;
 }
 
 export function normalizeKnowledgeSearchQuery(
   query: string,
+  queryMode: KnowledgeSearchQueryMode = "literal_phrase",
 ): NormalizedKnowledgeSearchQuery {
   const normalized = query.normalize("NFKC").trim();
   const codePointLength = [...normalized].length;
@@ -74,19 +79,44 @@ export function normalizeKnowledgeSearchQuery(
     );
   }
   const folded = normalized.toLocaleLowerCase("en-US");
+  const ftsLiteral = toFtsLiteral(folded);
+  const ftsQuery =
+    queryMode === "literal_terms" ? toLiteralTermFtsQuery(folded) : ftsLiteral;
   return {
     codePointLength,
     folded,
-    ftsLiteral: toFtsLiteral(folded),
+    ftsLiteral,
+    ftsQuery,
     likePattern: `%${escapeLikeLiteral(folded)}%`,
-    mode: codePointLength < 3 ? "like" : "fts",
+    mode: codePointLength < 3 || ftsQuery === null ? "like" : "fts",
     normalized,
+    queryMode,
   };
 }
 
 export function toFtsLiteral(query: string): string {
   const normalized = query.normalize("NFKC");
   return `"${normalized.replaceAll('"', '""')}"`;
+}
+
+/**
+ * Builds an operator-safe disjunction from searchable user terms. Every term
+ * is quoted independently, so words such as OR and punctuation supplied by a
+ * caller can never become FTS syntax. Terms shorter than three code points are
+ * omitted because the trigram tokenizer cannot match them; a query without an
+ * eligible term falls back to the existing literal LIKE path.
+ */
+function toLiteralTermFtsQuery(query: string): string | null {
+  const terms: string[] = [];
+  const seen = new Set<string>();
+  for (const match of query.matchAll(/[\p{L}\p{N}][\p{L}\p{M}\p{N}]*/gu)) {
+    const term = match[0];
+    if ([...term].length < 3 || seen.has(term)) continue;
+    seen.add(term);
+    terms.push(term);
+  }
+  if (terms.length === 0) return null;
+  return terms.map((term) => toFtsLiteral(term)).join(" OR ");
 }
 
 export function escapeLikeLiteral(query: string): string {

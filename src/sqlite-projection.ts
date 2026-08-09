@@ -1072,12 +1072,15 @@ function searchKnowledgeDatabase(
     ? null
     : validateKnowledgeSearchCandidateLimit(request.candidateLimit);
   const limitClause = candidateLimit === null ? "" : "LIMIT ?";
-  const query = normalizeKnowledgeSearchQuery(request.query);
+  const query = normalizeKnowledgeSearchQuery(request.query, request.queryMode);
   const statusPlaceholders = orderedStatuses.map(() => "?").join(", ");
   const categoryClause = category === undefined ? "" : "AND k.category = ?";
   let rows: SearchKnowledgeRow[];
 
   if (query.mode === "fts") {
+    if (query.ftsQuery === null) {
+      throw new TypeError("FTS search mode requires at least one literal term");
+    }
     rows = database
       .prepare(
         `SELECT k.*, bm25(knowledge_fts) AS bm25_score
@@ -1091,7 +1094,7 @@ function searchKnowledgeDatabase(
          ${limitClause}`,
       )
       .all(
-        query.ftsLiteral,
+        query.ftsQuery,
         repoId,
         ...orderedStatuses,
         ...(category === undefined ? [] : [category]),
