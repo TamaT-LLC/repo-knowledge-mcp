@@ -1,7 +1,8 @@
 # repo-knowledge-mcp
 
-repo-knowledge-mcp は、人間と複数の AI reviewer が Pull Request に残した知見をローカルへ取り込み、監査可能な Markdown rule に蒸留し、Claude Code や Cursor へ stdio MCP で提供するツールです。
-M1 では安全側の既定を採用し、蒸留された rule は手動で承認するまで `proposed` のままです。
+repo-knowledge-mcp は、人間と複数の AI reviewer が Pull Request に残した知見を個人用ローカルストアへ取り込み、監査可能な Markdown rule に蒸留し、Codex、Claude Code、Cursor へ stdio MCP で提供するツールです。
+M3 はチーム共通台帳を作らず、利用者ごとの GitHub 権限、信頼対象、利用結果に基づく knowledge を `~/.repo-knowledge/` へ保存します。
+外部送信と trusted-human の自動 active 化は既定で無効です。
 
 ## 位置づけ
 
@@ -20,7 +21,7 @@ repo-knowledge-mcp の軸は次の 4 点です。
 
 ## 対応環境
 
-| 項目 | M1 の保証範囲 |
+| 項目 | M3 の保証範囲 |
 |---|---|
 | Node.js | 22.13 以降の Node 22、または Node 24 以降 |
 | OS | macOS、Linux |
@@ -77,6 +78,26 @@ repo-knowledge list owner/repository --status proposed
 
 `setup`、`approve`、`reject`、`edit`、`approve-revision`、`add --active` は実 input/output TTY が必要です。
 
+## Codex から使う
+
+Codex の stdio MCP server として登録します。
+ChatGPT desktop、Codex CLI、IDE extension は MCP 設定を共有します。
+
+```console
+codex mcp add repo-knowledge -- npx -y repo-knowledge-mcp
+codex mcp list
+```
+
+別の storage root を使う場合は登録時に environment を渡します。
+
+```console
+codex mcp add repo-knowledge \
+  --env REPO_KNOWLEDGE_HOME=/absolute/private/path \
+  -- npx -y repo-knowledge-mcp
+```
+
+設定先と CLI の詳細は [OpenAI の Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) を参照してください。
+
 ## Claude Code から使う
 
 Claude Code の project-local stdio server として登録します。
@@ -119,7 +140,7 @@ Cursor の設定場所と stdio schema は [Cursor MCP documentation](https://do
 ## Agent bootstrap
 
 server instructions だけでは client が必ず `get_rules` を呼ぶとは限りません。
-次の command が出力する 1 行を `CLAUDE.md` または `.cursor/rules` 配下の rule に追加してください。
+次の command が出力する 1 行を、利用する agent に応じて `AGENTS.md`、`CLAUDE.md`、または `.cursor/rules` 配下の rule に追加してください。
 
 ```console
 repo-knowledge export owner/repository --bootstrap
@@ -171,6 +192,22 @@ JSON は strict に検証され、未知 key、無効な repository 名、矛盾
 repository は tool の `repo`、`workspace_path`、server 起動時の `--repo` / `--workspace`、config の mapping、`defaultRepo` の順に解決します。
 GitHub rename 後も GraphQL node ID を使って同じ local store へ解決します。
 
+## 個人利用と信頼設定
+
+knowledge、raw review、event、outcome は Git で共有せず、利用者ごとの private storage に保存します。
+同じ repository でも、利用者が選ぶ trust policy と利用結果によって active rule と順位は異なり得ます。
+
+guided setup は観測した人間 reviewer を候補として表示しますが、明示確認なしに信頼対象へ追加しません。
+未知 bot と外部 contributor は信頼候補から除外します。
+
+`trust.autoActivateTrustedHuman` の既定値は `false` です。
+この値を有効にしても、M2 pilot の `go`、live quality gate の `pass`、同じ trust policy digest を持つ operator-local eligibility がそろわなければ候補は active になりません。
+条件がそろった場合も、trusted human だけで構成された thread の `should` / `consider` 候補に限定します。
+AI reviewer、未知 bot、外部 contributor、trust class が混在する thread、`must` 候補は review inbox に残ります。
+
+review inbox が未処理でも、既存 active rule の `get_rules` は利用できます。
+有効化の前提、記録する digest、rollback は [trusted-human auto activation runbook](./docs/operations/trusted-human-auto-activation-runbook.md) を参照してください。
+
 ## 外部送信の経路
 
 GitHub ingest 自体は `gh api graphql` で GitHub から review を取得します。
@@ -201,7 +238,38 @@ repo-knowledge distill owner/repository
 ```
 
 API key は config に書かず process environment で渡してください。
-M1 に secret scanner はないため、review や diff に secret が含まれうる repository では外部送信を有効にしないでください。
+review content と diff に対する secret scanner はないため、secret が含まれうる repository では外部送信を有効にしないでください。
+
+### Claude / Codex のサブスクリプションで蒸留する
+
+Anthropic API を契約していなくても、接続中の Claude Code または Codex を host model として使えます。
+この経路は Anthropic Messages API key を使わず、`llm.mode` は `disabled` のままにします。
+
+review content を host model へ渡すため、次の二つを明示的に有効にする必要があります。
+diff hunk は別の opt-in であり、既定では送信しません。
+
+```json
+{
+  "llm": {
+    "mode": "disabled",
+    "allowCloudTransmission": false,
+    "model": null
+  },
+  "hostAssistedDistillation": {
+    "enabled": true,
+    "allowReviewContentTransmission": true,
+    "includeDiffHunk": false,
+    "maxCharactersPerJob": 30000
+  }
+}
+```
+
+設定後、Claude Code または Codex へ次のように依頼します。
+
+> repo-knowledge MCP の `prepare_distillation` でこの repository の pending job を 1 件取得し、返された schema に従って抽出と照合を行い、`submit_distillation` まで進めてください。
+
+`prepare_distillation` は既定で一度に 1 job だけを lease します。
+送信内容、文字数制限、diff の扱いを確認してから opt-in してください。
 
 ## MCP tools
 
@@ -472,5 +540,7 @@ CI は Node 22 と 24 の両方で同じ check、golden、quality gate、package
 npm 公開時は exact tag と commit を再検証し、GitHub OIDC による trusted publishing で provenance 付き tarball を公開した後、registry の exact version を再度 smoke します。
 初回公開の bootstrap、npm と GitHub の設定、通常公開、rollback は [npm release runbook](./docs/operations/npm-release-runbook.md) を参照してください。
 M2 要件から test・運用手順への追跡は [M2 acceptance matrix](./docs/testing/m2-acceptance-matrix.md) を参照してください。
+M3 個人利用要件から test・release gate への追跡は [M3 acceptance matrix](./docs/testing/m3-acceptance-matrix.md) を参照してください。
+公開時の実測値と go/no-go は [M3 release report template](./docs/operations/m3-release-report-template.md) に記録します。
 
 脅威モデル、admin plane、直接編集、外部送信の詳細は [SECURITY.md](./SECURITY.md) を参照してください。
