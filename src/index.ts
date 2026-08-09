@@ -952,6 +952,7 @@ export {
   type GuidedSetupRequest,
   type GuidedSetupResult,
   type SetupConfirmationRequest,
+  type SetupTextInputRequest,
   type SetupTrustCandidate,
 } from "./setup-service.js";
 export {

@@ -153,7 +153,7 @@ describe("repo-knowledge CLI", () => {
         since: "2026-08-01T00:00:00.000Z",
         workspacePath: "/work/repo",
       },
-      { confirm: expect.any(Function) },
+      { confirm: expect.any(Function), input: expect.any(Function) },
     );
     expect(JSON.parse(current.stdout())).toMatchObject({
       repository: { name: REPOSITORY },
@@ -519,6 +519,7 @@ function fixture(
   const io: RepoKnowledgeCliIo = {
     ...tty,
     confirm: vi.fn(async () => false),
+    input: vi.fn(async () => "claude-test"),
     writeStderr: (value) => stderr.push(value),
     writeStdout: (value) => stdout.push(value),
   };

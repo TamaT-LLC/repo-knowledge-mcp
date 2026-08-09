@@ -29,6 +29,7 @@ import type {
   GuidedSetupRequest,
   GuidedSetupResult,
   SetupConfirmationRequest,
+  SetupTextInputRequest,
 } from "./setup-service.js";
 
 export const REPO_KNOWLEDGE_CLI_HELP = `Usage: repo-knowledge <command> [options]
@@ -101,6 +102,7 @@ export const REPO_KNOWLEDGE_CLI_EXIT = Object.freeze({
 
 export interface RepoKnowledgeCliIo {
   confirm?(request: SetupConfirmationRequest): Promise<boolean>;
+  input?(request: SetupTextInputRequest): Promise<string>;
   readonly stdinIsTTY: boolean;
   readonly stdoutIsTTY: boolean;
   writeStderr(value: string): void;
@@ -409,7 +411,8 @@ async function executeCliCommand(
       if (
         !options.io.stdinIsTTY ||
         !options.io.stdoutIsTTY ||
-        options.io.confirm === undefined
+        options.io.confirm === undefined ||
+        options.io.input === undefined
       ) {
         throw new RepoKnowledgeCliError(
           "CLI_TTY_REQUIRED",
@@ -421,6 +424,7 @@ async function executeCliCommand(
         options.io,
         await options.setup(command.request, {
           confirm: (request) => options.io.confirm!(request),
+          input: (request) => options.io.input!(request),
         }),
       );
       return;

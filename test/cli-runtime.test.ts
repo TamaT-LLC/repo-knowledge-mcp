@@ -477,12 +477,13 @@ function output(
     readonly stdoutIsTTY: boolean;
   },
   confirm?: NonNullable<RepoKnowledgeCliIo["confirm"]>,
+  input: NonNullable<RepoKnowledgeCliIo["input"]> = async () => "claude-test",
 ) {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const io: RepoKnowledgeCliIo = {
     ...tty,
-    ...(confirm === undefined ? {} : { confirm }),
+    ...(confirm === undefined ? {} : { confirm, input }),
     writeStderr: (value) => stderr.push(value),
     writeStdout: (value) => stdout.push(value),
   };

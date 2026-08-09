@@ -216,6 +216,17 @@ function processCliIo(): RepoKnowledgeCliIo {
         terminal.close();
       }
     },
+    async input(request) {
+      const terminal = createInterface({
+        input: process.stdin,
+        output: process.stderr,
+      });
+      try {
+        return await terminal.question(`${request.message}: `);
+      } finally {
+        terminal.close();
+      }
+    },
     stdinIsTTY: process.stdin.isTTY === true,
     stdoutIsTTY: process.stdout.isTTY === true,
     writeStderr(value) {
@@ -245,11 +256,6 @@ function createGuidedSetupService(
     });
   const dependencies: GuidedSetupDependencies = {
     ...(options.clock === undefined ? {} : { clock: options.clock }),
-    async hasSyncCheckpoint(repository) {
-      return (
-        (await new SyncCheckpointStore(repository.absolutePath).read()) !== null
-      );
-    },
     initializeStorage: () => initializeStorage(options.storageRoot),
     async prepareRepository(repository) {
       const current = await runtime();
@@ -267,6 +273,8 @@ function createGuidedSetupService(
       );
       return collectSetupTrustCandidates(domain.comments, config);
     },
+    readSyncCheckpoint: (repository) =>
+      new SyncCheckpointStore(repository.absolutePath).read(),
     async redistill(repository) {
       const current = await runtime();
       const operations = await current.operationsResolver.resolve({

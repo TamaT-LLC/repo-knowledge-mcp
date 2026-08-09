@@ -11,6 +11,7 @@ import type {
 } from "./domain-schemas.js";
 import type { RepositoryResolution } from "./repository-resolver.js";
 import type { SetupState, SetupStateStore } from "./setup-state-store.js";
+import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
 import type { SyncRepoSummary } from "./sync-repo-service.js";
 import type { CliRedistillResult } from "./cli.js";
 
@@ -30,8 +31,14 @@ export interface SetupConfirmationRequest {
   readonly message: string;
 }
 
+export interface SetupTextInputRequest {
+  readonly id: string;
+  readonly message: string;
+}
+
 export interface GuidedSetupPrompt {
   confirm(request: SetupConfirmationRequest): Promise<boolean>;
+  input?(request: SetupTextInputRequest): Promise<string>;
 }
 
 export interface SetupTrustCandidate {
@@ -75,7 +82,6 @@ export interface GuidedSetupResult {
 
 export interface GuidedSetupDependencies {
   readonly clock?: () => Date;
-  hasSyncCheckpoint(repository: RepositoryResolution): Promise<boolean>;
   initializeStorage(): Promise<InitializedStorage>;
   prepareRepository(repository: RepositoryResolution): Promise<void>;
   readTrustCandidates(
@@ -83,6 +89,9 @@ export interface GuidedSetupDependencies {
     config: RepoKnowledgeConfig,
   ): Promise<readonly SetupTrustCandidate[]>;
   redistill(repository: RepositoryResolution): Promise<CliRedistillResult>;
+  readSyncCheckpoint(
+    repository: RepositoryResolution,
+  ): Promise<SyncCheckpoint | null>;
   resolveRepository(
     request: GuidedSetupRequest,
     config: RepoKnowledgeConfig,
@@ -103,6 +112,7 @@ export type GuidedSetupErrorCode =
   | "SETUP_CONFIG_CONFLICT"
   | "SETUP_DOCTOR_FAILED"
   | "SETUP_PREPARATION_FAILED"
+  | "SETUP_PROVIDER_MODEL_REQUIRED"
   | "SETUP_REPOSITORY_MISMATCH"
   | "SETUP_RESUME_SCOPE_MISMATCH"
   | "SETUP_STATE_MISMATCH"
@@ -225,8 +235,8 @@ export class GuidedSetupService {
       workspace_path: repository.workspacePath ?? state.workspace_path,
     });
 
-    const hasCheckpoint = await this.dependencies.hasSyncCheckpoint(repository);
-    const syncRequest = initialSyncRequest(state, hasCheckpoint, resumed);
+    const checkpoint = await this.dependencies.readSyncCheckpoint(repository);
+    const syncRequest = initialSyncRequest(state, checkpoint, resumed);
     const syncSummary = await this.dependencies.sync(repository, syncRequest);
     if (syncSummary.failed > 0) {
       throw new GuidedSetupError(
@@ -473,22 +483,32 @@ function initialSinceFor(
 
 function initialSyncRequest(
   state: SetupState,
-  hasCheckpoint: boolean,
+  checkpoint: SyncCheckpoint | null,
   resumed: boolean,
 ): { readonly since?: string } {
-  if (!hasCheckpoint) {
+  if (checkpoint === null) {
     return state.initial_since === null ? {} : { since: state.initial_since };
   }
   if (resumed) return {};
+  if (state.initial_since !== null) {
+    return Date.parse(state.initial_since) <
+      Date.parse(checkpoint.cursor.last_updated_at)
+      ? { since: state.initial_since }
+      : {};
+  }
   return {
-    since: state.initial_since ?? ALL_HISTORY_SYNC_BOUNDARY,
+    since: ALL_HISTORY_SYNC_BOUNDARY,
   };
 }
 
 async function chooseTransmission(
   config: RepoKnowledgeConfig,
   prompt: GuidedSetupPrompt,
-): Promise<{ readonly hostAssisted: boolean; readonly provider: boolean }> {
+): Promise<{
+  readonly hostAssisted: boolean;
+  readonly provider: boolean;
+  readonly providerModel: string | null;
+}> {
   const current = configuredTransmission(config);
   const provider =
     current.provider ||
@@ -498,6 +518,9 @@ async function chooseTransmission(
       message:
         "Provider route sends review comment bodies and diff hunks to Anthropic and requires ANTHROPIC_API_KEY plus llm.model. Enable it?",
     }));
+  const providerModel = provider
+    ? (config.llm.model ?? (await readProviderModel(prompt)))
+    : config.llm.model;
   const hostAssisted =
     current.hostAssisted ||
     (await prompt.confirm({
@@ -506,13 +529,35 @@ async function chooseTransmission(
       message:
         "Host-assisted route returns review comment bodies to the connected MCP host model. Enable it?",
     }));
-  return { hostAssisted, provider };
+  return { hostAssisted, provider, providerModel };
+}
+
+async function readProviderModel(prompt: GuidedSetupPrompt): Promise<string> {
+  if (prompt.input === undefined) {
+    throw new GuidedSetupError(
+      "SETUP_PROVIDER_MODEL_REQUIRED",
+      "provider opt-in requires an Anthropic model ID input",
+    );
+  }
+  for (;;) {
+    const model = (
+      await prompt.input({
+        id: "transmission.provider-model",
+        message: "Anthropic model ID",
+      })
+    ).trim();
+    if (model.length > 0) return model;
+  }
 }
 
 function setupConfig(
   current: RepoKnowledgeConfig,
   repository: RepositoryResolution,
-  transmission: { readonly hostAssisted: boolean; readonly provider: boolean },
+  transmission: {
+    readonly hostAssisted: boolean;
+    readonly provider: boolean;
+    readonly providerModel?: string | null;
+  },
 ): unknown {
   const workspacePath = repository.workspacePath;
   if (workspacePath !== undefined) {
@@ -541,7 +586,11 @@ function setupConfig(
     llm: {
       ...current.llm,
       ...(transmission.provider
-        ? { allowCloudTransmission: true, mode: "anthropic" }
+        ? {
+            allowCloudTransmission: true,
+            mode: "anthropic",
+            model: transmission.providerModel ?? current.llm.model,
+          }
         : {}),
     },
     repos: sortAndDedupeStrings([...current.repos, repository.currentName]),

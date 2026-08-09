@@ -17,6 +17,7 @@ import {
   type GuidedSetupDependencies,
   type RepositoryResolution,
   type SetupTrustCandidate,
+  type SyncCheckpoint,
   type SyncRepoSummary,
 } from "../src/index.js";
 
@@ -111,9 +112,9 @@ describe("guided setup service", () => {
 
   it("resumes a partial initial sync from its checkpoint without duplicate config", async () => {
     const current = await fixture();
-    current.hasSyncCheckpoint
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    current.readSyncCheckpoint
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(checkpoint("2026-08-01T00:00:00.000Z"));
     current.sync
       .mockResolvedValueOnce(syncSummary({ failed: 1 }))
       .mockResolvedValueOnce(syncSummary());
@@ -143,7 +144,9 @@ describe("guided setup service", () => {
 
   it("widens a preexisting checkpoint for all-history, then resumes incrementally", async () => {
     const current = await fixture();
-    current.hasSyncCheckpoint.mockResolvedValue(true);
+    current.readSyncCheckpoint.mockResolvedValue(
+      checkpoint("2026-08-01T00:00:00.000Z"),
+    );
     current.sync
       .mockResolvedValueOnce(syncSummary({ failed: 1 }))
       .mockResolvedValueOnce(syncSummary());
@@ -170,6 +173,62 @@ describe("guided setup service", () => {
     ]);
   });
 
+  it("resumes an older pre-setup checkpoint instead of passing a newer since", async () => {
+    const current = await fixture();
+    current.readSyncCheckpoint.mockResolvedValue(
+      checkpoint("2026-05-10T00:00:00.000Z"),
+    );
+
+    await current.service.run(
+      { repo: REPOSITORY },
+      { confirm: async () => false },
+    );
+
+    expect(current.sync).toHaveBeenCalledWith(current.repository, {});
+  });
+
+  it("widens a newer pre-setup checkpoint to the requested initial boundary", async () => {
+    const current = await fixture();
+    current.readSyncCheckpoint.mockResolvedValue(
+      checkpoint("2026-06-01T00:00:00.000Z"),
+    );
+
+    await current.service.run(
+      { repo: REPOSITORY },
+      { confirm: async () => false },
+    );
+
+    expect(current.sync).toHaveBeenCalledWith(current.repository, {
+      since: DEFAULT_SINCE,
+    });
+  });
+
+  it("collects an Anthropic model when provider transmission is enabled", async () => {
+    const current = await fixture();
+    const input = vi.fn(async () => " claude-setup-test ");
+
+    const result = await current.service.run(
+      { repo: REPOSITORY },
+      {
+        confirm: async (request) => request.id === "transmission.provider",
+        input,
+      },
+    );
+
+    expect(input).toHaveBeenCalledWith({
+      id: "transmission.provider-model",
+      message: "Anthropic model ID",
+    });
+    expect(await loadRepoKnowledgeConfig(current.configPath)).toMatchObject({
+      llm: {
+        allowCloudTransmission: true,
+        mode: "anthropic",
+        model: "claude-setup-test",
+      },
+    });
+    expect(result.transmission.provider).toBe(true);
+  });
+
   it("rolls config back when doctor fails before the initial sync", async () => {
     const current = await fixture();
     const before = await loadRepoKnowledgeConfig(current.configPath);
@@ -178,7 +237,10 @@ describe("guided setup service", () => {
     await expect(
       current.service.run(
         { repo: REPOSITORY, workspacePath: current.workspacePath },
-        { confirm: async () => true },
+        {
+          confirm: async () => true,
+          input: async () => "claude-test",
+        },
       ),
     ).rejects.toMatchObject({ code: "SETUP_DOCTOR_FAILED" });
 
@@ -415,7 +477,9 @@ async function fixture(overrides: FixtureOverrides = {}) {
     workspacePath,
   };
   const stateStore = new SetupStateStore(repositoryRoot);
-  const hasSyncCheckpoint = vi.fn(async () => false);
+  const readSyncCheckpoint = vi.fn<
+    GuidedSetupDependencies["readSyncCheckpoint"]
+  >(async () => null);
   const sync = vi.fn(async () => syncSummary());
   const runDoctor = vi.fn(async () => healthyDoctor());
   const prepareRepository = vi.fn(async () => undefined);
@@ -428,7 +492,6 @@ async function fixture(overrides: FixtureOverrides = {}) {
   }));
   const dependencies: GuidedSetupDependencies = {
     clock: () => NOW,
-    hasSyncCheckpoint,
     initializeStorage: () => initializeStorage(storageRoot),
     prepareRepository,
     readTrustCandidates: async (_repository, config) =>
@@ -439,6 +502,7 @@ async function fixture(overrides: FixtureOverrides = {}) {
           config.trust.trustedActorIds.includes(candidate.actorId) ||
           config.trust.trustedLogins.includes(candidate.login),
       })),
+    readSyncCheckpoint,
     redistill,
     resolveRepository: async () => repository,
     runDoctor,
@@ -449,8 +513,8 @@ async function fixture(overrides: FixtureOverrides = {}) {
   };
   return {
     configPath: initialized.configPath,
-    hasSyncCheckpoint,
     prepareRepository,
+    readSyncCheckpoint,
     redistill,
     repository,
     runDoctor,
@@ -495,6 +559,19 @@ function syncSummary(
     next_cursor: null,
     unchanged: 0,
     ...overrides,
+  };
+}
+
+function checkpoint(lastUpdatedAt: string): SyncCheckpoint {
+  return {
+    cursor: {
+      last_pr_number: 7,
+      last_updated_at: lastUpdatedAt,
+      repo_id: REPOSITORY_ID,
+      version: 1,
+    },
+    schema_version: 1,
+    updated_at: lastUpdatedAt,
   };
 }
 
