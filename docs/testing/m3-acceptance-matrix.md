@@ -28,7 +28,7 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 | M3-FR-005 安全な自動 active 化 | [trusted-human policy matrix](../../test/trusted-human-auto-activation-policy.test.ts)、[submit/finalize service test](../../test/submit-finalize-service.test.ts)、[trusted-human auto activation runbook](../operations/trusted-human-auto-activation-runbook.md) | automated + operational eligibility |
 | M3-FR-006 Review inbox | [review inbox service test](../../test/review-inbox-service.test.ts) | automated |
 | M3-FR-007 Batch review | [review CLI PTY E2E](../../test/review-cli-pty-e2e.test.ts)、[admin plane service test](../../test/admin-plane-service.test.ts) | automated real-PTY E2E |
-| M3-FR-008 npm 配布 | [artifact gate](../../scripts/package-artifact-gate.mjs)、[package smoke](../../scripts/package-smoke.mjs)、[release gate](../../scripts/release-gate.mjs)、[registry smoke](../../scripts/registry-smoke.mjs)、[npm release runbook](../operations/npm-release-runbook.md) | automated + Release CI |
+| M3-FR-008 npm 配布 | [artifact gate](../../scripts/package-artifact-gate.mjs)、[package smoke](../../scripts/package-smoke.mjs)、[release gate](../../scripts/release-gate.mjs) の version・commit・visibility・license fail-closed 検査、[registry smoke](../../scripts/registry-smoke.mjs)、[npm release runbook](../operations/npm-release-runbook.md) | automated + Release CI |
 
 ## 非機能要件
 

@@ -1,14 +1,14 @@
 /* global URL, process */
 
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { lstat, readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { EXPECTED_PACKAGE_NAME } from "./package-artifact-gate.mjs";
 
 export const RELEASE_GATE_REPORT_KIND = "repo_knowledge_npm_release_gate";
-export const RELEASE_GATE_REPORT_SCHEMA_VERSION = 1;
+export const RELEASE_GATE_REPORT_SCHEMA_VERSION = 2;
 export const EXPECTED_REPOSITORY_URL =
   "git+https://github.com/TamaT-LLC/repo-knowledge-mcp.git";
 export const EXPECTED_REGISTRY = "https://registry.npmjs.org/";
@@ -71,6 +71,16 @@ export function validateReleaseMetadata(input) {
     failures,
   );
   check(
+    isPublishableLicense(packageDocument.license),
+    "package.json license must be an explicit publishable license value",
+    failures,
+  );
+  check(
+    input.licenseFile === "LICENSE" || input.licenseFile === "LICENSE.md",
+    "release commit must contain a non-empty regular LICENSE or LICENSE.md file",
+    failures,
+  );
+  check(
     repository.type === "git" && repository.url === EXPECTED_REPOSITORY_URL,
     `package repository must be ${EXPECTED_REPOSITORY_URL}`,
     failures,
@@ -109,6 +119,11 @@ export function validateReleaseMetadata(input) {
   return {
     commit: input.expectedCommit,
     failures,
+    license:
+      typeof packageDocument.license === "string"
+        ? packageDocument.license
+        : null,
+    license_file: input.licenseFile ?? null,
     name: EXPECTED_PACKAGE_NAME,
     node_version: input.nodeVersion,
     npm_version: input.npmVersion,
@@ -120,6 +135,29 @@ export function validateReleaseMetadata(input) {
     tag: input.tag,
     version,
   };
+}
+
+export function isPublishableLicense(value) {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim();
+  return (
+    normalized.length > 0 &&
+    normalized === value &&
+    normalized.toUpperCase() !== "UNLICENSED"
+  );
+}
+
+export async function findReleaseLicenseFile(cwd) {
+  for (const name of ["LICENSE", "LICENSE.md"]) {
+    try {
+      const metadata = await lstat(join(cwd, name));
+      if (metadata.isFile() && metadata.size > 0) return name;
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+  }
+  return null;
 }
 
 export function isSupportedReleaseNode(value) {
@@ -175,9 +213,11 @@ async function inspectRelease(options) {
     String(packageDocument.version),
     options.cwd,
   );
+  const licenseFile = await findReleaseLicenseFile(options.cwd);
   return validateReleaseMetadata({
     expectedCommit: options.commit,
     headCommit: head.stdout.trim(),
+    licenseFile,
     mainContainsCommit: ancestor.code === 0,
     nodeVersion: process.version,
     npmVersion: npmVersion.stdout.trim(),

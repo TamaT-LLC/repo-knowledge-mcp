@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -15,6 +18,8 @@ import {
   EXPECTED_REGISTRY,
   EXPECTED_REPOSITORY_URL,
   compareVersions,
+  findReleaseLicenseFile,
+  isPublishableLicense,
   isSupportedReleaseNode,
   validateReleaseMetadata,
 } from "./release-gate.mjs";
@@ -94,13 +99,15 @@ test("release metadata accepts one clean unpublished main commit", () => {
   assert.deepEqual(validateReleaseMetadata(input), {
     commit: input.expectedCommit,
     failures: [],
+    license: "MIT",
+    license_file: "LICENSE",
     name: EXPECTED_PACKAGE_NAME,
     node_version: "v24.0.0",
     npm_version: "11.5.1",
     registry_status: "available",
     report_kind: "repo_knowledge_npm_release_gate",
     repository_visibility: "public",
-    schema_version: 1,
+    schema_version: 2,
     status: "pass",
     tag: "v0.3.0",
     version: "0.3.0",
@@ -117,11 +124,13 @@ test("release metadata rejects mutable or inconsistent release state", () => {
     nodeVersion: "v22.13.1",
     packageDocument: {
       ...input.packageDocument,
+      license: "UNLICENSED",
       publishConfig: {
         access: "restricted",
         registry: "https://example.test/",
       },
     },
+    licenseFile: null,
     registryVersion: "0.3.0",
     repositoryVisibility: "private",
     tag: "v0.3.1",
@@ -133,6 +142,8 @@ test("release metadata rejects mutable or inconsistent release state", () => {
     "HEAD does not match the release commit",
     "release commit is not reachable from origin/main",
     "release worktree is not clean",
+    "package.json license must be an explicit publishable license value",
+    "release commit must contain a non-empty regular LICENSE or LICENSE.md file",
     "repository must be public for npm provenance",
     "publishConfig.access must be public",
     `publishConfig.registry must be ${EXPECTED_REGISTRY}`,
@@ -140,6 +151,25 @@ test("release metadata rejects mutable or inconsistent release state", () => {
     "trusted publishing requires npm 11.5.1+",
     `${EXPECTED_PACKAGE_NAME}@0.3.0 is already present in the registry`,
   ]);
+});
+
+test("release metadata requires explicit license metadata and a real license file", async () => {
+  assert.equal(isPublishableLicense("MIT"), true);
+  assert.equal(isPublishableLicense("Apache-2.0 OR MIT"), true);
+  assert.equal(isPublishableLicense("UNLICENSED"), false);
+  assert.equal(isPublishableLicense(" MIT "), false);
+  assert.equal(isPublishableLicense(undefined), false);
+
+  const root = await mkdtemp(join(tmpdir(), "rkm-release-license-"));
+  try {
+    assert.equal(await findReleaseLicenseFile(root), null);
+    await writeFile(join(root, "LICENSE"), "");
+    assert.equal(await findReleaseLicenseFile(root), null);
+    await writeFile(join(root, "LICENSE"), "MIT License\n");
+    assert.equal(await findReleaseLicenseFile(root), "LICENSE");
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 test("release runtime version checks match the documented floor", () => {
@@ -175,10 +205,12 @@ function validReleaseInput() {
   return {
     expectedCommit: commit,
     headCommit: commit,
+    licenseFile: "LICENSE",
     mainContainsCommit: true,
     nodeVersion: "v24.0.0",
     npmVersion: "11.5.1",
     packageDocument: {
+      license: "MIT",
       name: EXPECTED_PACKAGE_NAME,
       publishConfig: { access: "public", registry: EXPECTED_REGISTRY },
       repository: { type: "git", url: EXPECTED_REPOSITORY_URL },
