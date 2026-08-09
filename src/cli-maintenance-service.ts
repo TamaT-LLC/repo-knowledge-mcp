@@ -69,6 +69,11 @@ import type {
   CliRepositoryOperationsResolver,
 } from "./cli.js";
 import type { KnowledgeMutationServiceResolutionInput } from "./mcp-mutation-tools.js";
+import {
+  ReviewInboxService,
+  type ReviewInboxRequest,
+  type ReviewInboxResult,
+} from "./review-inbox-service.js";
 
 export type CliMaintenanceErrorCode =
   "CLI_PROVIDER_PIPELINE_MISSING" | "CLI_REDISTILL_SOURCE_INVALID";
@@ -128,6 +133,7 @@ export class CanonicalCliRepositoryService implements Omit<
   private readonly repoId: string;
   private readonly repository: CanonicalTransactionStore;
   private readonly repositoryContext: unknown;
+  private readonly reviewInboxService: ReviewInboxService;
   private readonly trustPolicyDigest: string;
 
   constructor(options: CanonicalCliRepositoryServiceOptions) {
@@ -168,6 +174,12 @@ export class CanonicalCliRepositoryService implements Omit<
       nextKnowledgeId: this.nextKnowledgeId,
       nextTransactionId: this.nextTransactionId,
       now: this.now,
+      repo: this.repo,
+      repoId: this.repoId,
+      repository: this.repository,
+    });
+    this.reviewInboxService = new ReviewInboxService({
+      details: this.admin,
       repo: this.repo,
       repoId: this.repoId,
       repository: this.repository,
@@ -259,6 +271,12 @@ export class CanonicalCliRepositoryService implements Omit<
           updated_at: proposal.updated_at,
         })),
     };
+  }
+
+  async reviewInbox(
+    request: ReviewInboxRequest = {},
+  ): Promise<ReviewInboxResult> {
+    return this.reviewInboxService.list(request);
   }
 
   async reindex(): Promise<CliReindexResult> {

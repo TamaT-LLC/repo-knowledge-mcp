@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 
 describe("CanonicalCliRepositoryService", () => {
-  it("reindexes only SQLite and lists canonical statuses", async () => {
+  it("reindexes only SQLite and exposes canonical read models", async () => {
     const fixture = await createKnowledgeFixture();
     const knowledgePath = join(
       fixture.root,
@@ -70,6 +70,18 @@ describe("CanonicalCliRepositoryService", () => {
         }),
       ],
       repo: REPOSITORY,
+    });
+    await expect(fixture.service.reviewInbox()).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({
+          item_id: fixture.knowledgeId,
+          kind: "knowledge",
+          status: "proposed",
+        }),
+      ],
+      next_cursor: null,
+      repo: REPOSITORY,
+      total_count: 1,
     });
     await expect(
       readFile(join(fixture.root, "index.sqlite")),

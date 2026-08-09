@@ -881,6 +881,25 @@ export {
   type SyncStatsSection,
 } from "./stats-read-service.js";
 export {
+  DEFAULT_REVIEW_INBOX_LIMIT,
+  DEFAULT_REVIEW_INBOX_PROJECTION_RETRIES,
+  MAX_REVIEW_INBOX_LIMIT,
+  ReviewInboxError,
+  ReviewInboxItemSchema,
+  ReviewInboxKindSchema,
+  ReviewInboxRequestSchema,
+  ReviewInboxResultSchema,
+  ReviewInboxService,
+  type ReviewInboxDetailReader,
+  type ReviewInboxErrorCode,
+  type ReviewInboxItem,
+  type ReviewInboxKind,
+  type ReviewInboxRepository,
+  type ReviewInboxRequest,
+  type ReviewInboxResult,
+  type ReviewInboxServiceOptions,
+} from "./review-inbox-service.js";
+export {
   CanonicalKnowledgeReadServiceResolver,
   GetKnowledgeInputSchema,
   GetKnowledgeOutputSchema,
