@@ -287,6 +287,7 @@ function combineOperations(
     reconcileDerivedMetadata: () => cli.reconcileDerivedMetadata(),
     redistill: (request) => cli.redistill(request),
     reindex: () => cli.reindex(),
+    reviewInbox: (request) => cli.reviewInbox(request),
     stats: (request) => statsReads.getStats(request),
     submitExtract: (request) => mutation.submitExtract(request),
     submitFinalize: (request) => mutation.submitFinalize(request),

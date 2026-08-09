@@ -31,6 +31,10 @@ import type {
   SetupConfirmationRequest,
   SetupTextInputRequest,
 } from "./setup-service.js";
+import type {
+  ReviewInboxRequest,
+  ReviewInboxResult,
+} from "./review-inbox-service.js";
 
 export const REPO_KNOWLEDGE_CLI_HELP = `Usage: repo-knowledge <command> [options]
 
@@ -189,6 +193,8 @@ export interface CliRepositoryOperations {
   listKnowledge(
     request?: CliListKnowledgeRequest,
   ): Promise<CliListKnowledgeResult>;
+  /** Read-only unified queue consumed by the M3 batch review command. */
+  reviewInbox(request?: ReviewInboxRequest): Promise<ReviewInboxResult>;
   reconcileDerivedMetadata(): Promise<CliReconcileResult>;
   redistill(request: CliRedistillRequest): Promise<CliRedistillResult>;
   reindex(): Promise<CliReindexResult>;

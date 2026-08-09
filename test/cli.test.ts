@@ -602,6 +602,12 @@ function fixture(
       selected_threads: 0,
       unchanged: 0,
     })),
+    reviewInbox: vi.fn(async () => ({
+      items: [],
+      next_cursor: null,
+      repo: REPOSITORY,
+      total_count: 0,
+    })),
     reindex: vi.fn(async () => ({
       evidence: 0,
       jobs: 0,
