@@ -131,10 +131,12 @@ describe("KnowledgeReadService.getRules", () => {
     });
     const readService = service(repository);
 
-    const taskOnly = await readService.getRules({ task: "retry failures" });
+    const taskOnly = await readService.getRules({
+      task: "retry backend failures",
+    });
     const pathConstrained = await readService.getRules({
       filePaths: ["frontend/view.ts"],
-      task: "retry failures",
+      task: "retry backend failures",
     });
 
     expect(taskOnly.rules.map((rule) => rule.id).sort()).toEqual(
@@ -364,6 +366,40 @@ describe("KnowledgeReadService.searchKnowledge", () => {
         id: activeId,
       }),
     ]);
+  });
+
+  it("ranks every literal-term match before applying the result limit", async () => {
+    const repository = await createRepository();
+    for (let index = 0; index < 60; index += 1) {
+      await writeKnowledge(repository, {
+        rule: `Common distractor ${String(index)}`,
+      });
+    }
+    const relevantId = await writeKnowledge(repository, {
+      rule: `Common precise target ${"padding ".repeat(200)}`,
+      severity: "must",
+    });
+    const store = new CanonicalTransactionStore(repository);
+    let boundedSearchCalled = false;
+    const readService = new KnowledgeReadService({
+      repo: REPO_NAME,
+      repoId: REPO_ID,
+      repository: {
+        readKnowledgeView: (request) => store.readKnowledgeView(request),
+        searchKnowledge: async (request) => {
+          boundedSearchCalled = true;
+          return store.searchKnowledge(request);
+        },
+      },
+    });
+
+    const result = await readService.searchKnowledge({
+      limit: 1,
+      query: "common precise target",
+    });
+
+    expect(boundedSearchCalled).toBe(false);
+    expect(result.results.map((item) => item.id)).toEqual([relevantId]);
   });
 });
 

@@ -1306,17 +1306,34 @@ raw/
 
 #### 8. 検索実装細則
 
-##### 8.1 FTS query の literal escape
+##### 8.1 FTS query の literal-safe term 検索
 
-MATCH 内は FTS 独自構文（`OR`, `-`, `"`, 括弧, `:` 等）として解釈されるため、既定は literal モードとする。
+MATCH 内は FTS 独自構文（`OR`, `-`, `"`, 括弧, `:` 等）として解釈されるため、user query をそのまま渡さない。
+NFKC と lowercase を適用したあと、文字・数字からなる 3 code point 以上の term を入力順に重複排除し、各 term を個別に quote した disjunction を構築する。
+これにより自然な複数語 query はいずれかの relevant term から候補を取得でき、複数 term に一致する文書は BM25 で優先される。
+user が入力した `OR` や記号は operator として実行されない。
+
+この `literal_terms` mode は read plane の `get_rules.task` と `search_knowledge.query` に適用する。
+read plane は term OR で広がった active 候補を有限件で先に切らず、一貫した exhaustive snapshot を順位付けしてから caller の最終 limit を適用する。
+蒸留時の merge candidate search と admin plane の possible-match search は、候補集合を不必要に広げないため従来の `literal_phrase` mode を維持する。
+低レベル search API の既定も後方互換のため `literal_phrase` とする。
 
 ```typescript
 function toFtsLiteral(query: string): string {
   const normalized = query.normalize("NFKC");
   return `"${normalized.replaceAll('"', '""')}"`;
 }
-// 将来 Boolean 検索を許す場合: query_mode: "literal" | "fts"（既定 literal）
+
+function toLiteralTermFtsQuery(query: string): string | null {
+  const terms = extractLiteralTerms(query).filter((term) => [...term].length >= 3);
+  return terms.length === 0
+    ? null
+    : [...new Set(terms)].map(toFtsLiteral).join(" OR ");
+}
 ```
+
+eligible term が 0 件の場合は、query 全体を literal LIKE fallback へ渡す。
+raw FTS / Boolean query mode は公開しない。
 
 ##### 8.2 フィルタは LIMIT より前に
 

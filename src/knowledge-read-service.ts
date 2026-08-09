@@ -21,8 +21,6 @@ import {
 import type { ProjectedKnowledge } from "./domain-projection.js";
 import { parseKnowledgeBodyCodeExample } from "./knowledge-code-example.js";
 import {
-  DEFAULT_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
-  MAX_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
   normalizeKnowledgeSearchQuery,
   type ExhaustiveKnowledgeSearchRequest,
   type KnowledgeSearchRequest,
@@ -224,6 +222,7 @@ export class KnowledgeReadService {
         ? undefined
         : {
             query: request.task,
+            queryMode: "literal_terms",
             repoId: this.repoId,
             statuses: ["active"],
           };
@@ -312,16 +311,19 @@ export class KnowledgeReadService {
       DEFAULT_SEARCH_KNOWLEDGE_LIMIT,
       "search_knowledge limit",
     );
-    const projection = await this.repository.searchKnowledge({
-      candidateLimit: Math.min(
-        MAX_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT,
-        Math.max(DEFAULT_KNOWLEDGE_SEARCH_CANDIDATE_LIMIT, limit),
-      ),
+    const view = await this.repository.readKnowledgeView({
       ...(request.category === undefined ? {} : { category: request.category }),
       query: request.query,
+      queryMode: "literal_terms",
       repoId: this.repoId,
       statuses: ["active"],
     });
+    const projection = view.searchResult;
+    if (projection === null) {
+      throw new TypeError(
+        "search_knowledge requires an exhaustive search result",
+      );
+    }
 
     return {
       mode: projection.mode,
