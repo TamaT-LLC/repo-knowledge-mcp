@@ -28,6 +28,7 @@ package version、tag、GitHub release、npm registry version、report の値が
 | --- | --- | --- |
 | npm package owner が確定している | pass / fail | `___` |
 | project license と `package.json` の license が確定している | pass / fail | `___` |
+| 空でない通常ファイルの `LICENSE` / `LICENSE.md` が release commit に存在する | pass / fail | `___` |
 | GitHub repository が public である | pass / fail | `___` |
 | npm trusted publisher が release workflow に束縛されている | pass / fail | `___` |
 | 長期 npm token を repository secret に置いていない | pass / fail | `___` |
@@ -125,6 +126,7 @@ Pull Request CI の package smoke は registry package の証明ではない。
 | tarball filename | `repo-knowledge-mcp-0.3.___.tgz` |
 | tarball SHA-256 | `sha256:___` |
 | package artifact report | `___` |
+| release gate report schema | `2` |
 | allowlist 判定 | pass / fail |
 | credential / local-data scan | pass / fail |
 | CLI bin | `repo-knowledge` / `repo-knowledge-mcp` |

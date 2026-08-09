@@ -85,7 +85,7 @@ npm は既存 package に対して trusted publisher を設定するため、未
 6. M3 release では、M2 pilot の go 判定と M3 acceptance report が review 済みである。
 7. GitHub repository が public で、npm owner、license、trusted publisher、GitHub `npm` environment が確認済みである。
 
-version、tag、commit、working tree、Node.js、npm、registry の重複は `release:verify` が fail-closed で検査する。
+version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。
 
 ```console
 npm run --silent release:verify -- --tag v0.3.0 --commit <full-commit-sha> --repository-visibility public
