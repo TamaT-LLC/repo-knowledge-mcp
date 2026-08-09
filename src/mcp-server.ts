@@ -25,6 +25,7 @@ import {
   NonEmptyStringSchema,
   RepositoryIdSchema,
   RepositoryNameSchema,
+  RepositoryReadinessSchema,
   Sha256DigestSchema,
   SeveritySchema,
   SourceProviderSchema,
@@ -116,6 +117,9 @@ const RuleMatchReasonSchema = z.discriminatedUnion("type", [
 export const GetRulesOutputSchema = z
   .object({
     matched_count: z.number().int().nonnegative(),
+    readiness: RepositoryReadinessSchema.describe(
+      "Repository initialization and learning state with an executable next step.",
+    ),
     repo: RepositoryNameSchema,
     rules: z.array(
       z
@@ -393,6 +397,7 @@ export class CanonicalKnowledgeReadServiceResolver implements KnowledgeReadServi
       repo: resolution.currentName,
       repoId: resolution.repoId,
       repository: repositoryStore,
+      syncCheckpoints: new SyncCheckpointStore(resolution.absolutePath),
     });
     const statsReads = new StatsReadService({
       repo: resolution.currentName,
@@ -435,7 +440,7 @@ export function buildServer(options: BuildServerOptions): McpServer {
     {
       annotations: READ_TOOL_ANNOTATIONS,
       description:
-        "Return active repository rules that apply to files or a task. Call before modifying code.",
+        "Return active repository rules that apply to files or a task, plus repository readiness and the next user action. Call before modifying code.",
       inputSchema: GetRulesInputSchema,
       outputSchema: GetRulesOutputSchema,
       title: "Get repository rules",
@@ -623,7 +628,7 @@ function resolveReadService(
 function summarizeRules(output: z.infer<typeof GetRulesOutputSchema>): string {
   const shown = output.rules.length;
   const truncation = output.truncated ? ` Showing the first **${shown}**.` : "";
-  return `### Repository rules\n\nFound **${output.matched_count}** active rule(s) for \`${output.repo}\`.${truncation}`;
+  return `### Repository rules\n\nFound **${output.matched_count}** active rule(s) for \`${output.repo}\`.${truncation}\n\nReadiness: **${output.readiness.state}**. ${output.readiness.next_action}`;
 }
 
 function summarizeSearch(

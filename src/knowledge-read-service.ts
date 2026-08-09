@@ -8,11 +8,14 @@ import {
   EvidenceIdSchema,
   IsoDateTimeSchema,
   KnowledgeIdSchema,
+  RepositoryReadinessSchema,
   RepositoryIdSchema,
   RepositoryNameSchema,
+  type DistillJob,
   type GeneratedCodeExample,
   type KnowledgeCategory,
   type KnowledgeEvidence,
+  type RepositoryReadiness,
   type Severity,
 } from "./domain-schemas.js";
 import type { ProjectedKnowledge } from "./domain-projection.js";
@@ -26,6 +29,7 @@ import {
   type KnowledgeSearchResult as ProjectionSearchResult,
 } from "./knowledge-search.js";
 import type { KnowledgeFrontmatter } from "./knowledge-document.js";
+import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
 import type {
   CanonicalKnowledgeReadView,
   CanonicalProjectionSnapshot,
@@ -44,7 +48,8 @@ export type KnowledgeReadErrorCode =
   | "INVALID_LIMIT"
   | "INVALID_SCOPE_PATTERN"
   | "KNOWLEDGE_NOT_FOUND"
-  | "KNOWLEDGE_PROJECTION_INVALID";
+  | "KNOWLEDGE_PROJECTION_INVALID"
+  | "READINESS_SYNC_CHECKPOINT_REPOSITORY_MISMATCH";
 
 export class KnowledgeReadError extends Error {
   constructor(
@@ -66,10 +71,15 @@ export interface KnowledgeReadRepository {
   ): Promise<ProjectionSearchResult>;
 }
 
+export interface KnowledgeReadSyncCheckpointReader {
+  read(): Promise<SyncCheckpoint | null>;
+}
+
 export interface KnowledgeReadServiceOptions {
   readonly repo: string;
   readonly repoId: string;
   readonly repository: KnowledgeReadRepository;
+  readonly syncCheckpoints?: KnowledgeReadSyncCheckpointReader;
 }
 
 export interface GetRulesRequest {
@@ -99,6 +109,7 @@ export interface GetRulesRule {
 
 export interface GetRulesResult {
   readonly matched_count: number;
+  readonly readiness: RepositoryReadiness;
   readonly repo: string;
   readonly rules: readonly GetRulesRule[];
   readonly truncated: boolean;
@@ -187,11 +198,14 @@ export class KnowledgeReadService {
   readonly repoId: string;
 
   private readonly repository: KnowledgeReadRepository;
+  private readonly syncCheckpoints:
+    KnowledgeReadSyncCheckpointReader | undefined;
 
   constructor(options: KnowledgeReadServiceOptions) {
     this.repo = RepositoryNameSchema.parse(options.repo);
     this.repoId = RepositoryIdSchema.parse(options.repoId);
     this.repository = options.repository;
+    this.syncCheckpoints = options.syncCheckpoints;
   }
 
   async getRules(request: GetRulesRequest = {}): Promise<GetRulesResult> {
@@ -215,6 +229,7 @@ export class KnowledgeReadService {
           };
     const view = await this.repository.readKnowledgeView(taskSearchRequest);
     const snapshot = view.snapshot;
+    const checkpoint = await this.readRepositoryCheckpoint();
     const active = snapshot.domain.knowledge.filter(
       (knowledge) =>
         knowledge.repoId === this.repoId && knowledge.status === "active",
@@ -254,6 +269,12 @@ export class KnowledgeReadService {
     const matchedCount = ordered.length;
     return {
       matched_count: matchedCount,
+      readiness: deriveRepositoryReadiness(
+        snapshot,
+        checkpoint,
+        this.repo,
+        this.repoId,
+      ),
       repo: this.repo,
       rules: ordered.slice(0, limit).map(({ knowledge, reasons }) => {
         const exampleUrl = exampleUrls.get(knowledge.id);
@@ -269,6 +290,18 @@ export class KnowledgeReadService {
       }),
       truncated: matchedCount > limit,
     };
+  }
+
+  private async readRepositoryCheckpoint(): Promise<SyncCheckpoint | null> {
+    const checkpoint = await this.syncCheckpoints?.read();
+    if (checkpoint === undefined || checkpoint === null) return null;
+    if (checkpoint.cursor.repo_id !== this.repoId) {
+      throw new KnowledgeReadError(
+        "READINESS_SYNC_CHECKPOINT_REPOSITORY_MISMATCH",
+        `stored sync checkpoint belongs to ${checkpoint.cursor.repo_id}, not ${this.repoId}`,
+      );
+    }
+    return checkpoint;
   }
 
   async searchKnowledge(
@@ -377,6 +410,101 @@ export class KnowledgeReadService {
       repo: this.repo,
     };
   }
+}
+
+const LEARNING_JOB_STATES: ReadonlySet<DistillJob["state"]> = new Set([
+  "pending",
+  "processing",
+  "awaiting_finalize",
+]);
+
+/**
+ * Readiness is exhaustive and deliberately independent of the current search
+ * match: an initialized repository with active knowledge remains `ready` when
+ * no active rule applies to the requested files or task.
+ */
+export function deriveRepositoryReadiness(
+  snapshot: CanonicalProjectionSnapshot,
+  checkpoint: SyncCheckpoint | null,
+  repo: string,
+  repoId: string,
+): RepositoryReadiness {
+  const knowledge = snapshot.domain.knowledge.filter(
+    (item) => item.repoId === repoId,
+  );
+  const jobs = snapshot.domain.distillJobs.filter(
+    (item) => item.repo_id === repoId,
+  );
+  const hasActiveKnowledge = knowledge.some((item) => item.status === "active");
+  const hasProposedKnowledge = knowledge.some(
+    (item) => item.status === "proposed",
+  );
+  const hasLearningJob = jobs.some((item) =>
+    LEARNING_JOB_STATES.has(item.state),
+  );
+  const hasSyncHistory =
+    checkpoint !== null || hasCanonicalSyncHistory(snapshot, repoId);
+
+  if (hasActiveKnowledge) {
+    return readiness(
+      "ready",
+      "Use the returned rules. If `rules` is empty, continue: this repository is initialized and no active rule matched the requested files or task.",
+    );
+  }
+  if (hasLearningJob || hasProposedKnowledge) {
+    return readiness(
+      "learning",
+      learningNextAction(repo, hasLearningJob, hasProposedKnowledge),
+    );
+  }
+  if (!hasSyncHistory && jobs.length === 0 && knowledge.length === 0) {
+    return readiness(
+      "setup_required",
+      `Run \`repo-knowledge setup ${repo}\` to initialize private storage and perform the first repository sync.`,
+    );
+  }
+  return readiness(
+    "empty",
+    `No reusable rules are available after synchronization. Run \`repo-knowledge sync ${repo}\` after new reviews, then process any resulting distillation work.`,
+  );
+}
+
+function hasCanonicalSyncHistory(
+  snapshot: CanonicalProjectionSnapshot,
+  repoId: string,
+): boolean {
+  return (
+    snapshot.domain.pullRequests.some((item) => item.repo_id === repoId) ||
+    snapshot.domain.pullRequestSnapshots.some(
+      (item) => item.repo_id === repoId,
+    ) ||
+    snapshot.domain.threads.some((item) => item.repo_id === repoId) ||
+    snapshot.domain.threadRemovals.some((item) => item.repo_id === repoId)
+  );
+}
+
+function learningNextAction(
+  repo: string,
+  hasLearningJob: boolean,
+  hasProposedKnowledge: boolean,
+): string {
+  if (hasLearningJob && hasProposedKnowledge) {
+    return `Run \`repo-knowledge distill ${repo}\` for pending provider jobs, inspect \`repo-knowledge list ${repo} --status proposed\`, then approve selected items with \`repo-knowledge approve <id> --repo ${repo}\` from a TTY.`;
+  }
+  if (hasLearningJob) {
+    return `Run \`repo-knowledge distill ${repo}\` when provider distillation is enabled, or complete host-assisted distillation in the MCP client.`;
+  }
+  return `Inspect \`repo-knowledge list ${repo} --status proposed\` and approve selected items with \`repo-knowledge approve <id> --repo ${repo}\` from a TTY.`;
+}
+
+function readiness(
+  state: RepositoryReadiness["state"],
+  nextAction: string,
+): RepositoryReadiness {
+  return RepositoryReadinessSchema.parse({
+    next_action: nextAction,
+    state,
+  });
 }
 
 export function normalizeRepositoryFilePath(value: string): string {

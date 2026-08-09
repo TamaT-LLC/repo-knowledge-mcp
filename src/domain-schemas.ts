@@ -49,6 +49,20 @@ export const RepositoryNameSchema = z
   });
 export const GitHubNodeIdSchema = NonEmptyStringSchema;
 
+/** User-facing repository state returned additively by `get_rules`. */
+export const RepositoryReadinessStateSchema = z.enum([
+  "setup_required",
+  "learning",
+  "ready",
+  "empty",
+]);
+export const RepositoryReadinessSchema = z
+  .object({
+    next_action: NonEmptyStringSchema,
+    state: RepositoryReadinessStateSchema,
+  })
+  .strict();
+
 export const ActorKindSchema = z.enum(["user", "bot", "unknown"]);
 export const SourceProviderSchema = z.enum([
   "human",
@@ -619,6 +633,10 @@ export const SubmissionReceiptSchema = z.discriminatedUnion("phase", [
 ]);
 
 export type ReviewerIdentity = z.infer<typeof ReviewerIdentitySchema>;
+export type RepositoryReadiness = z.infer<typeof RepositoryReadinessSchema>;
+export type RepositoryReadinessState = z.infer<
+  typeof RepositoryReadinessStateSchema
+>;
 export type LlmConfig = z.infer<typeof LlmConfigSchema>;
 export type RepositoryPolicy = z.infer<typeof RepositoryPolicySchema>;
 export type TrustConfig = z.infer<typeof TrustConfigSchema>;

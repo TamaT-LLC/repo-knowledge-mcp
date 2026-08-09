@@ -222,6 +222,29 @@ M1 に secret scanner はないため、review や diff に secret が含まれ�
 MCP plane から status を active / rejected に変更する tool は公開しません。
 これは tool 経由の偶発的な権限昇格を抑える運用境界であり、同じ OS user として shell を実行できる agent に対する security boundary ではありません。
 
+`get_rules` は従来の `matched_count`、`rules`、`truncated` を維持したまま、
+初期設定不足と正常な検索不一致を区別する `readiness` を返します。
+
+```json
+{
+  "matched_count": 0,
+  "readiness": {
+    "next_action": "Run `repo-knowledge setup owner/repository` to initialize private storage and perform the first repository sync.",
+    "state": "setup_required"
+  },
+  "repo": "owner/repository",
+  "rules": [],
+  "truncated": false
+}
+```
+
+| `readiness.state` | 意味 |
+|---|---|
+| `setup_required` | 同期実績、job、knowledge がなく、guided setup または初回同期が必要 |
+| `learning` | active rule はまだなく、distillation job または proposed knowledge を処理中 |
+| `ready` | active rule が存在。`rules: []` なら指定 file / task に対する正常な不一致 |
+| `empty` | 同期実績はあるが、現在再利用できる候補がない |
+
 ## CLI commands
 
 | command | 用途 |

@@ -98,6 +98,7 @@ describe("repo-knowledge MCP read server", () => {
     const rules = toolStructuredContent(rulesCall);
     expect(GetRulesOutputSchema.safeParse(rules).success).toBe(true);
     expect(toolText(rulesCall)).toContain("Found **1** active rule");
+    expect(toolText(rulesCall)).toContain("Readiness: **ready**");
     expect(toolText(rulesCall)).not.toContain("Always validate schemas");
     expect(fixture.getRules).toHaveBeenCalledWith({
       filePaths: ["src/index.ts"],
@@ -492,6 +493,10 @@ function createReadFixture(): {
 } {
   const getRules = vi.fn<KnowledgeReadOperations["getRules"]>(async () => ({
     matched_count: 1,
+    readiness: {
+      next_action: "Use the returned rules.",
+      state: "ready",
+    },
     repo: REPOSITORY,
     rules: [
       {

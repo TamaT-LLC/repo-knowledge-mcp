@@ -13,6 +13,8 @@ import {
   PullRequestSnapshotSchema,
   RawObservationSchema,
   ReceiptIdSchema,
+  RepositoryReadinessSchema,
+  RepositoryReadinessStateSchema,
   ReviewerIdentitySchema,
   SnapshotIdSchema,
   TransactionIdSchema,
@@ -102,6 +104,29 @@ describe("identity and raw observation schemas", () => {
         observation_id: createDomainId("observation"),
         observation_type: "comment",
         observed_at: NOW,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("repository readiness schema", () => {
+  it("fixes the four additive get_rules states and requires a next action", () => {
+    expect(RepositoryReadinessStateSchema.options).toEqual([
+      "setup_required",
+      "learning",
+      "ready",
+      "empty",
+    ]);
+    expect(
+      RepositoryReadinessSchema.parse({
+        next_action: "Run repo-knowledge setup owner/repository.",
+        state: "setup_required",
+      }),
+    ).toMatchObject({ state: "setup_required" });
+    expect(() =>
+      RepositoryReadinessSchema.parse({
+        next_action: "",
+        state: "unknown",
       }),
     ).toThrow();
   });
