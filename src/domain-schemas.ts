@@ -106,6 +106,29 @@ export const TrustConfigSchema = z
   })
   .strict();
 
+export const TrustedHumanAutoActivationEligibilitySchema = z
+  .object({
+    m2Pilot: z
+      .object({
+        completedAt: IsoDateTimeSchema,
+        decision: z.enum(["go", "no-go"]),
+        reportDigest: Sha256DigestSchema,
+      })
+      .strict(),
+    qualityGate: z
+      .object({
+        baselineArtifactDigest: Sha256DigestSchema,
+        reportDigest: Sha256DigestSchema,
+        source: z.enum(["fixture_replay", "live_measurement"]),
+        status: z.enum(["pass", "metric_failure", "integrity_failure"]),
+        thresholdsVersion: NonEmptyStringSchema,
+        trustPolicyDigest: Sha256DigestSchema,
+      })
+      .strict(),
+    schemaVersion: z.literal(1),
+  })
+  .strict();
+
 export const IngestConfigSchema = z
   .object({
     excludeAuthors: stringSetSchema(NonEmptyStringSchema).default([]),
@@ -157,6 +180,8 @@ export const RepoKnowledgeConfigSchema = z
       trustedActorIds: [],
       trustedLogins: [],
     }),
+    trustedHumanAutoActivationEligibility:
+      TrustedHumanAutoActivationEligibilitySchema.optional(),
     workspaceMappings: z
       .record(NonEmptyStringSchema, RepositoryNameSchema)
       .default({}),
@@ -607,6 +632,7 @@ export const ExtractStableResponseSchema = z.discriminatedUnion("state", [
 export const FinalizeStableResponseSchema = z
   .object({
     accepted: z.boolean(),
+    created_active: stringSetSchema(KnowledgeIdSchema).default([]),
     created_proposed: stringSetSchema(KnowledgeIdSchema),
     merged_evidence: stringSetSchema(EvidenceIdSchema),
     rejected_reason: NonEmptyStringSchema.optional(),
@@ -651,6 +677,9 @@ export type RepositoryReadinessState = z.infer<
 export type LlmConfig = z.infer<typeof LlmConfigSchema>;
 export type RepositoryPolicy = z.infer<typeof RepositoryPolicySchema>;
 export type TrustConfig = z.infer<typeof TrustConfigSchema>;
+export type TrustedHumanAutoActivationEligibility = z.infer<
+  typeof TrustedHumanAutoActivationEligibilitySchema
+>;
 export type IngestConfig = z.infer<typeof IngestConfigSchema>;
 export type HostAssistedDistillationConfig = z.infer<
   typeof HostAssistedDistillationConfigSchema

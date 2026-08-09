@@ -42,6 +42,7 @@ import { RuntimeFinalizeContextStore } from "./runtime-finalize-context-store.js
 import { StatsReadService } from "./stats-read-service.js";
 import { SubmitDistillationService } from "./submit-distillation-service.js";
 import { SyncCheckpointStore } from "./sync-checkpoint-store.js";
+import { TrustedHumanAutoActivationPolicy } from "./trusted-human-auto-activation-policy.js";
 import {
   SyncRepoService,
   type SyncPullRequestEnumerator,
@@ -189,7 +190,11 @@ export class DefaultRepositoryApplicationFactory
       config: this.config,
       repository,
     });
+    const autoActivationPolicy = new TrustedHumanAutoActivationPolicy({
+      config: this.config,
+    });
     const providerFinalizer = new CanonicalFinalizeService({
+      autoActivationPolicy,
       repoId: repository.repoId,
       repository: repositoryStore,
     });

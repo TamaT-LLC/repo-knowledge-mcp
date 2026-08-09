@@ -65,6 +65,7 @@ import type {
   CanonicalKnowledgeSearchView,
   CanonicalProjectionSnapshot,
 } from "./sqlite-projection.js";
+import type { TrustedHumanAutoActivationPolicyLike } from "./trusted-human-auto-activation-policy.js";
 
 export const EVIDENCE_EVENT_PATH = "events/evidence.jsonl";
 export const REVISION_PROPOSAL_EVENT_PATH = "events/revisions.jsonl";
@@ -122,6 +123,7 @@ export interface CanonicalFinalizeMutationPlan {
 }
 
 export interface CanonicalFinalizeServiceOptions {
+  readonly autoActivationPolicy?: TrustedHumanAutoActivationPolicyLike;
   readonly candidateLimit?: number;
   readonly evidenceEventPath?: string;
   readonly jobEventPath?: string;
@@ -148,13 +150,29 @@ interface CurrentFinalizeContext {
   readonly thread: ThreadObservation;
 }
 
-interface AssignedCandidate {
+interface AssignedCandidateBase {
   readonly candidate: ExtractCandidate;
   readonly decision: MergeDecision;
   readonly knowledgeId: string;
   readonly relatedIds: readonly string[];
-  readonly createsKnowledge: boolean;
 }
+
+interface ExistingAssignedCandidate extends AssignedCandidateBase {
+  readonly createsKnowledge: false;
+  readonly initialStatus: null;
+}
+
+interface NewAssignedCandidate extends AssignedCandidateBase {
+  readonly createsKnowledge: true;
+  readonly initialStatus: "active" | "proposed";
+}
+
+type AssignedCandidate = ExistingAssignedCandidate | NewAssignedCandidate;
+
+const PROPOSE_ONLY_AUTO_ACTIVATION_POLICY: TrustedHumanAutoActivationPolicyLike =
+  {
+    evaluate: () => ({ reasons: ["eligibility_missing"], status: "proposed" }),
+  };
 
 interface EvidenceGroup {
   readonly commentIds: readonly string[];
@@ -181,6 +199,7 @@ interface IdentifierFactory {
  * repository lock; finalize-time FTS revalidation and the commit share it.
  */
 export class CanonicalFinalizeService {
+  private readonly autoActivationPolicy: TrustedHumanAutoActivationPolicyLike;
   private readonly candidateLimit: number | undefined;
   private readonly evidenceEventPath: string;
   private readonly jobEventPath: string;
@@ -195,6 +214,8 @@ export class CanonicalFinalizeService {
   private readonly repository: CanonicalTransactionStore;
 
   constructor(options: CanonicalFinalizeServiceOptions) {
+    this.autoActivationPolicy =
+      options.autoActivationPolicy ?? PROPOSE_ONLY_AUTO_ACTIVATION_POLICY;
     this.repoId = RepositoryIdSchema.parse(options.repoId);
     this.repository = options.repository;
     this.candidateLimit = options.candidateLimit;
@@ -455,6 +476,7 @@ export class CanonicalFinalizeService {
           candidate,
           createsKnowledge: false,
           decision,
+          initialStatus: null,
           knowledgeId: decision.target_id!,
           relatedIds: [],
         };
@@ -463,11 +485,17 @@ export class CanonicalFinalizeService {
         candidate,
         createsKnowledge: true,
         decision,
+        initialStatus: this.autoActivationPolicy.evaluate({
+          candidate: candidate.candidate,
+          comments: input.context.comments,
+          provenanceTrustPolicyDigest: input.provenance.trust_policy_digest,
+        }).status,
         knowledgeId: input.ids.nextKnowledgeId(),
         relatedIds:
           decision.relation === "overlaps" ? [decision.target_id!] : [],
       };
     });
+    const created = assigned.filter(isNewAssignedCandidate);
     const groups = evidenceGroups(assigned);
     const lifecycle = this.planEvidenceLifecycle({
       comments: input.context.comments,
@@ -481,17 +509,15 @@ export class CanonicalFinalizeService {
     const activeByKnowledge = new Map(
       lifecycle.active.map((evidence) => [evidence.knowledge_id, evidence]),
     );
-    const fileWrites: CanonicalFileWriteRequest[] = assigned
-      .filter((entry) => entry.createsKnowledge)
-      .map((entry) =>
-        newKnowledgeFileWrite(
-          entry,
-          input.context.operation.recordedAt,
-          input.provenance,
-          this.repoId,
-          input.transactionId,
-        ),
-      );
+    const fileWrites: CanonicalFileWriteRequest[] = created.map((entry) =>
+      newKnowledgeFileWrite(
+        entry,
+        input.context.operation.recordedAt,
+        input.provenance,
+        this.repoId,
+        input.transactionId,
+      ),
+    );
     fileWrites.push(
       ...staleKnowledgeFileWrites(
         lifecycle.staleKnowledgeIds,
@@ -544,8 +570,11 @@ export class CanonicalFinalizeService {
     );
     const response = FinalizeStableResponseSchema.parse({
       accepted: true,
-      created_proposed: assigned
-        .filter((entry) => entry.createsKnowledge)
+      created_active: created
+        .filter((entry) => entry.initialStatus === "active")
+        .map((entry) => entry.knowledgeId),
+      created_proposed: created
+        .filter((entry) => entry.initialStatus === "proposed")
         .map((entry) => entry.knowledgeId),
       merged_evidence: lifecycle.active.map((evidence) => evidence.evidence_id),
       revision_proposals: proposalIds,
@@ -852,6 +881,12 @@ function evidenceGroups(
     );
 }
 
+function isNewAssignedCandidate(
+  entry: AssignedCandidate,
+): entry is NewAssignedCandidate {
+  return entry.createsKnowledge;
+}
+
 function buildActiveEvidence(input: {
   readonly commentIds: readonly string[];
   readonly comments: readonly CommentObservation[];
@@ -978,7 +1013,7 @@ function validateEvidenceCommentIds(
 }
 
 function newKnowledgeFileWrite(
-  entry: AssignedCandidate,
+  entry: NewAssignedCandidate,
   recordedAt: string,
   provenance: DistillationProvenance,
   repoId: string,
@@ -1015,7 +1050,7 @@ function newKnowledgeFileWrite(
         schema_version: 1,
         scope: candidate.scope,
         severity: candidate.severity,
-        status: "proposed",
+        status: entry.initialStatus,
         updated_at: recordedAt,
       },
       renderDistilledCandidateBody(candidate),

@@ -6,11 +6,11 @@
 
 この設定は利用者ごとの trust policy であり、チーム共通の承認状態を表さない。
 
-## 適用開始条件
+## 適用対象
 
-本 runbook の有効化手順は、[#89](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/89)で severity を含む最終候補に対する安全条件の再判定が実装され、M3-AC-005 と M3-AC-006 が通過したリリースにだけ適用する。
+本 runbook は、[#89](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/89)の finalize-time policy を含み、M3-AC-005 と M3-AC-006 が通過したリリースに適用する。
 
-現行の M2 実装は severity が得られる前に initial knowledge status を決定するため、この条件を満たすリリースへ更新するまでは `autoActivateTrustedHuman` を `false` のまま維持し、以下の有効化手順を実行してはならない。
+それより前のリリースでは、`autoActivateTrustedHuman` を `false` のまま維持する。
 
 ## 不変条件（コード側）
 
@@ -24,6 +24,9 @@
   `autoActivateTrustedHuman: true` を既定として置いてはならない
 - 個人利用では、別の maintainer による承認を必須としない。
   operator は、自分が選択した trusted human と自動 active 化されたルールに責任を持つ
+- thread 正規化時の `initialKnowledgeStatus` は常に `proposed` とする。
+  自動 active 化は、最終 candidate の severity と最新 thread 全体がそろう finalize 時にだけ判定する
+- `trustedHumanAutoActivationEligibility` がない場合は、opt-in が `true` でも新しい candidate を `proposed` にする
 - committed baseline artifact の `trust_policy_digest` は既定 trust policy
   から計算されているため、既定値を勝手に変えるとオフライン quality gate が
   `FIXTURE_DRIFT` で失敗する（意図しない既定変更の検知網）
@@ -45,38 +48,75 @@
 5. **M2 運用実績**: cron 同期での 2 週間運用（設計 §19 M2 完了条件）を
    経ており、ランキング・抽出品質に未解決の回帰報告がないこと
 
+## eligibility 記録
+
+**activation eligibility** は、operator が確認した M2 pilot report、live baseline、quality gate report をローカル config に結び付ける監査記録である。
+
+`m2Pilot.reportDigest`、`qualityGate.baselineArtifactDigest`、`qualityGate.reportDigest` には、各ファイルの exact bytes から計算した `sha256:<64桁のhex>` を記録する。
+
+runtime は digest の形式、pilot の `go`、baseline の `live_measurement`、gate の `pass` を検証する。
+
+さらに、`qualityGate.trustPolicyDigest` を現在の trust config と candidate の distillation provenance の両方に照合する。
+
+report と baseline のファイル本体は operator の管理下にあり、runtime は config に記録された digest からファイルの真正性を証明しない。
+
+この境界は、個人用ローカル config を編集できる operator 自身を攻撃者として扱わない設計に対応する。
+
 ## 有効化の手順
 
-1. gate の report JSON、確認した PR 一覧、M2 pilot report を確認する
-2. `trustedLogins` と `trustedActorIds` を確認し、未知 bot、外部 contributor、同一人物の未解決 alias が含まれていないことを確認する
-3. 有効化する operator 自身の config にのみ次を設定する:
+1. gate の report JSON、確認した PR 一覧、M2 pilot report を確認する。
+2. 各 report と baseline の exact-byte SHA-256 digest を計算する。
+3. `trustedLogins` と `trustedActorIds` を確認し、未知 bot、外部 contributor、同一人物の未解決 alias が含まれていないことを確認する。
+4. operator 自身の config に、確認済み artifact から作成した eligibility と opt-in を設定する。
 
    ```json
-   { "trust": { "autoActivateTrustedHuman": true } }
+   {
+     "trust": {
+       "autoActivateTrustedHuman": true
+     },
+     "trustedHumanAutoActivationEligibility": {
+       "schemaVersion": 1,
+       "m2Pilot": {
+         "completedAt": "2026-08-23T00:20:00.000Z",
+         "decision": "go",
+         "reportDigest": "sha256:<pilot-reportのdigest>"
+       },
+       "qualityGate": {
+         "baselineArtifactDigest": "sha256:<live-baselineのdigest>",
+         "reportDigest": "sha256:<gate-reportのdigest>",
+         "source": "live_measurement",
+         "status": "pass",
+         "thresholdsVersion": "<review済みthresholds version>",
+         "trustPolicyDigest": "sha256:<現在のtrust policy digest>"
+       }
+     }
+   }
    ```
 
-4. 有効化後も auto active の対象が、originator と thread 内の全 comment が trusted human であり、severity が `must` ではない candidate に限定されることを確認する
-5. AI reviewer、未知 bot、外部 contributor、mixed trust、severity `must` の candidate が review inbox に残ることを確認する
-6. 有効化した日時、operator、参照した gate と pilot report を個人の運用記録に残す
+5. MCP server を再起動し、新しい config を読み込ませる。
+6. auto active の対象が、originator と thread 内の全 comment が trusted human であり、severity が `must` ではない candidate に限定されることを確認する。
+7. AI reviewer、未知 bot、外部 contributor、mixed trust、severity `must` の candidate が review inbox に残ることを確認する。
+8. 有効化した日時、operator、参照した gate と pilot report を個人の運用記録に残す。
 
 ## 監視とロールバック
 
 - 有効化後 2 週間は、自動 active になったルールを週次で棚卸しし、
   誤 active（false positive）を記録する
-- 次のいずれかが起きたら **即座に `false` へ戻す**（設定 1 行の変更のみで
-  戻り、既存ルールの status は変更されない）:
+- 次のいずれかが起きたら **即座に `false` へ戻し**、MCP server を再起動する。
+  この操作は新しい candidate の自動 active 化だけを停止し、既存ルールの status を変更しない:
   - quality gate が指標低下（exit 1）で失敗した
   - 自動 active されたルールに false positive が見つかった
   - trust policy / prompt / schema 世代の変更で gate が
     `FIXTURE_DRIFT` になった（再 review が完了するまで無効化する）
 - ロールバック後に再度有効化する場合は、本 runbook の手順を最初からやり直す
+- gate、baseline、pilot report、trust policy のいずれかを更新した場合は、古い eligibility を再利用せず、新しい digest で記録を作り直す
 
 ## よくある誤り
 
 | 誤り                                                | 正しい扱い                                                                                                                |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | gate が失敗しているが「一時的だから」と有効化を続行 | gate 失敗中は有効化を停止する。gate 修復が先                                                                                |
-| リポジトリの設定例・README に `true` を記載         | 既定・例示はすべて `false`。opt-in は operator の config のみ                                                             |
+| README、既定 config、setup 出力に `true` を記載     | これらの例示はすべて `false`。`true` は本 runbook に従って operator の config にだけ設定する                              |
 | 閾値を下げて gate を通してから有効化                | gate 緩和は [運用規約 4.1](./golden-baseline-runbook.md) の合意手続きが必須。auto activation の前提を弱める変更として扱う |
 | 有効化を CI や自動化で行う                          | 有効化は人間の明示操作のみ。自動化してはならない                                                                          |
 | 個人利用だから trusted reviewer を確認しない        | 個人利用でも trust policy は必要。setup が提示した候補を operator が確認する                                              |

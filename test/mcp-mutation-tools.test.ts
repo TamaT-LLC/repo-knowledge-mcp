@@ -249,7 +249,9 @@ describe("MCP mutation tools", () => {
       SubmitDistillationOutputSchema.safeParse(toolStructuredContent(finalize))
         .success,
     ).toBe(true);
-    expect(toolText(finalize)).toContain("Created **1** proposed rule");
+    expect(toolText(finalize)).toContain(
+      "Created **0** active rule(s) and **1** proposed rule",
+    );
     expect(toolStructuredContent(finalize)).toMatchObject({
       summary: {
         counts: { created_proposed: 1 },
@@ -895,6 +897,7 @@ function createMutationFixture(): {
   const submitFinalize = vi.fn<KnowledgeMutationOperations["submitFinalize"]>(
     async () => ({
       accepted: true,
+      created_active: [],
       created_proposed: [KNOWLEDGE_ID],
       merged_evidence: [],
       revision_proposals: [],

@@ -43,6 +43,7 @@ describe("ProviderDistillationPipeline", () => {
     const finalizer = {
       finalize: vi.fn(async () => ({
         accepted: true,
+        created_active: [],
         created_proposed: ["kn_01ARZ3NDEKTSV4RRFFQ69G5FAV"],
         merged_evidence: ["ev_01ARZ3NDEKTSV4RRFFQ69G5FAV"],
         revision_proposals: [],

@@ -1055,10 +1055,14 @@ submit_distillation({
     target_id?: string;               // same / overlaps の対象
   }>;
 })
-→ { accepted, merged_evidence, created_proposed, revision_proposals, rejected_reason? }
+→ { accepted, merged_evidence, created_active, created_proposed, revision_proposals, rejected_reason? }
 ```
 
-candidates が 0 件（skip_reason あり）の場合、extract で完結し finalize は不要。same 判定でも §2.4 により本文改稿は revision proposal になる。host-assisted 由来の新規ルールは常に proposed。
+candidates が 0 件（skip_reason あり）の場合、extract で完結し finalize は不要。
+
+same 判定でも §2.4 により本文改稿は revision proposal になる。
+
+provider と host-assisted の新規ルールは同じ finalize-time policy を使い、M3-FR-005 の全 guard を満たした candidate だけを active にする。
 
 ##### 3.3 lease fencing
 

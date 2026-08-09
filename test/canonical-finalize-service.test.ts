@@ -25,6 +25,7 @@ import {
   type MergeDecision,
   type PullRequestSnapshot,
   type ThreadObservation,
+  type TrustedHumanAutoActivationPolicyLike,
 } from "../src/index.js";
 
 const CREATED_AT = "2026-08-06T00:00:00.000Z";
@@ -217,6 +218,47 @@ describe("CanonicalFinalizeService", () => {
     );
     expect(result.merged_evidence).toHaveLength(2);
     expect(jobState(await fixture.store.readSnapshot())).toBe("done");
+  });
+
+  it("does not downgrade an existing active rule when auto activation is stopped", async () => {
+    const fixture = await createFixture({
+      knowledge: [knowledge(KNOWLEDGE_A)],
+    });
+    const existingBefore = await knowledgeBytes(fixture.root, KNOWLEDGE_A);
+    const candidates = [candidate(CANDIDATE_A, "A distinct guarded rule")];
+    const search = await mergeSearch(fixture.store, candidates);
+    const gateStoppedPolicy: TrustedHumanAutoActivationPolicyLike = {
+      evaluate: () => ({
+        reasons: ["quality_gate_not_pass"],
+        status: "proposed",
+      }),
+    };
+
+    const result = await finalizer(fixture.store, gateStoppedPolicy).finalize({
+      ...sourceBinding(),
+      candidates: search.candidates,
+      decisions: [different(CANDIDATE_A)],
+      expected_match_set_digest: search.match_set_digest,
+      lease: lease(),
+      provenance: provenance(),
+    });
+
+    expect(result).toMatchObject({
+      created_active: [],
+      created_proposed: [expect.stringMatching(/^kn_/u)],
+    });
+    expect(await knowledgeBytes(fixture.root, KNOWLEDGE_A)).toEqual(
+      existingBefore,
+    );
+    expect((await fixture.store.readSnapshot()).domain.knowledge).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: KNOWLEDGE_A, status: "active" }),
+        expect.objectContaining({
+          id: result.created_proposed[0],
+          status: "proposed",
+        }),
+      ]),
+    );
   });
 
   it("withdraws lost associations, stales distilled knowledge, and preserves human-pinned knowledge", async () => {
@@ -975,8 +1017,12 @@ async function mergeSearch(
   }).search({ candidates, threadId: THREAD_ID });
 }
 
-function finalizer(store: CanonicalTransactionStore): CanonicalFinalizeService {
+function finalizer(
+  store: CanonicalTransactionStore,
+  autoActivationPolicy?: TrustedHumanAutoActivationPolicyLike,
+): CanonicalFinalizeService {
   return new CanonicalFinalizeService({
+    ...(autoActivationPolicy === undefined ? {} : { autoActivationPolicy }),
     now: () => new Date(FINALIZED_AT),
     repoId: REPO_ID,
     repository: store,

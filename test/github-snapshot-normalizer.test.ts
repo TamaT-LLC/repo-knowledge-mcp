@@ -371,7 +371,7 @@ describe("normalizeGitHubPullRequestSnapshot", () => {
     });
     expect(target(explicitlyTrusted, "thread-main")).toMatchObject({
       disposition: "distill",
-      initialKnowledgeStatus: "active",
+      initialKnowledgeStatus: "proposed",
     });
     expect(explicitlyTrusted.records.comments[0]?.payload.actor.trust).toBe(
       "trusted",
@@ -385,7 +385,7 @@ describe("normalizeGitHubPullRequestSnapshot", () => {
     });
     expect(target(trustedByLogin, "thread-main")).toMatchObject({
       disposition: "distill",
-      initialKnowledgeStatus: "active",
+      initialKnowledgeStatus: "proposed",
     });
     expect(trustedByLogin.records.comments[0]?.payload.actor.trust).toBe(
       "trusted",
