@@ -1,14 +1,25 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { execa } from "execa";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION,
   REPO_KNOWLEDGE_CLI_HELP,
+  SetupStateStore,
+  captureCanonicalStateReadOnly,
+  loadRepoKnowledgeConfig,
+  reduceDomainRecords,
   runDefaultRepoKnowledgeCli,
   type GhCommandResult,
   type GhRunnerLike,
@@ -136,6 +147,153 @@ describe("default CLI runtime", () => {
       await client.close();
     }
   });
+
+  it("initializes a workspace from its remote without transmitting review content", async () => {
+    const parent = await temporaryDirectory();
+    const storageRoot = join(parent, "storage");
+    const workspacePath = join(parent, "workspace");
+    await mkdir(workspacePath, { mode: 0o700 });
+    const canonicalWorkspacePath = await realpath(workspacePath);
+    const confirmationIds: string[] = [];
+    const captured = output(
+      { stdinIsTTY: true, stdoutIsTTY: true },
+      async (request) => {
+        confirmationIds.push(request.id);
+        return request.id === "trust.U_reviewer";
+      },
+    );
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("provider transmission must remain off"));
+
+    try {
+      const exitCode = await runDefaultRepoKnowledgeCli({
+        argv: ["setup"],
+        clock: () => new Date("2026-08-09T00:00:00.000Z"),
+        cwd: workspacePath,
+        ghRunner: new SetupGhRunner(),
+        gitRemoteReader: {
+          readOrigin: async () => "https://github.com/owner/repository.git",
+        },
+        io: captured.io,
+        storageRoot,
+      });
+      expect(exitCode, captured.stderr()).toBe(0);
+
+      const result = JSON.parse(captured.stdout()) as {
+        repository: { storage_path: string; workspace_path: string };
+        state_path: string;
+      };
+      expect(result.repository.workspace_path).toBe(canonicalWorkspacePath);
+      const config = await loadRepoKnowledgeConfig(
+        join(storageRoot, "config.json"),
+      );
+      expect(config).toMatchObject({
+        defaultRepo: "owner/repository",
+        hostAssistedDistillation: {
+          allowReviewContentTransmission: false,
+          enabled: false,
+        },
+        llm: { allowCloudTransmission: false, mode: "disabled" },
+        repos: ["owner/repository"],
+        trust: {
+          autoActivateTrustedHuman: false,
+          trustedActorIds: ["U_reviewer"],
+          trustedLogins: ["alice"],
+        },
+        workspaceMappings: {
+          [canonicalWorkspacePath]: "owner/repository",
+        },
+      });
+      const capture = await captureCanonicalStateReadOnly(
+        result.repository.storage_path,
+      );
+      const domain = reduceDomainRecords(
+        capture.records.map((entry) => entry.record),
+      );
+      expect(domain.comments).toHaveLength(1);
+      expect(domain.comments[0]).toMatchObject({
+        actor: { actor_id: "U_reviewer", login: "alice" },
+        body: "Prefer the repository helper.",
+        diff_hunk: "@@ -1 +1 @@",
+      });
+      expect(domain.distillJobs.length).toBeGreaterThanOrEqual(1);
+      expect(
+        await new SetupStateStore(result.repository.storage_path).read(),
+      ).toMatchObject({ phase: "complete" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(confirmationIds).toEqual([
+        "transmission.provider",
+        "transmission.host-assisted",
+        "trust.U_reviewer",
+      ]);
+      await expect(
+        access(join(workspacePath, ".repo-knowledge")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+
+      const rerun = output(
+        { stdinIsTTY: true, stdoutIsTTY: true },
+        async (request) => {
+          confirmationIds.push(request.id);
+          return false;
+        },
+      );
+      await expect(
+        runDefaultRepoKnowledgeCli({
+          argv: ["setup"],
+          clock: () => new Date("2026-08-09T00:00:00.000Z"),
+          cwd: workspacePath,
+          ghRunner: new SetupGhRunner(),
+          gitRemoteReader: {
+            readOrigin: async () => "https://github.com/owner/repository.git",
+          },
+          io: rerun.io,
+          storageRoot,
+        }),
+      ).resolves.toBe(0);
+      expect(JSON.parse(rerun.stdout())).toMatchObject({ resumed: true });
+      const rerunCapture = await captureCanonicalStateReadOnly(
+        result.repository.storage_path,
+      );
+      expect(rerunCapture.canonicalDigest).toBe(capture.canonicalDigest);
+      expect(rerunCapture.records).toHaveLength(capture.records.length);
+      expect(confirmationIds).toHaveLength(3);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("rejects a repository and workspace identity mismatch before registry mutation", async () => {
+    const parent = await temporaryDirectory();
+    const storageRoot = join(parent, "storage");
+    const workspacePath = join(parent, "workspace");
+    await mkdir(workspacePath, { mode: 0o700 });
+    const captured = output(
+      { stdinIsTTY: true, stdoutIsTTY: true },
+      async () => false,
+    );
+
+    await expect(
+      runDefaultRepoKnowledgeCli({
+        argv: ["setup", "other/repository"],
+        cwd: workspacePath,
+        ghRunner: new MismatchSetupGhRunner(),
+        gitRemoteReader: {
+          readOrigin: async () => "https://github.com/owner/repository.git",
+        },
+        io: captured.io,
+        storageRoot,
+      }),
+    ).resolves.toBe(1);
+
+    expect(captured.stderr()).toContain("SETUP_REPOSITORY_MISMATCH");
+    expect(
+      await loadRepoKnowledgeConfig(join(storageRoot, "config.json")),
+    ).toMatchObject({ repos: [], workspaceMappings: {} });
+    await expect(
+      access(join(storageRoot, "repositories.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });
 
 class HealthyGhRunner implements GhRunnerLike {
@@ -170,14 +328,161 @@ class HealthyGhRunner implements GhRunnerLike {
   }
 }
 
-function output(tty: {
-  readonly stdinIsTTY: boolean;
-  readonly stdoutIsTTY: boolean;
-}) {
+class SetupGhRunner implements GhRunnerLike {
+  async run(args: readonly string[]): Promise<GhCommandResult> {
+    if (args[0] === "--version") {
+      return { stderr: "", stdout: "gh version fixture\n" };
+    }
+    if (args[0] === "auth") {
+      return { stderr: "", stdout: "authenticated\n" };
+    }
+    const query = args.find((value) => value.startsWith("query=")) ?? "";
+    if (query.includes("RepoKnowledgeDoctor")) {
+      return response({ viewer: { login: "fixture" } });
+    }
+    if (query.includes("ResolveRepository")) {
+      return response({
+        repository: {
+          id: "R_repository",
+          nameWithOwner: "owner/repository",
+        },
+      });
+    }
+    if (query.includes("ListUpdatedPullRequests")) {
+      return response({
+        repository: {
+          id: "R_repository",
+          nameWithOwner: "owner/repository",
+          pullRequests: {
+            nodes: [
+              {
+                id: "PR_node",
+                number: 7,
+                updatedAt: "2026-08-08T00:00:00.000Z",
+              },
+            ],
+            pageInfo: { endCursor: null, hasNextPage: false },
+          },
+        },
+      });
+    }
+    if (query.includes("FetchPullRequestSnapshot")) {
+      return response({
+        repository: {
+          id: "R_repository",
+          nameWithOwner: "owner/repository",
+          pullRequest: {
+            baseRefOid: "base-oid",
+            headRefOid: "head-oid",
+            id: "PR_node",
+            mergedAt: null,
+            number: 7,
+            reviewThreads: {
+              nodes: [
+                {
+                  comments: {
+                    nodes: [
+                      {
+                        author: {
+                          __typename: "User",
+                          id: "U_reviewer",
+                          login: "alice",
+                        },
+                        authorAssociation: "MEMBER",
+                        body: "Prefer the repository helper.",
+                        createdAt: "2026-08-08T00:00:00.000Z",
+                        diffHunk: "@@ -1 +1 @@",
+                        id: "C_review",
+                        updatedAt: "2026-08-08T00:00:00.000Z",
+                        url: "https://github.com/owner/repository/pull/7#discussion_r1",
+                      },
+                    ],
+                    pageInfo: { endCursor: null, hasNextPage: false },
+                  },
+                  id: "thread-1",
+                  isOutdated: false,
+                  isResolved: true,
+                  path: "src/index.ts",
+                },
+              ],
+              pageInfo: { endCursor: null, hasNextPage: false },
+            },
+            reviews: {
+              nodes: [],
+              pageInfo: { endCursor: null, hasNextPage: false },
+            },
+            title: "Guided setup fixture",
+            updatedAt: "2026-08-08T00:00:00.000Z",
+          },
+        },
+      });
+    }
+    if (query.includes("ValidatePullRequestSnapshot")) {
+      return response({
+        nodes: [
+          {
+            __typename: "PullRequestReviewThread",
+            comments: { totalCount: 1 },
+            id: "thread-1",
+            isOutdated: false,
+            isResolved: true,
+            path: "src/index.ts",
+          },
+        ],
+        repository: {
+          id: "R_repository",
+          pullRequest: {
+            baseRefOid: "base-oid",
+            headRefOid: "head-oid",
+            id: "PR_node",
+            mergedAt: null,
+            number: 7,
+            reviewThreads: { totalCount: 1 },
+            reviews: { totalCount: 0 },
+            title: "Guided setup fixture",
+            updatedAt: "2026-08-08T00:00:00.000Z",
+          },
+        },
+      });
+    }
+    throw new Error(`unexpected gh arguments: ${args.join(" ")}`);
+  }
+}
+
+class MismatchSetupGhRunner implements GhRunnerLike {
+  async run(args: readonly string[]): Promise<GhCommandResult> {
+    const query = args.find((value) => value.startsWith("query=")) ?? "";
+    if (!query.includes("ResolveRepository")) {
+      throw new Error(`unexpected gh arguments: ${args.join(" ")}`);
+    }
+    const owner = args.find((value) => value.startsWith("owner="));
+    const name = args.find((value) => value.startsWith("name="));
+    const repository = `${owner?.slice("owner=".length)}/${name?.slice("name=".length)}`;
+    return response({
+      repository: {
+        id: repository === "other/repository" ? "R_other" : "R_repository",
+        nameWithOwner: repository,
+      },
+    });
+  }
+}
+
+function response(data: unknown): GhCommandResult {
+  return { stderr: "", stdout: JSON.stringify({ data }) };
+}
+
+function output(
+  tty: {
+    readonly stdinIsTTY: boolean;
+    readonly stdoutIsTTY: boolean;
+  },
+  confirm?: NonNullable<RepoKnowledgeCliIo["confirm"]>,
+) {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const io: RepoKnowledgeCliIo = {
     ...tty,
+    ...(confirm === undefined ? {} : { confirm }),
     writeStderr: (value) => stderr.push(value),
     writeStdout: (value) => stdout.push(value),
   };

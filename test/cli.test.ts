@@ -9,6 +9,7 @@ import {
   runRepoKnowledgeCli,
   type CliRepositoryOperations,
   type CliRepositoryOperationsResolver,
+  type GuidedSetupResult,
   type KnowledgeMutationOperations,
   type KnowledgeMutationServiceResolver,
   type RepoKnowledgeDoctorLike,
@@ -129,6 +130,52 @@ describe("repo-knowledge CLI", () => {
     await expect(runRepoKnowledgeCli(doctor.options)).resolves.toBe(0);
     expect(doctor.doctorRun).toHaveBeenCalledWith({ repo: REPOSITORY });
     expect(JSON.parse(doctor.stdout())).toMatchObject({ ok: true });
+  });
+
+  it("routes setup with an explicit repository, workspace, and initial window", async () => {
+    const current = fixture(
+      [
+        "setup",
+        REPOSITORY,
+        "--workspace",
+        "/work/repo",
+        "--since",
+        "2026-08-01T00:00:00.000Z",
+      ],
+      { stdinIsTTY: true, stdoutIsTTY: true },
+    );
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+    expect(current.setup).toHaveBeenCalledWith(
+      {
+        repo: REPOSITORY,
+        since: "2026-08-01T00:00:00.000Z",
+        workspacePath: "/work/repo",
+      },
+      { confirm: expect.any(Function) },
+    );
+    expect(JSON.parse(current.stdout())).toMatchObject({
+      repository: { name: REPOSITORY },
+      transmission: { host_assisted: false, provider: false },
+    });
+  });
+
+  it("parses all-history setup and rejects setup without a real TTY", async () => {
+    expect(
+      parseRepoKnowledgeCliArguments(
+        ["setup", "--repo", REPOSITORY, "--all-history"],
+        true,
+      ),
+    ).toEqual({
+      kind: "setup",
+      request: { allHistory: true, repo: REPOSITORY },
+    });
+
+    const current = fixture(["setup", REPOSITORY]);
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(1);
+    expect(current.stderr()).toContain("CLI_TTY_REQUIRED");
+    expect(current.setup).not.toHaveBeenCalled();
   });
 
   it("returns failure when doctor reports a failed check", async () => {
@@ -258,6 +305,17 @@ describe("repo-knowledge CLI", () => {
     [["ingest", REPOSITORY, "42", "--since=yesterday"], "CLI_ARGUMENT_INVALID"],
     [["sync", REPOSITORY, "--since", "yesterday"], "CLI_ARGUMENT_INVALID"],
     [["sync", REPOSITORY, "extra"], "CLI_ARGUMENT_INVALID"],
+    [
+      [
+        "setup",
+        REPOSITORY,
+        "--since",
+        "2026-08-01T00:00:00.000Z",
+        "--all-history",
+      ],
+      "CLI_ARGUMENT_INVALID",
+    ],
+    [["setup", REPOSITORY, "--since", "yesterday"], "CLI_ARGUMENT_INVALID"],
     [["sync", REPOSITORY, "--workspace", "/work/repo"], "CLI_ARGUMENT_INVALID"],
     [["list", REPOSITORY, "--status", "unknown"], "CLI_ARGUMENT_INVALID"],
     [["redistill", REPOSITORY, "--all", "--failed"], "CLI_ARGUMENT_INVALID"],
@@ -273,6 +331,9 @@ describe("repo-knowledge CLI", () => {
   });
 
   it("documents sync and stats while keeping deferred commands out of help", () => {
+    expect(REPO_KNOWLEDGE_CLI_HELP).toContain(
+      "setup [repo] [--since <iso> | --all-history]",
+    );
     expect(REPO_KNOWLEDGE_CLI_HELP).toContain("sync [repo] [--since <iso>]");
     expect(REPO_KNOWLEDGE_CLI_HELP).toContain(
       "stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]",
@@ -457,6 +518,7 @@ function fixture(
   const stderr: string[] = [];
   const io: RepoKnowledgeCliIo = {
     ...tty,
+    confirm: vi.fn(async () => false),
     writeStderr: (value) => stderr.push(value),
     writeStdout: (value) => stdout.push(value),
   };
@@ -560,6 +622,7 @@ function fixture(
     ok: true,
     summary: { fail: 0, pass: 0, warn: 0 },
   }));
+  const setup = vi.fn(async () => setupResult());
   return {
     doctorRun,
     ingestPullRequest,
@@ -571,13 +634,45 @@ function fixture(
       mutationServiceResolver,
       operationsResolver,
       serve,
+      setup,
     },
     resolveMutation,
     resolveOperations,
     serve,
+    setup,
     stderr: () => stderr.join(""),
     stdout: () => stdout.join(""),
     syncRepo,
+  };
+}
+
+function setupResult(): GuidedSetupResult {
+  return {
+    config_path: "/storage/config.json",
+    doctor: { fail: 0, pass: 6, warn: 0 },
+    initial_sync: {
+      scope: { mode: "since", since: "2026-05-11T00:00:00.000Z" },
+      summary: {
+        discovered: 2,
+        failed: 0,
+        failures: [],
+        ingested: 2,
+        jobs_created: 2,
+        next_cursor: null,
+        unchanged: 0,
+      },
+    },
+    repository: {
+      id: "R_repository",
+      name: REPOSITORY,
+      storage_path: "/storage/repos/R_repository",
+      workspace_path: "/work/repo",
+    },
+    resumed: false,
+    state_path: "/storage/repos/R_repository/setup-state.json",
+    storage_root: "/storage",
+    transmission: { host_assisted: false, provider: false },
+    trust: { candidates: 0, selected: [] },
   };
 }
 

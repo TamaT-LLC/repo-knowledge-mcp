@@ -5,7 +5,7 @@
 - Feature: personal-knowledge
 - Scope: global
 - Status: Draft
-- Open Questions: 1
+- Open Questions: 0
 - Updated: 2026-08-09
 - Upstream: [repo-knowledge-mcp 統合仕様書 v0.3](./repo-knowledge-mcp-v0.3.md)
 
@@ -69,6 +69,10 @@ M3 のコマンドは、対象リポジトリのワークツリーへ canonical 
 外部送信は既定で無効とし、送信先と送信対象を表示した後の明示的な同意によってのみ有効化する。
 
 setup は、対象リポジトリで観測した人間レビュアーを信頼候補として表示できるが、利用者の確認なしに `trustedLogins` へ追加しない。
+
+初回同期は直近 90 日を既定範囲とする。
+利用者は `--since <iso-datetime>` で開始境界を上書きでき、全履歴が必要な場合だけ `--all-history` を明示する。
+setup は repository ごとの durable state と sync checkpoint を使い、中断後の再実行では最初に選択した範囲を維持して再開する。
 
 ### M3-FR-003 Repository readiness
 
@@ -166,11 +170,11 @@ Windows、network filesystem、同期フォルダは引き続き保証対象外�
 - 個人利用モデルでは、異なる利用者の trust policy、蒸留結果、outcome によってルール集合と順位が異なり得る。
 - admin plane は MCP tool 経由の偶発的な権限昇格を防ぐ運用境界であり、同じ OS user で任意 shell を実行できるプロセスに対するセキュリティ境界ではない。
 
-## 未決事項
+## 決定事項
 
-| ID | 論点 | 決定が必要な内容 | 影響 | 担当 | 期限 | 状態 |
+| ID | 論点 | 決定内容 | 影響 | 担当 | 決定日 | 状態 |
 | --- | --- | --- | --- | --- | --- | --- |
-| Q-001 | 初回同期の既定範囲 | 全履歴、直近日数、直近 PR 件数のどれを guided setup の既定値にするか | Non-blocking | 未定 | M3-FR-002 実装着手前 | Open |
+| Q-001 | 初回同期の既定範囲 | 直近 90 日を既定とし、`--since` と `--all-history` を明示 override とする | Non-blocking | M3 implementation | 2026-08-09 | Decided |
 
 ## 受け入れ条件
 

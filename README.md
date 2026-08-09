@@ -50,7 +50,22 @@ npm install --global repo-knowledge-mcp
 repo-knowledge --help
 ```
 
-初回の server 起動または storage を使う command で `~/.repo-knowledge/` と安全な既定 config を作成します。
+対象 repository の workspace で guided setup を実行すると、Git remote、`gh` 認証、private storage、外部送信、信頼する人間 reviewer、初回同期を一つの TTY session で設定できます。
+外部送信と reviewer trust の質問は既定で `No` です。
+初回同期は既定で直近 90 日を対象とし、`--since <iso>` で開始時刻を指定するか、`--all-history` で全履歴を明示できます。
+
+```console
+cd /absolute/path/to/repository
+repo-knowledge setup
+
+# workspace 外から repository 名を指定する場合
+repo-knowledge setup owner/repository --since 2026-05-01T00:00:00Z
+```
+
+中断または部分的な同期失敗後は同じ command を再実行すると、保存済み scope と checkpoint から再開します。
+canonical data と setup state は `~/.repo-knowledge/` 配下だけに保存され、対象 workspace へ `.repo-knowledge/` を作成しません。
+
+初回の server 起動または storage を使う command でも `~/.repo-knowledge/` と安全な既定 config を作成します。
 保存先を分ける場合は、server と CLI の両方へ同じ `REPO_KNOWLEDGE_HOME` を設定してください。
 
 ```console
@@ -60,7 +75,7 @@ repo-knowledge ingest owner/repository 123
 repo-knowledge list owner/repository --status proposed
 ```
 
-`approve`、`reject`、`edit`、`approve-revision`、`add --active` は実 input/output TTY が必要です。
+`setup`、`approve`、`reject`、`edit`、`approve-revision`、`add --active` は実 input/output TTY が必要です。
 
 ## Claude Code から使う
 
@@ -212,6 +227,7 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 | command | 用途 |
 |---|---|
 | `serve [--repo owner/name]` | stdio MCP server を明示起動 |
+| `setup [repo] [--since <iso> \| --all-history]` | private storage、repository、外部送信、trust、初回同期を対話設定。既定範囲は直近 90 日 |
 | `sync [repo] [--since <iso>]` | checkpoint から更新 PR を増分同期（cron 用、下記「cron 同期の運用」参照） |
 | `stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]` | versioned repository 集計を JSON 1 document で出力 |
 | `ingest [repo] <pr>` | 一つの complete PR snapshot を取り込む |

@@ -22,6 +22,7 @@ import {
   parseRepoKnowledgeConfig,
   resolveRepositoryPolicy,
   SqliteCanonicalProjection,
+  updateRepoKnowledgeConfig,
 } from "../src/index.js";
 import { rm } from "node:fs/promises";
 
@@ -202,6 +203,60 @@ describe("private storage initialization", () => {
     expect(second.config.defaultRepo).toBe("tamat/first");
     expect(await readFile(second.configPath)).toEqual(firstBytes);
     expect((await stat(second.configPath)).mode & 0o777).toBe(0o600);
+  });
+
+  it("atomically updates validated config and preserves private permissions", async () => {
+    const root = join(await temporaryDirectory(), "store");
+    const initialized = await initializeStorage(root);
+    await chmod(initialized.configPath, 0o644);
+
+    const updated = await updateRepoKnowledgeConfig(
+      initialized.configPath,
+      (current) => ({
+        ...current,
+        defaultRepo: "tamat/repo-knowledge-mcp",
+        repos: [...current.repos, "tamat/repo-knowledge-mcp"],
+      }),
+    );
+
+    expect(updated.defaultRepo).toBe("tamat/repo-knowledge-mcp");
+    expect(await loadRepoKnowledgeConfig(initialized.configPath)).toEqual(
+      updated,
+    );
+    expect((await stat(initialized.configPath)).mode & 0o777).toBe(0o600);
+  });
+
+  it("serializes concurrent config updates without losing either change", async () => {
+    const root = join(await temporaryDirectory(), "store");
+    const initialized = await initializeStorage(root);
+
+    await Promise.all(
+      ["tamat/first", "tamat/second"].map((repository) =>
+        updateRepoKnowledgeConfig(initialized.configPath, (current) => ({
+          ...current,
+          repos: [...current.repos, repository],
+        })),
+      ),
+    );
+
+    expect(
+      (await loadRepoKnowledgeConfig(initialized.configPath)).repos,
+    ).toEqual(["tamat/first", "tamat/second"]);
+  });
+
+  it("leaves config bytes unchanged when an update is invalid", async () => {
+    const root = join(await temporaryDirectory(), "store");
+    const initialized = await initializeStorage(root);
+    const before = await readFile(initialized.configPath);
+
+    await expect(
+      updateRepoKnowledgeConfig(initialized.configPath, (current) => ({
+        ...current,
+        repos: ["not-a-repository"],
+      })),
+    ).rejects.toMatchObject({ code: "CONFIG_INVALID" });
+
+    expect(await readFile(initialized.configPath)).toEqual(before);
   });
 
   it("creates and tightens the derived SQLite projection to mode 600", async () => {

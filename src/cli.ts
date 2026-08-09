@@ -24,11 +24,20 @@ import {
   type StatsReadErrorCode,
 } from "./stats-read-service.js";
 import type { SyncRepoSummary } from "./sync-repo-service.js";
+import type {
+  GuidedSetupPrompt,
+  GuidedSetupRequest,
+  GuidedSetupResult,
+  SetupConfirmationRequest,
+} from "./setup-service.js";
 
 export const REPO_KNOWLEDGE_CLI_HELP = `Usage: repo-knowledge <command> [options]
 
 Commands:
   serve                         Start the MCP stdio server
+  setup [repo] [--since <iso> | --all-history]
+                                Configure private storage, repository, privacy,
+                                trust candidates, and the initial sync
   sync [repo] [--since <iso>]   Incrementally sync updated pull requests
   stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]
                                 Print versioned machine-readable repository
@@ -63,6 +72,11 @@ Sync options:
                                 checkpoint it must be strictly older than the
                                 checkpoint boundary
 
+Setup options:
+  --workspace <path>            Resolve and register the workspace Git remote
+  --since <iso-datetime>        Override the default 90-day initial window
+  --all-history                 Sync all accessible pull-request history
+
 Sync exits 0 when every discovered pull request synced, 1 on any failure,
 and 2 on usage errors, so cron can alert on non-zero exits.
 
@@ -86,6 +100,7 @@ export const REPO_KNOWLEDGE_CLI_EXIT = Object.freeze({
 });
 
 export interface RepoKnowledgeCliIo {
+  confirm?(request: SetupConfirmationRequest): Promise<boolean>;
   readonly stdinIsTTY: boolean;
   readonly stdoutIsTTY: boolean;
   writeStderr(value: string): void;
@@ -192,10 +207,18 @@ export interface RunRepoKnowledgeCliOptions {
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
   readonly operationsResolver: CliRepositoryOperationsResolver;
   serve(request: RepoKnowledgeServeRequest): Promise<void> | void;
+  setup(
+    request: GuidedSetupRequest,
+    prompt: GuidedSetupPrompt,
+  ): Promise<GuidedSetupResult>;
 }
 
 export type ParsedCliCommand =
   | { readonly kind: "help" }
+  | {
+      readonly kind: "setup";
+      readonly request: GuidedSetupRequest;
+    }
   | {
       readonly kind: "doctor";
       readonly selection: CliRepositorySelection;
@@ -326,6 +349,8 @@ export function parseRepoKnowledgeCliArguments(
   }
 
   switch (name) {
+    case "setup":
+      return parseSetup(argv.slice(1));
     case "serve":
       return parseServe(argv.slice(1));
     case "sync":
@@ -380,6 +405,26 @@ async function executeCliCommand(
           : { startupWorkspace: command.selection.workspacePath }),
       });
       return;
+    case "setup": {
+      if (
+        !options.io.stdinIsTTY ||
+        !options.io.stdoutIsTTY ||
+        options.io.confirm === undefined
+      ) {
+        throw new RepoKnowledgeCliError(
+          "CLI_TTY_REQUIRED",
+          "setup requires real TTY stdin and stdout",
+          REPO_KNOWLEDGE_CLI_EXIT.failure,
+        );
+      }
+      writeJson(
+        options.io,
+        await options.setup(command.request, {
+          confirm: (request) => options.io.confirm!(request),
+        }),
+      );
+      return;
+    }
     case "sync": {
       const service = await options.mutationServiceResolver.resolve(
         command.selection,
@@ -530,6 +575,40 @@ interface OptionDefinition {
 const REPOSITORY_OPTION_DEFINITION = {
   values: ["repo", "workspace"],
 } as const;
+
+function parseSetup(args: readonly string[]): ParsedCliCommand {
+  const parsed = parseOptions(args, {
+    booleans: ["all-history"],
+    values: ["repo", "workspace", "since"],
+  });
+  assertPositionalCount(parsed, 0, 1, "setup");
+  const positionalRepo = parsed.positionals[0];
+  const optionRepo = parsed.values.get("repo");
+  if (positionalRepo !== undefined && optionRepo !== undefined) {
+    throw usage(
+      "repository must not be supplied both positionally and by --repo",
+    );
+  }
+  const since = parsed.values.get("since");
+  if (since !== undefined && parsed.booleans.has("all-history")) {
+    throw usage("setup accepts only one of --since or --all-history");
+  }
+  const repo = positionalRepo ?? optionRepo;
+  const workspacePath = parsed.values.get("workspace");
+  return {
+    kind: "setup",
+    request: {
+      ...(parsed.booleans.has("all-history") ? { allHistory: true } : {}),
+      ...(repo === undefined ? {} : { repo: parseCliRepository(repo) }),
+      ...(since === undefined
+        ? {}
+        : { since: parseSchema(IsoDateTimeSchema, since, "since") }),
+      ...(workspacePath === undefined
+        ? {}
+        : { workspacePath: parseNonEmpty(workspacePath, "workspace") }),
+    },
+  };
+}
 
 function parseServe(args: readonly string[]): ParsedCliCommand {
   const parsed = parseOptions(args, REPOSITORY_OPTION_DEFINITION);
