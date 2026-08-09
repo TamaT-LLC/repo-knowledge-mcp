@@ -67,6 +67,10 @@ describe("repository readiness MCP E2E", () => {
         ),
         state: "learning",
       });
+      expect(learning.output.readiness.next_action).toContain("llm.mode");
+      expect(learning.output.readiness.next_action).toContain(
+        "hostAssistedDistillation.enabled",
+      );
 
       await writeKnowledge(environment.repositoryRoot, "active");
       const mismatch = await getRules(environment);

@@ -237,6 +237,8 @@ describe("KnowledgeReadService.getRules", () => {
       ),
       state: "learning",
     });
+    expect(pending.readiness.next_action).toContain("llm.mode");
+    expect(pending.readiness.next_action).toContain("hostAssistedDistillation");
     expect(proposed.readiness).toMatchObject({
       next_action: expect.stringContaining(
         `repo-knowledge list ${REPO_NAME} --status proposed`,

@@ -489,12 +489,16 @@ function learningNextAction(
   hasProposedKnowledge: boolean,
 ): string {
   if (hasLearningJob && hasProposedKnowledge) {
-    return `Run \`repo-knowledge distill ${repo}\` for pending provider jobs, inspect \`repo-knowledge list ${repo} --status proposed\`, then approve selected items with \`repo-knowledge approve <id> --repo ${repo}\` from a TTY.`;
+    return `${pendingDistillationNextAction(repo)} Also inspect \`repo-knowledge list ${repo} --status proposed\`, then approve selected items with \`repo-knowledge approve <id> --repo ${repo}\` from a TTY.`;
   }
   if (hasLearningJob) {
-    return `Run \`repo-knowledge distill ${repo}\` when provider distillation is enabled, or complete host-assisted distillation in the MCP client.`;
+    return pendingDistillationNextAction(repo);
   }
   return `Inspect \`repo-knowledge list ${repo} --status proposed\` and approve selected items with \`repo-knowledge approve <id> --repo ${repo}\` from a TTY.`;
+}
+
+function pendingDistillationNextAction(repo: string): string {
+  return `Enable one explicit distillation route in \`$REPO_KNOWLEDGE_HOME/config.json\` (or \`~/.repo-knowledge/config.json\`): configure \`llm.mode\`, \`llm.allowCloudTransmission\`, and \`llm.model\` plus \`ANTHROPIC_API_KEY\`, then run \`repo-knowledge distill ${repo}\`; or enable both \`hostAssistedDistillation.enabled\` and \`hostAssistedDistillation.allowReviewContentTransmission\`, then call \`prepare_distillation\` and \`submit_distillation\` from the MCP client.`;
 }
 
 function readiness(
