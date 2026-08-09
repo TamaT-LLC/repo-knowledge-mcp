@@ -232,3 +232,5 @@ Windows、network filesystem、同期フォルダは引き続き保証対象外�
 - [npm release runbook](../operations/npm-release-runbook.md)
 - [M2 cron pilot plan](../operations/m2-cron-pilot-plan.md)
 - [M2 cron pilot report template](../operations/m2-cron-pilot-report-template.md)
+- [M3 acceptance matrix](../testing/m3-acceptance-matrix.md)
+- [M3 release report template](../operations/m3-release-report-template.md)

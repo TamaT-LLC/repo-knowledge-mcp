@@ -1,0 +1,170 @@
+# M3 release report（テンプレート）
+
+M3 v0.3 を公開するときに本ファイルを複製し、`m3-release-v<version>.md` として実測値を記録する。
+
+source checkout の結果、Pull Request CI、Release CI、npm registry の結果を混同しない。
+すべての digest、URL、実行 ID は再確認できる値を残す。
+
+## 1. Release identity
+
+| 項目 | 値 |
+| --- | --- |
+| package | `repo-knowledge-mcp` |
+| version | `0.3.___` |
+| Git tag | `v0.3.___` |
+| commit SHA | `___` |
+| main 到達確認 | `git merge-base --is-ancestor <commit> origin/main`: `___` |
+| GitHub release URL | `___` |
+| npm registry URL | `https://www.npmjs.com/package/repo-knowledge-mcp/v/0.3.___` |
+| npm integrity | `sha512-___` |
+| npm provenance | `___` |
+| release workflow run | `___` |
+
+package version、tag、GitHub release、npm registry version、report の値が一致していることを確認する。
+
+## 2. 公開前提
+
+| 項目 | 結果 | 根拠 |
+| --- | --- | --- |
+| npm package owner が確定している | pass / fail | `___` |
+| project license と `package.json` の license が確定している | pass / fail | `___` |
+| GitHub repository が public である | pass / fail | `___` |
+| npm trusted publisher が release workflow に束縛されている | pass / fail | `___` |
+| 長期 npm token を repository secret に置いていない | pass / fail | `___` |
+| 対象 version が registry で未使用である | pass / fail | `___` |
+| working tree が clean である | pass / fail | `___` |
+
+一項目でも fail または未確認なら GitHub release を publish しない。
+詳細手順は [npm release runbook](./npm-release-runbook.md) に従う。
+
+## 3. M2 pilot release gate
+
+| 項目 | 値 |
+| --- | --- |
+| pilot ID | `___` |
+| 観測期間（UTC） | `___` 〜 `___` |
+| report path / URL | `___` |
+| report SHA-256 | `sha256:___` |
+| maintainer reviewers | `___` |
+| M2 decision | `go / no-go` |
+| Issue #70 | `closed / open` |
+
+`go`、review 済み report、Issue #70 close がそろわなければ M3 release は no-go とする。
+
+## 4. Local verification
+
+実行した Node.js と npm の version を固定して記録する。
+
+| 項目 | 値 |
+| --- | --- |
+| OS | `___` |
+| `node --version` | `___` |
+| `npm --version` | `___` |
+| 実行 commit | `___` |
+
+| command | exit | report / digest | 判定 |
+| --- | ---: | --- | --- |
+| `npm ci` |  | `___` | pass / fail |
+| `npm run check` |  | `___` | pass / fail |
+| `npm run golden` |  | `___` | pass / fail |
+| `npm run quality:gate` |  | `___` | pass / fail |
+| `npm run package:smoke` |  | `___` | pass / fail |
+
+## 5. Pull Request CI
+
+| Node.js | check | golden | quality gate | local-tarball package smoke | run URL |
+| --- | --- | --- | --- | --- | --- |
+| 22 | pass / fail | pass / fail | pass / fail | pass / fail | `___` |
+| 24 | pass / fail | pass / fail | pass / fail | pass / fail | `___` |
+
+Pull Request CI の package smoke は registry package の証明ではない。
+
+## 6. M3 acceptance
+
+判定根拠は [M3 acceptance matrix](../testing/m3-acceptance-matrix.md) の対応先を使う。
+
+| ID | 結果 | 実行または根拠 |
+| --- | --- | --- |
+| M3-AC-001 | pass / fail | `___` |
+| M3-AC-002 | pass / fail | `___` |
+| M3-AC-003 | pass / fail | `___` |
+| M3-AC-004 | pass / fail | `___` |
+| M3-AC-005 | pass / fail | `___` |
+| M3-AC-006 | pass / fail | `___` |
+| M3-AC-007 | pass / fail | `___` |
+| M3-AC-008 | pass / fail | `___` |
+| M3-AC-009 | pass / fail | `___` |
+| M3-AC-010 | pass / fail | `___` |
+
+### Readiness 記録
+
+| 状態 | 観測した結果 | 次の操作が具体的か |
+| --- | --- | --- |
+| `setup_required` | `___` | yes / no |
+| `learning` | `___` | yes / no |
+| `ready` + match | `___` | yes / no |
+| `ready` + normal mismatch | `___` | yes / no |
+| `empty` | `___` | yes / no |
+
+### Privacy と trust 記録
+
+| 経路 | 結果 | 根拠 |
+| --- | --- | --- |
+| setup で provider と host-assisted を拒否し、外部送信が 0 件 | pass / fail | `___` |
+| host-assisted を明示 opt-in し、diff hunk を含めず一件だけ送信 | pass / fail | `___` |
+| eligible trusted-human non-`must` candidate が active | pass / fail | `___` |
+| AI、未知 bot、外部 contributor、mixed trust、`must` が inbox に残る | pass / fail | `___` |
+| unresolved inbox が既存 active rule を妨げない | pass / fail | `___` |
+| batch review の approve、reject、skip、edit、再開 | pass / fail | `___` |
+| workspace に `.repo-knowledge/` が存在しない | pass / fail | `___` |
+
+## 7. Package artifact
+
+| 項目 | 値 |
+| --- | --- |
+| tarball filename | `repo-knowledge-mcp-0.3.___.tgz` |
+| tarball SHA-256 | `sha256:___` |
+| package artifact report | `___` |
+| allowlist 判定 | pass / fail |
+| credential / local-data scan | pass / fail |
+| CLI bin | `repo-knowledge` / `repo-knowledge-mcp` |
+| MCP tool count | `11` |
+
+## 8. Release CI と registry smoke
+
+| job | Node.js | 結果 | run URL |
+| --- | --- | --- | --- |
+| verify release | 22 | pass / fail | `___` |
+| verify release | 24 | pass / fail | `___` |
+| publish exact tarball | 24 | pass / fail | `___` |
+| registry smoke | 22 | pass / fail | `___` |
+| registry smoke | 24 | pass / fail | `___` |
+
+registry smoke では `npx -y repo-knowledge-mcp@<exact-version>` 相当の exact package から CLI と stdio MCP を起動したことを記録する。
+
+## 9. Incident と差分
+
+| ID | 事象 | 影響 | 対応 | follow-up Issue |
+| --- | --- | --- | --- | --- |
+|  |  |  |  |  |
+
+公開前 gate の retry、公開後 smoke の失敗、手動補正をすべて記録する。
+
+## 10. Go / no-go
+
+| 完了条件 | 判定 | 根拠 |
+| --- | --- | --- |
+| M2 pilot gate | go / no-go | §3 |
+| Local verification | go / no-go | §4 |
+| Pull Request CI Node.js 22 / 24 | go / no-go | §5 |
+| M3-AC-001〜010 | go / no-go | §6 |
+| package artifact | go / no-go | §7 |
+| npm publish と registry smoke Node.js 22 / 24 | go / no-go | §8 |
+| version の全媒体一致 | go / no-go | §1 |
+
+**総合判定: M3 release 完了 / 未完了**
+
+- 判断者: `___`
+- reviewer: `___`
+- 判断日時（UTC）: `___`
+- Issue #93: `closed / open`
