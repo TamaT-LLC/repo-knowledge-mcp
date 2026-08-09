@@ -103,17 +103,21 @@ setup は、同一人物の alias と bot identity を区別し、未知 bot と
 
 `trust.autoActivateTrustedHuman` の出荷既定値は `false` のまま維持する。
 
-現行の M2 実装は、蒸留結果から `severity` が得られる前に initial knowledge status を決定する。
+thread 正規化時の initial knowledge status は `proposed` に固定する。
 
-そのため、[#89](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/89)で severity を含む最終候補に対して安全条件を再判定し、M3-AC-005 と M3-AC-006 が通るまでは、利用者は `autoActivateTrustedHuman` を有効にしてはならない。
+独立した auto activation policy は、最終 candidate の severity と最新 thread 全体がそろう finalize 時にだけ初期 status を決定する。
 
-この実装条件を満たした後も、利用者は、M2 pilot が go 判定され、live measurement に基づく quality gate が通過している場合に限り、自分の config で自動 active 化を有効にできる。
+利用者は、M2 pilot が go 判定され、live measurement に基づく quality gate が通過している場合に限り、自分の config で自動 active 化を有効にできる。
+
+この前提は、pilot report、live baseline、gate report の digest と gate が参照した trust policy digest を含む operator-local eligibility として記録する。
 
 自動 active 化の対象は、originator が trusted human であり、thread 内の全 comment が trusted human に分類され、severity が `must` ではない候補に限定する。
 
 AI reviewer、未知 bot、外部コントリビューター、複数の trust class が混在する thread、severity が `must` の候補は review inbox へ送る。
 
 quality gate の失敗または trust policy generation の変更を検出した場合、新しい候補の自動 active 化を停止する。
+
+停止は既存 active rule の status を変更しない。
 
 ### M3-FR-006 Review inbox
 

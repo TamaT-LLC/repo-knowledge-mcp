@@ -89,10 +89,53 @@ describe("repo knowledge config", () => {
     });
   });
 
+  it("validates an operator-local trusted-human activation eligibility record", () => {
+    const base = parseRepoKnowledgeConfig({
+      trust: {
+        autoActivateTrustedHuman: true,
+        trustedActorIds: ["actor-alice"],
+      },
+    });
+    const digest = computeTrustPolicyDigest(base.trust);
+
+    expect(
+      parseRepoKnowledgeConfig({
+        trust: base.trust,
+        trustedHumanAutoActivationEligibility: {
+          m2Pilot: {
+            completedAt: "2026-08-23T00:20:00.000Z",
+            decision: "go",
+            reportDigest: digest,
+          },
+          qualityGate: {
+            baselineArtifactDigest: digest,
+            reportDigest: digest,
+            source: "live_measurement",
+            status: "pass",
+            thresholdsVersion: "m2-live-thresholds-v1",
+            trustPolicyDigest: digest,
+          },
+          schemaVersion: 1,
+        },
+      }).trustedHumanAutoActivationEligibility,
+    ).toMatchObject({
+      m2Pilot: { decision: "go" },
+      qualityGate: { source: "live_measurement", status: "pass" },
+      schemaVersion: 1,
+    });
+  });
+
   it.each([
     { llm: { mode: "openai" } },
     { repoPolicies: { "tamat/private": { unknown: true } } },
     { hostAssistedDistillation: { maxCharactersPerJob: 0 } },
+    {
+      trustedHumanAutoActivationEligibility: {
+        m2Pilot: { decision: "go" },
+        qualityGate: { source: "live_measurement", status: "pass" },
+        schemaVersion: 1,
+      },
+    },
     { repos: ["missing-owner"] },
     { unexpected: true },
   ])("rejects invalid config %#", (value) => {

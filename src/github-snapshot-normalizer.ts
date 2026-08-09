@@ -651,15 +651,11 @@ function threadPolicy(
     };
   }
 
-  const originator = comments[0]!.identity;
-  const canAutoActivate =
-    trust.autoActivateTrustedHuman &&
-    originator.actor_kind === "user" &&
-    originator.provider === "human" &&
-    comments.every((comment) => comment.identity.trust === "trusted");
   return {
     disposition: "distill",
-    initialKnowledgeStatus: canAutoActivate ? "active" : "proposed",
+    // Severity and activation eligibility do not exist at normalization time.
+    // CanonicalFinalizeService performs the complete fail-closed decision.
+    initialKnowledgeStatus: "proposed",
     rawOnlyReason: null,
   };
 }

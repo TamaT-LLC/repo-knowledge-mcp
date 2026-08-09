@@ -438,6 +438,7 @@ export {
   ThreadObservationSchema,
   TransactionIdSchema,
   TrustConfigSchema,
+  TrustedHumanAutoActivationEligibilitySchema,
   TrustLevelSchema,
   type CommentObservation,
   type DistillJob,
@@ -475,6 +476,7 @@ export {
   type ThreadRemovedObservation,
   type ThreadObservation,
   type TrustConfig,
+  type TrustedHumanAutoActivationEligibility,
 } from "./domain-schemas.js";
 export {
   DOMAIN_ID_PREFIXES,
@@ -1115,6 +1117,14 @@ export {
   type SubmitFinalizeRequest,
   type SubmitFinalizeRetryResponse,
 } from "./submit-distillation-service.js";
+export {
+  TrustedHumanAutoActivationPolicy,
+  type TrustedHumanAutoActivationBlockReason,
+  type TrustedHumanAutoActivationDecision,
+  type TrustedHumanAutoActivationPolicyLike,
+  type TrustedHumanAutoActivationPolicyOptions,
+  type TrustedHumanAutoActivationRequest,
+} from "./trusted-human-auto-activation-policy.js";
 export {
   RepositoryRegistry,
   RepositoryRegistryError,

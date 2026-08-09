@@ -57,6 +57,7 @@ describe("SubmitDistillationService finalize", () => {
 
     expect(response).toMatchObject({
       accepted: true,
+      created_active: [],
       created_proposed: [expect.stringMatching(/^kn_/u)],
       merged_evidence: [expect.stringMatching(/^ev_/u)],
       revision_proposals: [],
@@ -128,6 +129,28 @@ describe("SubmitDistillationService finalize", () => {
         canonicalBytes.some((bytes) => bytes.includes(Buffer.from(plaintext))),
       ).toBe(false);
     }
+  });
+
+  it("auto-activates an eligible trusted-human non-must candidate on the host-assisted path", async () => {
+    const fixture = await createPreparedFixture({
+      candidateSeverity: "should",
+      config: autoActivationConfig(),
+    });
+
+    const response = await fixture.service.submitFinalize(
+      finalizeRequest(fixture),
+    );
+
+    expect(response).toMatchObject({
+      accepted: true,
+      created_active: [expect.stringMatching(/^kn_/u)],
+      created_proposed: [],
+      revision_proposals: [],
+    });
+    const committed = await fixture.store.readSnapshot();
+    expect(committed.domain.knowledge).toEqual([
+      expect.objectContaining({ severity: "should", status: "active" }),
+    ]);
   });
 
   it("distinguishes changed idempotency keys from a phase already committed", async () => {
@@ -417,19 +440,25 @@ interface PreparedFixture {
 }
 
 async function createPreparedFixture(
-  options: { readonly finalizeTokens?: readonly string[] } = {},
+  options: {
+    readonly candidateSeverity?: "must" | "should";
+    readonly config?: RepoKnowledgeConfig;
+    readonly finalizeTokens?: readonly string[];
+  } = {},
 ): Promise<PreparedFixture> {
   const root = await mkdtemp(join(tmpdir(), "rkm-submit-finalize-"));
   temporaryRepositories.push(root);
   await mkdir(join(root, "knowledge"), { recursive: true });
   const clock = { value: START + 2_000 };
   const leaseExpiresAt = START + 60_000;
-  const config = parseRepoKnowledgeConfig({
-    hostAssistedDistillation: {
-      allowReviewContentTransmission: true,
-      enabled: true,
-    },
-  });
+  const config =
+    options.config ??
+    parseRepoKnowledgeConfig({
+      hostAssistedDistillation: {
+        allowReviewContentTransmission: true,
+        enabled: true,
+      },
+    });
   const snapshotId = createDomainId("snapshot", START);
   const transactionId = createDomainId("transaction", START);
   const jobId = createDomainId("job", START);
@@ -566,7 +595,7 @@ async function createPreparedFixture(
   );
   const service = submitService(store, contexts, clock, config);
   const extractResponse = await service.submitExtract({
-    candidates: [candidate(commentId)],
+    candidates: [candidate(commentId, options.candidateSeverity)],
     job_id: jobId,
     lease_generation: 1,
     lease_token: LEASE_TOKEN,
@@ -651,7 +680,10 @@ function different(candidateId: string) {
   return { candidate_id: candidateId, relation: "different" as const };
 }
 
-function candidate(commentId: string): DistilledCandidate {
+function candidate(
+  commentId: string,
+  severity: "must" | "should" = "must",
+): DistilledCandidate {
   return {
     category: "architecture",
     confidence: 0.95,
@@ -659,8 +691,42 @@ function candidate(commentId: string): DistilledCandidate {
     evidence_comment_ids: [commentId],
     rule: "Commit finalizer artifacts and receipts atomically.",
     scope: ["src/**"],
-    severity: "must",
+    severity,
   };
+}
+
+function autoActivationConfig(): RepoKnowledgeConfig {
+  const base = parseRepoKnowledgeConfig({
+    hostAssistedDistillation: {
+      allowReviewContentTransmission: true,
+      enabled: true,
+    },
+    trust: {
+      autoActivateTrustedHuman: true,
+      trustedActorIds: ["actor-alice"],
+    },
+  });
+  const trustPolicyDigest = computeTrustPolicyDigest(base.trust);
+  const artifactDigest = `sha256:${"a".repeat(64)}`;
+  return parseRepoKnowledgeConfig({
+    ...base,
+    trustedHumanAutoActivationEligibility: {
+      m2Pilot: {
+        completedAt: "2026-08-23T00:20:00.000Z",
+        decision: "go",
+        reportDigest: artifactDigest,
+      },
+      qualityGate: {
+        baselineArtifactDigest: artifactDigest,
+        reportDigest: artifactDigest,
+        source: "live_measurement",
+        status: "pass",
+        thresholdsVersion: "m2-live-thresholds-v1",
+        trustPolicyDigest,
+      },
+      schemaVersion: 1,
+    },
+  });
 }
 
 async function ingestEditedSource(

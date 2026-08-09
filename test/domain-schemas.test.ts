@@ -6,6 +6,7 @@ import {
   DistillationOutputSchema,
   EvidenceIdSchema,
   ExtractSubmissionReceiptSchema,
+  FinalizeStableResponseSchema,
   JobIdSchema,
   KnowledgeEvidenceSchema,
   KnowledgeIdSchema,
@@ -133,6 +134,17 @@ describe("repository readiness schema", () => {
 });
 
 describe("distillation schemas", () => {
+  it("adds an empty active set when replaying a pre-M3 finalize response", () => {
+    expect(
+      FinalizeStableResponseSchema.parse({
+        accepted: true,
+        created_proposed: [],
+        merged_evidence: [],
+        revision_proposals: [],
+      }),
+    ).toMatchObject({ created_active: [], created_proposed: [] });
+  });
+
   it("derives candidate types and normalizes set-like fields", () => {
     const output = DistillationOutputSchema.parse({
       candidates: [candidateFixture()],

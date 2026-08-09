@@ -91,6 +91,7 @@ import {
   type RuntimeFinalizeHandle,
 } from "./runtime-finalize-context-store.js";
 import type { CanonicalProjectionSnapshot } from "./sqlite-projection.js";
+import { TrustedHumanAutoActivationPolicy } from "./trusted-human-auto-activation-policy.js";
 
 export const SUBMISSION_EVENT_PATH = "events/submissions.jsonl";
 
@@ -312,6 +313,13 @@ export class SubmitDistillationService {
       options.finalizeContexts ??
       new RuntimeFinalizeContextStore({ now: this.now });
     this.canonicalFinalizer = new CanonicalFinalizeService({
+      ...(this.distillationContext === undefined
+        ? {}
+        : {
+            autoActivationPolicy: new TrustedHumanAutoActivationPolicy({
+              config: this.distillationContext.config,
+            }),
+          }),
       ...(this.candidateLimit === undefined
         ? {}
         : { candidateLimit: this.candidateLimit }),

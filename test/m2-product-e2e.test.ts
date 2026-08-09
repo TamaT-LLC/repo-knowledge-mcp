@@ -12,6 +12,7 @@ import {
   RecordOutcomeMutationService,
   SyncCheckpointStore,
   compareSyncOrder,
+  computeTrustPolicyDigest,
   isAfterSyncBoundary,
   nextSyncCursor,
   parseDistillationPrompt,
@@ -25,6 +26,7 @@ import {
   type GitHubReviewActor,
   type LlmProviderAdapter,
   type RepositoryResolution,
+  type RepoKnowledgeConfig,
   type StructuredCompletionRequest,
   type StructuredCompletionResponse,
   type SyncPullRequestEnumerator,
@@ -221,6 +223,45 @@ describe("M2 product acceptance E2E", () => {
     expect(stats.sync.last_checkpoint).toMatchObject({ last_pr_number: 1 });
   });
 
+  it("serves an eligible trusted-human non-must rule without a TTY review", async () => {
+    const root = await temporaryDirectory();
+    const adapter = new GoldenProviderAdapter("should");
+    const store = new CanonicalTransactionStore(root);
+    const operations = await createFactory({
+      adapter,
+      config: autoActivationConfig(),
+      prNumbers: [1],
+      provider: true,
+    }).create({ repository: resolution(root), repositoryStore: store });
+
+    await expect(operations.syncRepo({})).resolves.toMatchObject({
+      discovered: 1,
+      failed: 0,
+      ingested: 1,
+      jobs_created: 1,
+    });
+    await expect(
+      operations.listKnowledge({ status: "active" }),
+    ).resolves.toMatchObject({
+      knowledge: [
+        expect.objectContaining({
+          rule: "Handle the Result of invoke and surface failures to the UI",
+          severity: "should",
+          status: "active",
+        }),
+      ],
+    });
+    await expect(
+      operations.listKnowledge({ status: "proposed" }),
+    ).resolves.toMatchObject({ knowledge: [] });
+    await expect(
+      readService(store).getRules({ filePaths: ["src/ipc/handler.ts"] }),
+    ).resolves.toMatchObject({
+      matched_count: 1,
+      rules: [expect.objectContaining({ severity: "should" })],
+    });
+  });
+
   it("converges provider-disabled sync plus later distill to the enabled sync state", async () => {
     const disabledRoot = await temporaryDirectory();
     const enabledRoot = await temporaryDirectory();
@@ -336,12 +377,13 @@ function comparableStats(stats: {
 
 function createFactory(options: {
   readonly adapter: LlmProviderAdapter;
+  readonly config?: RepoKnowledgeConfig;
   readonly prNumbers: readonly number[];
   readonly provider?: boolean;
 }): DefaultRepositoryApplicationFactory {
   return new DefaultRepositoryApplicationFactory({
     adapter: options.adapter,
-    config: config(options.provider === true),
+    config: options.config ?? config(options.provider === true),
     enumerator: new FixtureEnumerator(options.prNumbers.map(pullRequestRef)),
     prompt: PROMPT,
     repositoryContext: { language: "TypeScript" },
@@ -409,13 +451,18 @@ class GoldenProviderAdapter implements LlmProviderAdapter {
   readonly provider = "anthropic";
   readonly requests: StructuredCompletionRequest[] = [];
 
+  constructor(private readonly severity: "must" | "should" = "must") {}
+
   async completeStructured(
     request: StructuredCompletionRequest,
   ): Promise<StructuredCompletionResponse> {
     this.requests.push(request);
     const outputText = request.system.includes("Classify each candidate")
       ? mergeResponse(request.input)
-      : JSON.stringify({ candidates: [candidate()], skip_reason: null });
+      : JSON.stringify({
+          candidates: [candidate(this.severity)],
+          skip_reason: null,
+        });
     return {
       model: request.model ?? "claude-golden",
       outputText,
@@ -442,7 +489,7 @@ function mergeResponse(input: string): string {
 }
 
 /** Grounded M2 candidate: every example token appears in the cited comment. */
-function candidate() {
+function candidate(severity: "must" | "should" = "must") {
   return {
     category: "error-handling" as const,
     code_example: {
@@ -458,7 +505,7 @@ function candidate() {
     evidence_comment_ids: ["comment-1"],
     rule: "Handle the Result of invoke and surface failures to the UI",
     scope: ["src/ipc/**"],
-    severity: "must" as const,
+    severity,
   };
 }
 
@@ -474,6 +521,41 @@ function config(provider: boolean) {
         }
       : {}),
     trust: { trustedActorIds: ["U_trusted"] },
+  });
+}
+
+function autoActivationConfig(): RepoKnowledgeConfig {
+  const base = parseRepoKnowledgeConfig({
+    llm: {
+      allowCloudTransmission: true,
+      mode: "anthropic",
+      model: "claude-golden",
+    },
+    trust: {
+      autoActivateTrustedHuman: true,
+      trustedActorIds: ["U_trusted"],
+    },
+  });
+  const trustPolicyDigest = computeTrustPolicyDigest(base.trust);
+  const artifactDigest = `sha256:${"a".repeat(64)}`;
+  return parseRepoKnowledgeConfig({
+    ...base,
+    trustedHumanAutoActivationEligibility: {
+      m2Pilot: {
+        completedAt: "2026-08-23T00:20:00.000Z",
+        decision: "go",
+        reportDigest: artifactDigest,
+      },
+      qualityGate: {
+        baselineArtifactDigest: artifactDigest,
+        reportDigest: artifactDigest,
+        source: "live_measurement",
+        status: "pass",
+        thresholdsVersion: "m2-live-thresholds-v1",
+        trustPolicyDigest,
+      },
+      schemaVersion: 1,
+    },
   });
 }
 

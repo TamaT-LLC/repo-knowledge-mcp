@@ -494,6 +494,7 @@ const SubmitMergeResultMcpSchema = z
 const SubmitFinalizedResultMcpSchema = z
   .object({
     accepted: z.boolean(),
+    created_active: z.array(KnowledgeIdSchema),
     created_proposed: z.array(KnowledgeIdSchema),
     merged_evidence: z.array(EvidenceIdSchema),
     rejected_reason: NonEmptyStringSchema.optional(),
@@ -1440,16 +1441,21 @@ function summarizeSubmit(
       },
     };
   }
+  const reviewCount =
+    result.created_proposed.length + result.revision_proposals.length;
   return {
-    body: `### Distillation finalized\n\nCreated **${result.created_proposed.length}** proposed rule(s), merged **${result.merged_evidence.length}** evidence item(s), and created **${result.revision_proposals.length}** revision proposal(s).`,
+    body: `### Distillation finalized\n\nCreated **${result.created_active.length}** active rule(s) and **${result.created_proposed.length}** proposed rule(s), merged **${result.merged_evidence.length}** evidence item(s), and created **${result.revision_proposals.length}** revision proposal(s).`,
     summary: {
       counts: {
+        created_active: result.created_active.length,
         created_proposed: result.created_proposed.length,
         merged_evidence: result.merged_evidence.length,
         revision_proposals: result.revision_proposals.length,
       },
       next_action:
-        "Review proposed knowledge and revision proposals through the admin CLI.",
+        reviewCount > 0
+          ? "Review proposed knowledge and revision proposals through the admin CLI."
+          : null,
       retryable: true,
     },
   };
