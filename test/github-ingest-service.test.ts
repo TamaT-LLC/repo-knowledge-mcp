@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CanonicalTransactionStore,
+  DistillJobCoordinator,
   GitHubIngestService,
   RAW_COMMENT_PATH,
   RAW_PULL_REQUEST_PATH,
@@ -184,6 +185,88 @@ describe("GitHubIngestService", () => {
     });
     expect(snapshot.domain.pullRequestSnapshots).toHaveLength(2);
     expect(snapshot.domain.distillJobs).toHaveLength(2);
+    expect(snapshot.domain.distillJobs).toEqual([
+      expect.objectContaining({
+        skip_reason: "superseded_context",
+        state: "skipped",
+      }),
+      expect.objectContaining({ state: "pending" }),
+    ]);
+  });
+
+  it("retires a legacy stale job even when the current-key job already exists", async () => {
+    const repository = await createRepository();
+    const fetcher = new QueueSnapshotFetcher([
+      completeSnapshot({ snapshotId: SNAPSHOT_IDS[0] }),
+      completeSnapshot({
+        observedAt: TIMES[1],
+        snapshotId: SNAPSHOT_IDS[1],
+      }),
+    ]);
+    const service = ingestService(repository, fetcher);
+    await service.ingest({ pr_number: 7, repo: REPOSITORY });
+    const store = new CanonicalTransactionStore(repository);
+    await new DistillJobCoordinator(store).createJob({
+      distillation_key: `sha256:${"f".repeat(64)}`,
+      repo_id: REPO_ID,
+      thread_id: "thread-1",
+    });
+
+    const result = await service.ingest({ pr_number: 7, repo: REPOSITORY });
+    const snapshot = await store.readSnapshot();
+
+    expect(result).toMatchObject({ jobs_created: 0, pending: 0 });
+    expect(snapshot.domain.distillJobs).toHaveLength(2);
+    expect(
+      snapshot.domain.distillJobs.find(
+        (job) => job.distillation_key === `sha256:${"f".repeat(64)}`,
+      ),
+    ).toMatchObject({
+      skip_reason: "superseded_context",
+      state: "skipped",
+    });
+    expect(
+      snapshot.domain.distillJobs.filter((job) => job.state === "pending"),
+    ).toHaveLength(1);
+  });
+
+  it("supersedes an active old-context lease and fences its delayed worker", async () => {
+    const repository = await createRepository();
+    await ingestService(
+      repository,
+      new QueueSnapshotFetcher([
+        completeSnapshot({ snapshotId: SNAPSHOT_IDS[0] }),
+      ]),
+    ).ingest({ pr_number: 7, repo: REPOSITORY });
+    const store = new CanonicalTransactionStore(repository);
+    const coordinator = new DistillJobCoordinator(store);
+    const lease = await coordinator.acquireLease({ repo_id: REPO_ID });
+    expect(lease).not.toBeNull();
+
+    await ingestService(
+      repository,
+      new QueueSnapshotFetcher([
+        completeSnapshot({
+          observedAt: TIMES[1],
+          snapshotId: SNAPSHOT_IDS[1],
+        }),
+      ]),
+      { prompt: "distill-v2\n" },
+    ).ingest({ pr_number: 7, repo: REPOSITORY });
+
+    await expect(coordinator.succeed(lease!)).rejects.toMatchObject({
+      code: "STALE_LEASE",
+    });
+    const snapshot = await store.readSnapshot();
+    expect(
+      snapshot.domain.distillJobs.find((job) => job.job_id === lease!.job_id),
+    ).toMatchObject({
+      skip_reason: "superseded_context",
+      state: "skipped",
+    });
+    expect(
+      snapshot.domain.distillJobs.filter((job) => job.state === "pending"),
+    ).toHaveLength(1);
   });
 
   it("rejects an older complete snapshot instead of regressing projection state", async () => {
@@ -289,6 +372,15 @@ describe("GitHubIngestService", () => {
       pending: 0,
     });
     expect(snapshot.domain.distillJobs).toHaveLength(3);
+    expect(
+      snapshot.domain.distillJobs.filter(
+        (job) =>
+          job.state === "skipped" && job.skip_reason === "superseded_context",
+      ),
+    ).toHaveLength(2);
+    expect(
+      snapshot.domain.distillJobs.filter((job) => job.state === "pending"),
+    ).toHaveLength(1);
     expect(snapshot.domain.threads[0]).toMatchObject({
       is_resolved: true,
       thread_id: "thread-1",
@@ -353,6 +445,14 @@ describe("GitHubIngestService", () => {
         thread_id: "thread-2",
       }),
     ]);
+    expect(
+      afterComplete.domain.distillJobs.find(
+        (job) => job.thread_id === "thread-2",
+      ),
+    ).toMatchObject({
+      skip_reason: "source_removed",
+      state: "skipped",
+    });
     expect(
       afterComplete.records.filter(
         (entry) => entry.record.record_type === THREAD_REMOVED_RECORD_TYPE,

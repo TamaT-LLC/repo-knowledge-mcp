@@ -17,6 +17,7 @@ import {
 } from "./domain-schemas.js";
 import {
   DISTILLATION_JOB_CREATED,
+  DISTILLATION_JOB_OBSOLETED,
   createDistillationJobEventRecord,
   jobUniqueKey,
   type DistillationJobEvent,
@@ -108,6 +109,7 @@ export class GitHubIngestError extends Error {
 interface IngestPlan {
   readonly changedThreads: number;
   readonly jobEvents: readonly CanonicalJsonlRecord[];
+  readonly jobsCreated: number;
   readonly newThreads: number;
   readonly previousSnapshot: PullRequestSnapshot | null;
   readonly removedThreads: readonly string[];
@@ -190,9 +192,9 @@ export class GitHubIngestService {
       const summary: IngestPullRequestSummary = {
         changed_threads: plan.changedThreads,
         distilled: 0,
-        jobs_created: plan.jobEvents.length,
+        jobs_created: plan.jobsCreated,
         new_threads: plan.newThreads,
-        pending: plan.jobEvents.length,
+        pending: plan.jobsCreated,
         unchanged: plan.unchanged,
       };
       if (!plan.rawChanged && plan.jobEvents.length === 0) {
@@ -227,7 +229,10 @@ export class GitHubIngestService {
       return {
         transaction: {
           appendRecords,
-          createdAt: normalized.snapshot.observed_at,
+          createdAt: latestRecordedAt(
+            normalized.snapshot.observed_at,
+            plan.jobEvents,
+          ),
           fileWrites: [],
           transactionId,
         },
@@ -296,14 +301,40 @@ export class GitHubIngestService {
       snapshot.domain.distillJobs.map((job) => jobUniqueKey(job)),
     );
     const jobEvents: CanonicalJsonlRecord[] = [];
+    let jobsCreated = 0;
     for (const thread of normalized.threads) {
-      if (thread.disposition !== "distill") continue;
       const uniqueKey = jobUniqueKey({
         distillation_key: thread.distillationKey,
         repo_id: normalized.snapshot.repo_id,
         thread_id: thread.threadId,
       });
-      if (existingJobKeys.has(uniqueKey)) continue;
+      const supersededJobs = snapshot.domain.distillJobs
+        .filter(
+          (job) =>
+            job.repo_id === normalized.snapshot.repo_id &&
+            job.thread_id === thread.threadId &&
+            job.distillation_key !== thread.distillationKey &&
+            isUnfinishedJob(job.state),
+        )
+        .sort((left, right) => compareCodeUnits(left.job_id, right.job_id));
+      for (const job of supersededJobs) {
+        jobEvents.push(
+          obsoletedJobEventRecord({
+            eventId: this.nextEventId(),
+            jobId: job.job_id,
+            reason: "superseded_context",
+            recordedAt: latestIso(
+              normalized.snapshot.observed_at,
+              job.updated_at,
+            ),
+            supersededByDistillationKey: thread.distillationKey,
+            transactionId,
+          }),
+        );
+      }
+      if (thread.disposition !== "distill" || existingJobKeys.has(uniqueKey)) {
+        continue;
+      }
       const event: DistillationJobEvent = {
         payload: {
           distillation_key: thread.distillationKey,
@@ -323,6 +354,30 @@ export class GitHubIngestService {
         }),
       );
       existingJobKeys.add(uniqueKey);
+      jobsCreated += 1;
+    }
+    const removedThreadIds = new Set(removedThreads);
+    const removedSourceJobs = snapshot.domain.distillJobs
+      .filter(
+        (job) =>
+          job.repo_id === normalized.snapshot.repo_id &&
+          removedThreadIds.has(job.thread_id) &&
+          isUnfinishedJob(job.state),
+      )
+      .sort((left, right) => compareCodeUnits(left.job_id, right.job_id));
+    for (const job of removedSourceJobs) {
+      jobEvents.push(
+        obsoletedJobEventRecord({
+          eventId: this.nextEventId(),
+          jobId: job.job_id,
+          reason: "source_removed",
+          recordedAt: latestIso(
+            normalized.snapshot.observed_at,
+            job.updated_at,
+          ),
+          transactionId,
+        }),
+      );
     }
     if (
       previousSnapshot !== null &&
@@ -339,6 +394,7 @@ export class GitHubIngestService {
     return {
       changedThreads,
       jobEvents,
+      jobsCreated,
       newThreads,
       previousSnapshot,
       removedThreads,
@@ -346,6 +402,69 @@ export class GitHubIngestService {
       unchanged,
     };
   }
+}
+
+function isUnfinishedJob(state: string): boolean {
+  return (
+    state === "pending" ||
+    state === "processing" ||
+    state === "awaiting_finalize"
+  );
+}
+
+function latestIso(first: string, second: string): string {
+  return Date.parse(first) >= Date.parse(second) ? first : second;
+}
+
+function latestRecordedAt(
+  fallback: string,
+  records: readonly CanonicalJsonlRecord[],
+): string {
+  return records.reduce(
+    (latest, record) => latestIso(latest, record.recorded_at),
+    fallback,
+  );
+}
+
+function obsoletedJobEventRecord(
+  input:
+    | {
+        readonly eventId: string;
+        readonly jobId: string;
+        readonly reason: "source_removed";
+        readonly recordedAt: string;
+        readonly transactionId: string;
+      }
+    | {
+        readonly eventId: string;
+        readonly jobId: string;
+        readonly reason: "superseded_context";
+        readonly recordedAt: string;
+        readonly supersededByDistillationKey: string;
+        readonly transactionId: string;
+      },
+): CanonicalJsonlRecord {
+  const event: DistillationJobEvent =
+    input.reason === "source_removed"
+      ? {
+          payload: { job_id: input.jobId, reason: input.reason },
+          type: DISTILLATION_JOB_OBSOLETED,
+        }
+      : {
+          payload: {
+            job_id: input.jobId,
+            reason: input.reason,
+            superseded_by_distillation_key: input.supersededByDistillationKey,
+          },
+          type: DISTILLATION_JOB_OBSOLETED,
+        };
+  return createDistillationJobEventRecord({
+    eventId: input.eventId,
+    payload: event.payload,
+    recordedAt: input.recordedAt,
+    transactionId: input.transactionId,
+    type: event.type,
+  });
 }
 
 function ingestAppendRecords(

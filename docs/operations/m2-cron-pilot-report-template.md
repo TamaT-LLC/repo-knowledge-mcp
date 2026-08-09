@@ -13,7 +13,7 @@
 | 対象 repository | `TamaT-LLC/repo-knowledge-mcp`                    |
 | 期間（UTC）     | `YYYY-MM-DD` 〜 `YYYY-MM-DD`（14 日間）           |
 | cron 頻度       | 15 分間隔                                         |
-| provider 経路   | cron は送信なし / 蒸留は対話実行（実施回数: ___） |
+| 蒸留経路        | cron は送信なし / Claude Max host-assisted（実施回数: ___） |
 | 日次記録 log    | `~/.repo-knowledge/pilot/<pilot_id>.jsonl`        |
 
 ## 2. 日次記録の集約結果
