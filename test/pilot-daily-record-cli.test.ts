@@ -197,6 +197,33 @@ describe("pilot daily record CLI", () => {
     });
   });
 
+  it.each(["2026-02-30", "2026/08/01"])(
+    "reports invalid calendar day %s before applying the window guard",
+    async (date) => {
+      const invalidDateLog = join(workingDirectory, "invalid-date.jsonl");
+      const { exitCode, stderr } = await runCli([
+        "record",
+        "--log",
+        invalidDateLog,
+        "--pilot",
+        PILOT_ID,
+        "--date",
+        date,
+        ...RECORD_WINDOW_ARGS,
+        "--missing",
+        "--reason",
+        "invalid scheduler date",
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("PILOT_RECORD_INVALID");
+      expect(stderr).not.toContain("PILOT_DATE_OUT_OF_WINDOW");
+      await expect(readFile(invalidDateLog, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    },
+  );
+
   it("summarizes the log and enforces coverage with --require-complete", async () => {
     const complete = await runCli([
       "summarize",

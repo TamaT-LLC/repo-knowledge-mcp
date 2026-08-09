@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import {
   DEFAULT_PILOT_DURATION_DAYS,
   PilotRecordError,
+  UtcDaySchema,
   buildMissingDailyRecord,
   buildObservedDailyRecord,
   listPilotWindowDates,
@@ -99,18 +100,19 @@ try {
 }
 
 async function runRecord(parsed: RecordArguments): Promise<void> {
-  assertRecordDateInWindow(parsed.date, parsed.startDate, parsed.days);
+  const date = parseRecordDate(parsed.date);
+  assertRecordDateInWindow(date, parsed.startDate, parsed.days);
   const recordedAt = parsed.recordedAt ?? new Date().toISOString();
   const record = parsed.missing
     ? buildMissingDailyRecord({
-        date: parsed.date,
+        date,
         ...(parsed.notes === undefined ? {} : { notes: parsed.notes }),
         pilotId: parsed.pilotId,
         reason: parsed.reason!,
         recordedAt,
       })
     : buildObservedDailyRecord({
-        date: parsed.date,
+        date,
         ...(parsed.notes === undefined ? {} : { notes: parsed.notes }),
         pilotId: parsed.pilotId,
         ...(parsed.qualityGatePath === undefined
@@ -134,6 +136,15 @@ async function runRecord(parsed: RecordArguments): Promise<void> {
     },
   );
   process.stdout.write(`${JSON.stringify(record, null, 2)}\n`);
+}
+
+function parseRecordDate(value: string): string {
+  const parsed = UtcDaySchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  throw new PilotRecordError(
+    "PILOT_RECORD_INVALID",
+    `date: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
+  );
 }
 
 function assertRecordDateInWindow(
