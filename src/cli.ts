@@ -42,12 +42,13 @@ import type {
   ReviewInboxRequest,
   ReviewInboxResult,
 } from "./review-inbox-service.js";
+import type { TerminalActivityUpdate } from "./terminal-progress.js";
 
 export const REPO_KNOWLEDGE_CLI_HELP = `Usage: repo-knowledge <command> [options]
 
 Commands:
   serve                         Start the MCP stdio server
-  setup [repo] [--since <iso> | --all-history]
+  setup [repo] [--json] [--since <iso> | --all-history]
                                 Configure private storage, repository, privacy,
                                 trust candidates, and the initial sync
   sync [repo] [--since <iso>]   Incrementally sync updated pull requests
@@ -89,6 +90,8 @@ Setup options:
   --workspace <path>            Resolve and register the workspace Git remote
   --since <iso-datetime>        Override the default 90-day initial window
   --all-history                 Sync all accessible pull-request history
+  --json                        Print the setup result as one JSON document;
+                                progress remains disabled for machine use
 
 Sync exits 0 when every discovered pull request synced, 1 on any failure,
 and 2 on usage errors, so cron can alert on non-zero exits.
@@ -113,6 +116,7 @@ export const REPO_KNOWLEDGE_CLI_EXIT = Object.freeze({
 });
 
 export interface RepoKnowledgeCliIo {
+  activity?(update: TerminalActivityUpdate): void;
   close?(): void;
   confirm?(request: SetupConfirmationRequest): Promise<boolean>;
   input?(request: SetupTextInputRequest): Promise<string>;
@@ -239,6 +243,7 @@ export interface RunRepoKnowledgeCliOptions {
 export type ParsedCliCommand =
   | { readonly kind: "help" }
   | {
+      readonly json?: true;
       readonly kind: "setup";
       readonly request: GuidedSetupRequest;
     }
@@ -454,13 +459,22 @@ async function executeCliCommand(
           REPO_KNOWLEDGE_CLI_EXIT.failure,
         );
       }
-      writeJson(
-        options.io,
-        await options.setup(command.request, {
-          confirm: (request) => options.io.confirm!(request),
-          input: (request) => options.io.input!(request),
-        }),
-      );
+      const prompt: GuidedSetupPrompt = {
+        confirm: (request) => options.io.confirm!(request),
+        input: (request) => options.io.input!(request),
+        ...(command.json !== true && options.io.activity !== undefined
+          ? {
+              progress: (update: TerminalActivityUpdate) =>
+                options.io.activity!(update),
+            }
+          : {}),
+      };
+      const result = await options.setup(command.request, prompt);
+      if (command.json) {
+        writeJson(options.io, result);
+      } else {
+        options.io.writeStdout(renderGuidedSetupSummary(result));
+      }
       return;
     }
     case "sync": {
@@ -522,8 +536,11 @@ async function executeCliCommand(
     }
     case "review": {
       assertReviewTerminal(options.io);
-      const service = await options.operationsResolver.resolve(
-        command.selection,
+      const service = await runCliActivity(
+        options.io,
+        "review.open",
+        "Opening the review inbox",
+        () => options.operationsResolver.resolve(command.selection),
       );
       return executeReviewSession(service, options.io);
     }
@@ -651,16 +668,22 @@ async function executeReviewSession(
 
   try {
     for (;;) {
-      let next: NextReviewItem | null;
-      if (reloadItemKey === undefined) {
-        next = await nextReviewItem(service, skipped);
-      } else {
-        const preferredKey = reloadItemKey;
-        reloadItemKey = undefined;
-        next =
-          (await reviewItemByKey(service, preferredKey)) ??
-          (await nextReviewItem(service, skipped));
-      }
+      const next = await runCliActivity(
+        io,
+        "review.load",
+        displayed ? "Loading the next review item" : "Loading review items",
+        async () => {
+          if (reloadItemKey === undefined) {
+            return nextReviewItem(service, skipped);
+          }
+          const preferredKey = reloadItemKey;
+          reloadItemKey = undefined;
+          return (
+            (await reviewItemByKey(service, preferredKey)) ??
+            (await nextReviewItem(service, skipped))
+          );
+        },
+      );
       if (next === null) {
         const progress = { edited, resolved, skipped: skipped.size };
         io.writeStdout(
@@ -671,7 +694,13 @@ async function executeReviewSession(
         return REPO_KNOWLEDGE_CLI_EXIT.success;
       }
       displayed = true;
-      io.writeStdout(renderReviewInboxItem(next));
+      io.writeStdout(
+        renderReviewInboxItem(next, {
+          edited,
+          resolved,
+          skipped: skipped.size,
+        }),
+      );
       const action = await promptReviewAction(io, next.item);
       if (action === "quit") {
         io.writeStdout(
@@ -699,7 +728,12 @@ async function executeReviewSession(
       }
 
       try {
-        await applyReviewAction(service.admin, next.item, action, patch);
+        await runCliActivity(
+          io,
+          `review.${action}`,
+          reviewActionActivityLabel(action),
+          () => applyReviewAction(service.admin, next.item, action, patch),
+        );
       } catch (error) {
         if (!isReviewRefreshError(error)) throw error;
         reloadItemKey = reviewItemKey(next.item);
@@ -801,7 +835,7 @@ async function promptReviewAction(
     const answer = (
       await io.input!({
         id: `review.action.${reviewItemKey(item)}`,
-        message: "Action [approve/reject/skip/edit/quit]",
+        message: "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
       })
     )
       .trim()
@@ -951,44 +985,185 @@ function requiredReviewPatch(
   return patch;
 }
 
-function renderReviewInboxItem(next: NextReviewItem): string {
+function reviewActionActivityLabel(
+  action: Exclude<ReviewAction, "quit" | "skip">,
+): string {
+  switch (action) {
+    case "approve":
+      return "Approving the review item";
+    case "edit":
+      return "Saving changes to the review item";
+    case "reject":
+      return "Rejecting the review item";
+  }
+}
+
+function renderReviewInboxItem(
+  next: NextReviewItem,
+  progress: ReviewSessionProgress,
+): string {
   const { item } = next;
-  const evidence = item.evidence.map((entry) => ({
-    actors: entry.actors.map((actor) => ({
-      comment_id: actor.comment_id,
-      login: actor.login ?? null,
-      provider: actor.provider,
-      trust: actor.trust,
-    })),
-    evidence_id: entry.evidence_id,
-    sources: entry.sources,
-    status: entry.status,
-    url: entry.url ?? null,
-  }));
-  return `${[
-    "REVIEW INBOX ITEM",
-    `Repository: ${safeTerminalValue(next.repo)}`,
-    `Pending items: ${String(next.totalCount)}`,
-    `Kind: ${safeTerminalValue(item.kind)}`,
-    `Item ID: ${safeTerminalValue(item.item_id)}`,
-    `Knowledge ID: ${safeTerminalValue(item.knowledge_id)}`,
-    `Status: ${safeTerminalValue(item.status)}`,
-    `Revision: ${String(item.revision)}`,
-    `ETag: ${item.etag}`,
-    `Proposal ID: ${safeTerminalValue(item.proposal_id)}`,
-    `Proposal ETag: ${safeTerminalValue(item.proposal_etag)}`,
-    `Proposal patch: ${safeTerminalValue(item.proposal_patch)}`,
-    `Rule: ${safeTerminalValue(item.rule)}`,
-    `Detail: ${safeTerminalValue(item.detail)}`,
-    `Category: ${safeTerminalValue(item.category)}`,
-    `Severity: ${safeTerminalValue(item.severity)}`,
-    `Scope: ${safeTerminalValue(item.scope)}`,
+  const lines = [
+    "",
+    `Review inbox · ${String(next.totalCount)} pending`,
+    `Repository: ${safeTerminalText(next.repo)}`,
+    `Session: ${String(progress.resolved)} resolved · ${String(progress.edited)} edited · ${String(progress.skipped)} skipped`,
+    "",
+    item.kind === "knowledge" ? "Candidate rule" : "Revision proposal",
+    `  ${safeTerminalText(item.rule)}`,
+    "",
+    "Why this may be reusable",
+    `  ${safeTerminalText(item.detail) || "—"}`,
+    "",
+    "Applies to",
+    ...renderReviewScopes(item.scope),
+    `  Category: ${safeTerminalText(item.category)} · Severity: ${safeTerminalText(item.severity)}`,
+    `  Sources: ${terminalList(item.sources)} · Trust: ${terminalList(item.trust_classes)}`,
+  ];
+
+  if (item.kind === "revision_proposal") {
+    lines.push(
+      "",
+      "Proposed changes",
+      `  ${safeTerminalValue(item.proposal_patch)}`,
+    );
+  }
+
+  lines.push("", "Evidence", ...renderReviewEvidence(item));
+  if (item.possible_matches.length > 0) {
+    lines.push(
+      "",
+      "Possible existing matches",
+      ...item.possible_matches.map(
+        (match) =>
+          `  - ${safeTerminalText(match.rule)} · ${safeTerminalText(match.severity)} · ${terminalList(match.scope)} · ${safeTerminalText(match.id)}`,
+      ),
+    );
+  }
+  if (item.related_ids.length > 0) {
+    lines.push("", `Related rules: ${terminalList(item.related_ids)}`);
+  }
+  lines.push(
+    "",
+    item.kind === "knowledge"
+      ? `Metadata: candidate · ${safeTerminalText(item.status)} · revision ${String(item.revision)} · ${safeTerminalText(item.knowledge_id)}`
+      : `Metadata: revision · ${safeTerminalText(item.status)} · target ${safeTerminalText(item.knowledge_id)} · proposal ${safeTerminalText(item.item_id)} · revision ${String(item.revision)}`,
     `Origin: ${safeTerminalValue(item.origin)}`,
-    `Trust: ${safeTerminalValue(item.trust_classes)}`,
-    `Evidence: ${safeTerminalValue(evidence)}`,
-    `Related IDs: ${safeTerminalValue(item.related_ids)}`,
-    `Possible matches: ${safeTerminalValue(item.possible_matches)}`,
-  ].join("\n")}\n`;
+    "",
+  );
+  return `${lines.join("\n")}\n`;
+}
+
+function renderReviewScopes(scope: readonly string[]): string[] {
+  return scope.length === 0
+    ? ["  - repository-wide"]
+    : scope.map((pattern) => `  - ${safeTerminalText(pattern)}`);
+}
+
+function renderReviewEvidence(item: ReviewInboxItem): string[] {
+  if (item.evidence.length === 0) return ["  - No attached evidence"];
+  return item.evidence.flatMap((entry) => {
+    const actors = entry.actors
+      .map((actor) => {
+        const name = actor.login ?? "unknown actor";
+        return `${safeTerminalText(name)} (${safeTerminalText(actor.provider)}, ${safeTerminalText(actor.trust)})`;
+      })
+      .join(", ");
+    return [
+      `  - ${actors} · ${terminalList(entry.sources)} · ${safeTerminalText(entry.status)}`,
+      ...(entry.url === undefined
+        ? []
+        : [`    ${safeTerminalText(entry.url)}`]),
+    ];
+  });
+}
+
+function terminalList(values: readonly string[]): string {
+  return values.length === 0
+    ? "none"
+    : values.map((value) => safeTerminalText(value)).join(", ");
+}
+
+function safeTerminalText(value: string): string {
+  return safeTerminalValue(value).slice(1, -1);
+}
+
+function renderGuidedSetupSummary(result: GuidedSetupResult): string {
+  const sync = result.initial_sync.summary;
+  const routes = [
+    result.transmission.provider ? "provider on" : "provider off",
+    result.transmission.host_assisted
+      ? "host-assisted on"
+      : "host-assisted off",
+  ].join(" · ");
+  const trust =
+    result.trust.selected.length === 0
+      ? `0 selected this run · ${String(result.trust.candidates)} candidate(s) observed`
+      : `${String(result.trust.selected.length)} selected this run · ${String(result.trust.candidates)} candidate(s) observed`;
+  const status = setupStatusLine(result);
+  const next = setupNextActions(result);
+  const repository = safeTerminalText(result.repository.name);
+  return `${[
+    "",
+    "Setup complete",
+    "",
+    `Repository  ${repository}`,
+    `Workspace   ${result.repository.workspace_path === null ? "not registered" : safeTerminalText(result.repository.workspace_path)}`,
+    `Storage     ${safeTerminalText(result.repository.storage_path)}`,
+    `Sync        ${String(sync.discovered)} found · ${String(sync.ingested)} imported · ${String(sync.unchanged)} unchanged · ${String(sync.jobs_created)} job(s) queued`,
+    `Health      ${String(result.doctor.pass)} passed · ${String(result.doctor.warn)} warnings · ${String(result.doctor.fail)} failed`,
+    `Privacy     ${routes}`,
+    `Trust       ${trust}`,
+    "",
+    "Status",
+    `  ${status}`,
+    "",
+    "Next",
+    ...next.map((action, index) => `  ${String(index + 1)}. ${action}`),
+    "",
+    `Machine-readable result: repo-knowledge setup ${repository} --json`,
+    "",
+  ].join("\n")}`;
+}
+
+function setupStatusLine(result: GuidedSetupResult): string {
+  const jobs = result.initial_sync.summary.jobs_created;
+  if (
+    jobs > 0 &&
+    !result.transmission.provider &&
+    !result.transmission.host_assisted
+  ) {
+    return (
+      `Local sync is ready. ${String(jobs)} new distillation job(s) are queued; ` +
+      "no model transmission route is enabled."
+    );
+  }
+  if (jobs > 0) {
+    return `Local sync is ready. ${String(jobs)} new distillation job(s) are queued for the enabled route.`;
+  }
+  return "Local sync is ready and this run found no new distillation work.";
+}
+
+function setupNextActions(result: GuidedSetupResult): string[] {
+  const repository = safeTerminalText(result.repository.name);
+  const actions = [
+    `Inspect active rules and pending jobs: repo-knowledge stats ${repository}`,
+  ];
+  if (result.transmission.host_assisted) {
+    actions.push(
+      "Ask the connected MCP host to process one pending job with prepare_distillation and submit_distillation.",
+    );
+  } else if (result.transmission.provider) {
+    actions.push(`Process provider jobs: repo-knowledge distill ${repository}`);
+  } else if (result.initial_sync.summary.jobs_created > 0) {
+    actions.push(
+      "To distill with a Claude/Codex subscription, review and enable both host-assisted consent settings, then ask the MCP host to process one job.",
+    );
+  }
+  actions.push(
+    `Review generated candidates when available: repo-knowledge review ${repository}`,
+  );
+  return actions;
 }
 
 function renderReviewSessionComplete(progress: ReviewSessionProgress): string {
@@ -1049,7 +1224,7 @@ const REPOSITORY_OPTION_DEFINITION = {
 
 function parseSetup(args: readonly string[]): ParsedCliCommand {
   const parsed = parseOptions(args, {
-    booleans: ["all-history"],
+    booleans: ["all-history", "json"],
     values: ["repo", "workspace", "since"],
   });
   assertPositionalCount(parsed, 0, 1, "setup");
@@ -1067,6 +1242,7 @@ function parseSetup(args: readonly string[]): ParsedCliCommand {
   const repo = positionalRepo ?? optionRepo;
   const workspacePath = parsed.values.get("workspace");
   return {
+    ...(parsed.booleans.has("json") ? { json: true as const } : {}),
     kind: "setup",
     request: {
       ...(parsed.booleans.has("all-history") ? { allHistory: true } : {}),
@@ -1512,6 +1688,23 @@ function setParsedPatchValue<T>(
 
 function writeJson(io: RepoKnowledgeCliIo, value: unknown): void {
   io.writeStdout(`${JSON.stringify(value)}\n`);
+}
+
+async function runCliActivity<Result>(
+  io: RepoKnowledgeCliIo,
+  id: string,
+  label: string,
+  operation: () => Promise<Result>,
+): Promise<Result> {
+  io.activity?.({ id, label, state: "started" });
+  try {
+    const result = await operation();
+    io.activity?.({ id, label, state: "succeeded" });
+    return result;
+  } catch (error) {
+    io.activity?.({ id, label, state: "failed" });
+    throw error;
+  }
 }
 
 /**

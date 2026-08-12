@@ -187,19 +187,37 @@ async function main() {
       "installed batch review help was not available",
     );
 
+    const humanSetup = await run(process.execPath, [setupRunnerPath], {
+      cwd: workspaceDirectory,
+      env: {
+        ...environment,
+        REPO_KNOWLEDGE_HOME: join(runtimeDirectory, ".repo-knowledge-human"),
+        RKM_SETUP_OUTPUT: "human",
+      },
+    });
+    assert(humanSetup.stderr === "", "installed guided setup wrote to stderr");
+    assert(
+      humanSetup.stdout.includes("Setup complete") &&
+        humanSetup.stdout.includes(`Repository  ${smokeRepository}`) &&
+        humanSetup.stdout.includes("provider off · host-assisted off") &&
+        humanSetup.stdout.includes("Next"),
+      `installed guided setup returned no human summary: ${humanSetup.stdout}`,
+    );
+
     const setup = await run(process.execPath, [setupRunnerPath], {
       cwd: workspaceDirectory,
-      env: environment,
+      env: {
+        ...environment,
+        RKM_SETUP_OUTPUT: "json",
+      },
     });
     assert(setup.stderr === "", "installed guided setup wrote to stderr");
-    const setupJsonStart = setup.stdout.indexOf('{"config_path":');
     assert(
-      setupJsonStart >= 0,
+      setup.stdout.trim().split("\n").length === 1 &&
+        setup.stdout.startsWith('{"config_path":'),
       `installed guided setup returned no result document: ${setup.stdout}`,
     );
-    const setupResult = asRecord(
-      JSON.parse(setup.stdout.slice(setupJsonStart).trim()),
-    );
+    const setupResult = asRecord(JSON.parse(setup.stdout.trim()));
     const setupTransmission = asRecord(setupResult.transmission);
     const setupSync = asRecord(asRecord(setupResult.initial_sync).summary);
     assert(
@@ -300,6 +318,8 @@ async function main() {
           cli_help: true,
           guided_setup: true,
           guided_setup_help: true,
+          guided_setup_human_summary: true,
+          guided_setup_json: true,
           m3_readiness: "learning",
           m2_tool_calls: ["sync_repo", "stats", "get_rules"],
           mcp_tools: expectedTools.length,
@@ -470,10 +490,12 @@ function setupRunnerSource(indexUrl) {
   return `import { runDefaultRepoKnowledgeCli } from ${JSON.stringify(indexUrl)};
 
 const confirmations = [];
+const jsonOutput = process.env.RKM_SETUP_OUTPUT === "json";
 const exitCode = await runDefaultRepoKnowledgeCli({
   argv: [
     "setup",
     ${JSON.stringify(smokeRepository)},
+    ...(jsonOutput ? ["--json"] : []),
     "--since",
     "2026-01-01T00:00:00Z",
   ],

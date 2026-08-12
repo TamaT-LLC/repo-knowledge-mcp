@@ -157,10 +157,40 @@ describe("repo-knowledge CLI", () => {
       },
       { confirm: expect.any(Function), input: expect.any(Function) },
     );
+    expect(current.stdout()).toContain("Setup complete");
+    expect(current.stdout()).toContain(`Repository  ${REPOSITORY}`);
+    expect(current.stdout()).toContain(
+      "2 found · 2 imported · 0 unchanged · 2 job(s) queued",
+    );
+    expect(current.stdout()).toContain("provider off · host-assisted off");
+    expect(current.stdout()).toContain(
+      "no model transmission route is enabled",
+    );
+    expect(current.stdout()).toContain(
+      `repo-knowledge setup ${REPOSITORY} --json`,
+    );
+  });
+
+  it("keeps setup machine-readable with explicit --json and no progress events", async () => {
+    const current = fixture(["setup", REPOSITORY, "--json"], {
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    });
+    const activity = vi.fn();
+    current.options.io.activity = activity;
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
     expect(JSON.parse(current.stdout())).toMatchObject({
       repository: { name: REPOSITORY },
       transmission: { host_assisted: false, provider: false },
     });
+    expect(current.stdout().trim().split("\n")).toHaveLength(1);
+    expect(current.setup).toHaveBeenCalledWith(
+      { repo: REPOSITORY },
+      { confirm: expect.any(Function), input: expect.any(Function) },
+    );
+    expect(activity).not.toHaveBeenCalled();
   });
 
   it("parses all-history setup and rejects setup without a real TTY", async () => {
@@ -288,12 +318,37 @@ describe("repo-knowledge CLI", () => {
       proposalEtag: revision.proposal_etag,
       proposalId: revision.proposal_id,
     });
-    expect(current.stdout()).toContain("REVIEW INBOX ITEM");
+    expect(current.stdout()).toContain("Review inbox · 3 pending");
+    expect(current.stdout()).toContain("Candidate rule");
+    expect(current.stdout()).toContain("Revision proposal");
     expect(current.stdout()).toContain("Leave this item pending");
     expect(current.stdout()).toContain("discussion_r1");
     expect(current.stdout()).toContain("trusted");
     expect(current.stdout()).toContain("Possible active match");
     expect(current.stdout()).toContain("1 skipped");
+  });
+
+  it("neutralizes terminal controls in review content", async () => {
+    const current = fixture(["review", REPOSITORY], {
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    });
+    vi.mocked(current.operations.reviewInbox).mockResolvedValueOnce(
+      inboxPage([
+        knowledgeInboxItem({
+          rule: "Unsafe\u001b[31m\nInjected\u202e rule",
+        }),
+      ]),
+    );
+    vi.mocked(current.options.io.input!).mockResolvedValueOnce("quit");
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+    expect(current.stdout()).not.toContain("\u001b");
+    expect(current.stdout()).not.toContain("\u202e");
+    expect(current.stdout()).toContain(
+      String.raw`Unsafe\u001b[31m\nInjected\u202e rule`,
+    );
   });
 
   it("edits a candidate, displays its refreshed generation, and approves it", async () => {
@@ -555,7 +610,7 @@ describe("repo-knowledge CLI", () => {
 
   it("documents sync and stats while keeping deferred commands out of help", () => {
     expect(REPO_KNOWLEDGE_CLI_HELP).toContain(
-      "setup [repo] [--since <iso> | --all-history]",
+      "setup [repo] [--json] [--since <iso> | --all-history]",
     );
     expect(REPO_KNOWLEDGE_CLI_HELP).toContain("sync [repo] [--since <iso>]");
     expect(REPO_KNOWLEDGE_CLI_HELP).toContain(
@@ -605,6 +660,24 @@ describe("repo-knowledge CLI", () => {
     });
     expect(current.syncRepo).toHaveBeenCalledWith({});
   });
+
+  it.each([
+    ["sync", ["sync", REPOSITORY]],
+    ["stats", ["stats", REPOSITORY]],
+    ["doctor", ["doctor", REPOSITORY]],
+  ])(
+    "keeps %s machine output free of interactive progress",
+    async (_name, argv) => {
+      const current = fixture(argv);
+      const activity = vi.fn();
+      current.options.io.activity = activity;
+
+      await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+
+      expect(() => JSON.parse(current.stdout())).not.toThrow();
+      expect(activity).not.toHaveBeenCalled();
+    },
+  );
 
   it("exits non-zero with an operator diagnostic on a partial sync failure", async () => {
     const current = fixture(["sync", REPOSITORY]);

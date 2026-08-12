@@ -64,23 +64,33 @@ describe("repo-knowledge review PTY E2E", () => {
     const first = await startPty(fixture);
 
     await first.waitFor("Approve candidate A");
-    await first.waitFor("Action [approve/reject/skip/edit/quit]");
+    await first.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     first.send("approve\n");
     await first.waitFor("Skip candidate B");
-    await first.waitFor("Action [approve/reject/skip/edit/quit]");
+    await first.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     first.send("skip\n");
     await first.waitFor(PROPOSAL_A);
-    await first.waitFor("Action [approve/reject/skip/edit/quit]");
+    await first.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     first.send("reject\n");
     await first.waitFor(PROPOSAL_B);
-    await first.waitFor("Action [approve/reject/skip/edit/quit]");
+    await first.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     first.send("edit\n");
     await first.waitFor("Field [rule/detail/category/severity/scope]");
     first.send("severity\n");
     await first.waitFor("New severity");
     first.send("should\n");
     await first.waitFor("Edited successfully");
-    await first.waitFor("Action [approve/reject/skip/edit/quit]");
+    await first.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     first.send("approve\n");
     const firstResult = await first.finish();
 
@@ -98,14 +108,18 @@ describe("repo-knowledge review PTY E2E", () => {
 
     const resumed = await startPty(fixture);
     await resumed.waitFor("Skip candidate B");
-    await resumed.waitFor("Action [approve/reject/skip/edit/quit]");
+    await resumed.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     resumed.send("edit\n");
     await resumed.waitFor("Field [rule/detail/category/severity/scope]");
     resumed.send("rule\n");
     await resumed.waitFor("New rule");
     resumed.send("Edited candidate B\n");
     await resumed.waitFor("Edited candidate B");
-    await resumed.waitFor("Action [approve/reject/skip/edit/quit]");
+    await resumed.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     resumed.send("approve\n");
     const resumedResult = await resumed.finish();
 
@@ -123,14 +137,18 @@ describe("repo-knowledge review PTY E2E", () => {
     });
     const session = await startPty(fixture);
     await session.waitFor("Original candidate");
-    await session.waitFor("Action [approve/reject/skip/edit/quit]");
+    await session.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
 
     await directRuleEdit(fixture.root, CANDIDATE_A, "Concurrent human edit");
     session.send("approve\n");
 
     await session.waitFor("REVIEW_ITEM_CHANGED");
     await session.waitFor("Concurrent human edit");
-    await session.waitFor("Action [approve/reject/skip/edit/quit]");
+    await session.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     session.send("approve\n");
     const result = await session.finish();
 
@@ -149,7 +167,9 @@ describe("repo-knowledge review PTY E2E", () => {
     });
     const session = await startPty(fixture);
 
-    await session.waitFor("Action [approve/reject/skip/edit/quit]");
+    await session.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     session.send("approve\nreject\n");
     const result = await session.finish();
 
@@ -158,6 +178,27 @@ describe("repo-knowledge review PTY E2E", () => {
     expect(status(snapshot, CANDIDATE_A)).toBe("active");
     expect(status(snapshot, CANDIDATE_B)).toBe("rejected");
   }, 20_000);
+
+  it("shows loading state and elapsed time for a slow inbox read", async () => {
+    const fixture = await createFixture({
+      candidates: [
+        { createdAt: T0, id: CANDIDATE_A, rule: "Visible slow candidate" },
+      ],
+    });
+    const session = await startPty(fixture, { reviewDelayMs: 2_200 });
+
+    await session.waitFor("Loading review items (2.", 10_000);
+    await session.waitFor("Visible slow candidate");
+    await session.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
+    session.send("quit\n");
+    const result = await session.finish();
+
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain("✓ Loading review items (2.");
+    expect(result.output).toContain("Review session paused");
+  }, 15_000);
 
   it("rejects pipes and --yes without mutating canonical status", async () => {
     const fixture = await createFixture({
@@ -204,25 +245,37 @@ describe("repo-knowledge review PTY E2E", () => {
       ],
     });
     const eof = await startPty(fixture);
-    await eof.waitFor("Action [approve/reject/skip/edit/quit]");
+    await eof.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     eof.send("\u0004");
     const eofResult = await eof.finish();
     expect(eofResult.output).toContain("Review session paused");
+    expect(outputAfterActionPrompt(eofResult.output)).not.toContain(
+      "Loading review items",
+    );
     expect(status(await fixture.store.readSnapshot(), CANDIDATE_A)).toBe(
       "proposed",
     );
 
     const interrupted = await startPty(fixture);
-    await interrupted.waitFor("Action [approve/reject/skip/edit/quit]");
+    await interrupted.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     interrupted.send("\u0003");
     const interruptedResult = await interrupted.finish();
     expect(interruptedResult.output).toContain("Review session paused");
+    expect(outputAfterActionPrompt(interruptedResult.output)).not.toContain(
+      "Loading review items",
+    );
     expect(status(await fixture.store.readSnapshot(), CANDIDATE_A)).toBe(
       "proposed",
     );
 
     const failed = await startPty(fixture, { failAction: "approve" });
-    await failed.waitFor("Action [approve/reject/skip/edit/quit]");
+    await failed.waitFor(
+      "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
+    );
     failed.send("approve\n");
     const failedResult = await failed.finish();
     expect(failedResult.exitCode).toBe(1);
@@ -402,7 +455,14 @@ const exitCode = await api.runRepoKnowledgeCli({
   io: runtime.createProcessCliIo(),
   mutationServiceResolver: { resolve: async () => { throw new Error("unused mutation resolver"); } },
   operationsResolver: {
-    resolve: async () => ({ admin, reviewInbox: (request) => inbox.list(request) }),
+    resolve: async () => ({
+      admin,
+      reviewInbox: async (request) => {
+        const delay = Number(process.env.RKM_REVIEW_DELAY_MS ?? "0");
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+        return inbox.list(request);
+      },
+    }),
   },
   serve: async () => undefined,
   setup: async () => { throw new Error("unused setup"); },
@@ -475,6 +535,7 @@ async function startPty(
   fixture: Fixture,
   options: {
     readonly failAction?: string;
+    readonly reviewDelayMs?: number;
     readonly stdinPipe?: boolean;
     readonly stdoutPipe?: boolean;
   } = {},
@@ -513,6 +574,7 @@ function runnerEnvironment(
   fixture: Fixture,
   options: {
     readonly failAction?: string;
+    readonly reviewDelayMs?: number;
     readonly stdinPipe?: boolean;
     readonly stdoutPipe?: boolean;
   } = {},
@@ -529,6 +591,9 @@ function runnerEnvironment(
     ...(options.failAction === undefined
       ? {}
       : { RKM_FAIL_ACTION: options.failAction }),
+    ...(options.reviewDelayMs === undefined
+      ? {}
+      : { RKM_REVIEW_DELAY_MS: String(options.reviewDelayMs) }),
   };
 }
 
@@ -593,6 +658,11 @@ function proposal(
   return snapshot.domain.revisionProposals.find(
     (item) => item.proposal_id === id,
   )!;
+}
+
+function outputAfterActionPrompt(output: string): string {
+  const prompt = "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)";
+  return output.slice(output.lastIndexOf(prompt) + prompt.length);
 }
 
 async function temporaryDirectory(prefix: string): Promise<string> {

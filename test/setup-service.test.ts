@@ -48,6 +48,7 @@ describe("guided setup service", () => {
       ],
     });
     const confirmations: string[] = [];
+    const progress: string[] = [];
 
     const result = await current.service.run(
       { repo: REPOSITORY, workspacePath: current.workspacePath },
@@ -56,6 +57,9 @@ describe("guided setup service", () => {
           confirmations.push(request.id);
           return request.id === "trust.U_alice";
         },
+        progress(update) {
+          progress.push(`${update.id}:${update.state}`);
+        },
       },
     );
 
@@ -63,6 +67,22 @@ describe("guided setup service", () => {
       "transmission.provider",
       "transmission.host-assisted",
       "trust.U_alice",
+    ]);
+    expect(progress).toEqual([
+      "setup.resolve:started",
+      "setup.resolve:succeeded",
+      "setup.prepare:started",
+      "setup.prepare:succeeded",
+      "setup.preflight:started",
+      "setup.preflight:succeeded",
+      "setup.sync:started",
+      "setup.sync:succeeded",
+      "setup.trust:started",
+      "setup.trust:succeeded",
+      "setup.redistill:started",
+      "setup.redistill:succeeded",
+      "setup.doctor:started",
+      "setup.doctor:succeeded",
     ]);
     expect(current.sync).toHaveBeenCalledWith(current.repository, {
       since: DEFAULT_SINCE,
@@ -252,6 +272,7 @@ describe("guided setup service", () => {
   it("rolls config back when repository preparation fails", async () => {
     const current = await fixture();
     const before = await loadRepoKnowledgeConfig(current.configPath);
+    const progress: string[] = [];
     current.prepareRepository.mockRejectedValueOnce(
       new Error("projection unavailable"),
     );
@@ -259,7 +280,10 @@ describe("guided setup service", () => {
     await expect(
       current.service.run(
         { repo: REPOSITORY, workspacePath: current.workspacePath },
-        { confirm: async () => false },
+        {
+          confirm: async () => false,
+          progress: (update) => progress.push(`${update.id}:${update.state}`),
+        },
       ),
     ).rejects.toMatchObject({ code: "SETUP_PREPARATION_FAILED" });
 
@@ -267,6 +291,9 @@ describe("guided setup service", () => {
     expect(await current.stateStore.read()).toBeNull();
     expect(current.runDoctor).not.toHaveBeenCalled();
     expect(current.sync).not.toHaveBeenCalled();
+    expect(progress).toContain("setup.prepare:started");
+    expect(progress).toContain("setup.prepare:failed");
+    expect(progress).not.toContain("setup.prepare:succeeded");
   });
 
   it("rolls newly selected trust back when final doctor fails", async () => {

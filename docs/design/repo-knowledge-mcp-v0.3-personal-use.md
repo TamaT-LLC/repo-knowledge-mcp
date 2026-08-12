@@ -74,6 +74,11 @@ setup は、対象リポジトリで観測した人間レビュアーを信頼�
 利用者は `--since <iso-datetime>` で開始境界を上書きでき、全履歴が必要な場合だけ `--all-history` を明示する。
 setup は repository ごとの durable state と sync checkpoint を使い、中断後の再実行では最初に選択した範囲を維持して再開する。
 
+実 TTY の setup は、repository と private storage の解決、local store 準備、preflight doctor、初回同期、trust 候補検出、必要な再蒸留、最終 doctor を名前付き phase として stderr に表示する。
+長時間 phase では spinner と経過時間を更新し、質問を表示する前に活動表示を完了させる。
+正常終了時の既定 stdout は、repository、同期件数、privacy、trust、doctor、現在状態、次の操作をまとめた人間向け summary とする。
+完全な `GuidedSetupResult` が必要な利用者は `setup --json` を明示し、この場合は progress を無効化して stdout を JSON 1 document に限定する。
+
 ### M3-FR-003 Repository readiness
 
 `get_rules` は、ルールの一致結果に加えて repository readiness を返す。
@@ -137,6 +142,10 @@ knowledge candidate の edit は候補本文を更新して未処理状態を維
 revision proposal の edit は pending patch を更新し、reject は対象の active knowledge を変更せず proposal だけを解決する。
 各判断は表示した knowledge の revision / ETag と proposal の ETag に束縛し、競合時は最新内容を再表示する。
 
+review の表示は、session の pending / resolved / edited / skipped、rule と説明、適用範囲と信頼情報、evidence、possible match、内部 metadata の順で情報階層を分ける。
+inbox 読み込みと approve / reject / edit の更新中は、setup と同じ stderr progress を表示する。
+外部由来の rule、detail、scope、login、URL、ID、metadata は terminal control sequence を無害化してから表示する。
+
 MCP plane は status を active または rejected へ変更しない。
 
 ### M3-FR-008 npm 配布
@@ -183,6 +192,13 @@ CLI と MCP は、初期設定不足、蒸留待ち、候補なし、検索不�
 
 Windows、network filesystem、同期フォルダは引き続き保証対象外とする。
 
+### M3-NFR-005 対話状態の可視性
+
+実 TTY で二秒を超える処理は、現在の phase と経過時間を利用者が確認できること。
+
+activity renderer は成功、失敗、EOF、割り込み、所有者による close のすべてで timer と描画行を解放する。
+progress と prompt は stderr、人間向けまたは JSON の最終結果は stdout に分離し、非対話 command と MCP stdio の既存 stdout 契約へ影響させない。
+
 ## 制約
 
 - MCP server instructions だけでは、クライアントが必ず `get_rules` を呼ぶとは限らない。
@@ -210,6 +226,7 @@ Windows、network filesystem、同期フォルダは引き続き保証対象外�
 | M3-AC-008 | M3-FR-008、M3-NFR-004 | clean environment の Node.js 22 と 24 で registry package から CLI help と stdio MCP server を起動できる | package smoke と CI matrix |
 | M3-AC-009 | M3-NFR-002 | M2 config と local store を変更せずに更新しても、既存 repository と knowledge を読み取れる | upgrade E2E |
 | M3-AC-010 | スコープ | M3 の全 E2E 実行後も対象 repository のワークツリーへ `.repo-knowledge/` が作成されない | filesystem assertion |
+| M3-AC-011 | M3-FR-002、M3-FR-007、M3-NFR-005 | setup と review の実 TTY で phase と経過時間を確認でき、prompt 前と成功・失敗・EOF・割り込み後に描画が残らず、`setup --json` は ANSI を含まない JSON 1 document だけを stdout に返す | setup / review PTY E2E と renderer unit test |
 
 ## Issue への対応
 
@@ -223,6 +240,7 @@ Windows、network filesystem、同期フォルダは引き続き保証対象外�
 | [#91](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/91) | Batch review |
 | [#92](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/92) | npm release workflow |
 | [#93](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/93) | M3 受け入れと release |
+| [#107](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/107) | TTY progress、setup summary、review 情報階層 |
 
 ## 関連ドキュメント
 

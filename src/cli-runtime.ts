@@ -54,6 +54,7 @@ import {
 import { SetupStateStore } from "./setup-state-store.js";
 import { captureCanonicalStateReadOnly } from "./sqlite-projection.js";
 import { SyncCheckpointStore } from "./sync-checkpoint-store.js";
+import { createTerminalProgressRenderer } from "./terminal-progress.js";
 
 export interface DefaultCliRuntime {
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
@@ -197,8 +198,16 @@ function defaultStorageRoot(explicit: string | undefined): string {
 /** Real terminal adapter with explicit EOF and interrupt completion. */
 export function createProcessCliIo(): RepoKnowledgeCliIo {
   const terminal = createTerminalQuestionQueue();
+  const progress = createTerminalProgressRenderer({
+    interactive: process.stderr.isTTY === true,
+    write: (value) => process.stderr.write(value),
+  });
   return {
+    activity(update) {
+      progress.report(update);
+    },
     close() {
+      progress.close();
       terminal.close();
     },
     async confirm(request) {

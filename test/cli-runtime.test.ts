@@ -168,7 +168,7 @@ describe("default CLI runtime", () => {
 
     try {
       const exitCode = await runDefaultRepoKnowledgeCli({
-        argv: ["setup"],
+        argv: ["setup", "--json"],
         clock: () => new Date("2026-08-09T00:00:00.000Z"),
         cwd: workspacePath,
         ghRunner: new SetupGhRunner(),
@@ -240,7 +240,7 @@ describe("default CLI runtime", () => {
       );
       await expect(
         runDefaultRepoKnowledgeCli({
-          argv: ["setup"],
+          argv: ["setup", "--json"],
           clock: () => new Date("2026-08-09T00:00:00.000Z"),
           cwd: workspacePath,
           ghRunner: new SetupGhRunner(),
