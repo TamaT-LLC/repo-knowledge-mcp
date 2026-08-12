@@ -14,6 +14,7 @@ import type { SetupState, SetupStateStore } from "./setup-state-store.js";
 import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
 import type { SyncRepoSummary } from "./sync-repo-service.js";
 import type { CliRedistillResult } from "./cli.js";
+import type { TerminalActivityUpdate } from "./terminal-progress.js";
 
 export const DEFAULT_SETUP_LOOKBACK_DAYS = 90;
 const ALL_HISTORY_SYNC_BOUNDARY = "1970-01-01T00:00:00.000Z";
@@ -39,6 +40,7 @@ export interface SetupTextInputRequest {
 export interface GuidedSetupPrompt {
   confirm(request: SetupConfirmationRequest): Promise<boolean>;
   input?(request: SetupTextInputRequest): Promise<string>;
+  progress?(update: TerminalActivityUpdate): void;
 }
 
 export interface SetupTrustCandidate {
@@ -142,14 +144,24 @@ export class GuidedSetupService {
     request: GuidedSetupRequest,
     prompt: GuidedSetupPrompt,
   ): Promise<GuidedSetupResult> {
-    const storage = await this.dependencies.initializeStorage();
-    const repository = await this.dependencies.resolveRepository(
-      request,
-      storage.config,
+    const resolution = await runSetupActivity(
+      prompt,
+      "setup.resolve",
+      "Resolving repository and private storage",
+      async () => {
+        const storage = await this.dependencies.initializeStorage();
+        const repository = await this.dependencies.resolveRepository(
+          request,
+          storage.config,
+        );
+        const stateStore = this.dependencies.stateStore(repository);
+        const state = await stateStore.read();
+        assertStateMatches(state, repository, request);
+        return { repository, state, stateStore, storage };
+      },
     );
-    const stateStore = this.dependencies.stateStore(repository);
-    let state = await stateStore.read();
-    assertStateMatches(state, repository, request);
+    const { repository, stateStore, storage } = resolution;
+    let state = resolution.state;
     const resumed = state !== null;
     const initialSince =
       state?.initial_since ?? initialSinceFor(request, this.clock());
@@ -167,8 +179,49 @@ export class GuidedSetupService {
         return setupConfig(current, repository, transmission);
       },
     );
+    await runSetupActivity(
+      prompt,
+      "setup.prepare",
+      "Preparing the local repository store",
+      async () => {
+        try {
+          await this.dependencies.prepareRepository(repository);
+        } catch (error) {
+          await rollbackConfig(
+            this.dependencies,
+            storage.configPath,
+            config,
+            configBeforeSetup,
+          );
+          throw new GuidedSetupError(
+            "SETUP_PREPARATION_FAILED",
+            "repository preparation failed; config changes were rolled back",
+            {},
+            { cause: error },
+          );
+        }
+      },
+    );
     try {
-      await this.dependencies.prepareRepository(repository);
+      await runSetupActivity(
+        prompt,
+        "setup.preflight",
+        "Running preflight health checks",
+        async () => {
+          const report = await this.dependencies.runDoctor(repository);
+          if (!report.ok) {
+            throw new GuidedSetupError(
+              "SETUP_DOCTOR_FAILED",
+              doctorFailureMessage(
+                report,
+                "doctor failed before initial sync; config changes were rolled back",
+              ),
+              { checks: report.checks, summary: report.summary },
+            );
+          }
+          return report;
+        },
+      );
     } catch (error) {
       await rollbackConfig(
         this.dependencies,
@@ -176,44 +229,12 @@ export class GuidedSetupService {
         config,
         configBeforeSetup,
       );
-      throw new GuidedSetupError(
-        "SETUP_PREPARATION_FAILED",
-        "repository preparation failed; config changes were rolled back",
-        {},
-        { cause: error },
-      );
-    }
-    let preflight: DoctorReport;
-    try {
-      preflight = await this.dependencies.runDoctor(repository);
-    } catch (error) {
-      await rollbackConfig(
-        this.dependencies,
-        storage.configPath,
-        config,
-        configBeforeSetup,
-      );
+      if (error instanceof GuidedSetupError) throw error;
       throw new GuidedSetupError(
         "SETUP_DOCTOR_FAILED",
         "doctor could not complete before initial sync; config changes were rolled back",
         {},
         { cause: error },
-      );
-    }
-    if (!preflight.ok) {
-      await rollbackConfig(
-        this.dependencies,
-        storage.configPath,
-        config,
-        configBeforeSetup,
-      );
-      throw new GuidedSetupError(
-        "SETUP_DOCTOR_FAILED",
-        doctorFailureMessage(
-          preflight,
-          "doctor failed before initial sync; config changes were rolled back",
-        ),
-        { checks: preflight.checks, summary: preflight.summary },
       );
     }
 
@@ -234,26 +255,42 @@ export class GuidedSetupService {
       updated_at: now,
       workspace_path: repository.workspacePath ?? state.workspace_path,
     });
+    const configuredState = state;
 
-    const checkpoint = await this.dependencies.readSyncCheckpoint(repository);
-    const syncRequest = initialSyncRequest(state, checkpoint, resumed);
-    const syncSummary = await this.dependencies.sync(repository, syncRequest);
-    if (syncSummary.failed > 0) {
-      throw new GuidedSetupError(
-        "SETUP_SYNC_FAILED",
-        "initial sync was partial; rerun setup to resume from the durable checkpoint",
-        { summary: syncSummary },
-      );
-    }
+    const syncSummary = await runSetupActivity(
+      prompt,
+      "setup.sync",
+      "Syncing pull request reviews",
+      async () => {
+        const checkpoint =
+          await this.dependencies.readSyncCheckpoint(repository);
+        const syncRequest = initialSyncRequest(
+          configuredState,
+          checkpoint,
+          resumed,
+        );
+        const summary = await this.dependencies.sync(repository, syncRequest);
+        if (summary.failed > 0) {
+          throw new GuidedSetupError(
+            "SETUP_SYNC_FAILED",
+            "initial sync was partial; rerun setup to resume from the durable checkpoint",
+            { summary },
+          );
+        }
+        return summary;
+      },
+    );
     state = await stateStore.write({
       ...state,
       phase: state.phase === "configured" ? "synced" : state.phase,
       updated_at: this.clock().toISOString(),
     });
 
-    const candidates = await this.dependencies.readTrustCandidates(
-      repository,
-      config,
+    const candidates = await runSetupActivity(
+      prompt,
+      "setup.trust",
+      "Finding human reviewer trust candidates",
+      () => this.dependencies.readTrustCandidates(repository, config),
     );
     const selected: SetupTrustCandidate[] = [];
     for (const candidate of candidates) {
@@ -305,12 +342,35 @@ export class GuidedSetupService {
         phase: "trust-configured",
         updated_at: this.clock().toISOString(),
       });
-      await this.dependencies.redistill(repository);
+      await runSetupActivity(
+        prompt,
+        "setup.redistill",
+        "Queuing review knowledge with updated trust",
+        () => this.dependencies.redistill(repository),
+      );
     }
 
     let finalDoctor: DoctorReport;
     try {
-      finalDoctor = await this.dependencies.runDoctor(repository);
+      finalDoctor = await runSetupActivity(
+        prompt,
+        "setup.doctor",
+        "Running final health checks",
+        async () => {
+          const report = await this.dependencies.runDoctor(repository);
+          if (!report.ok) {
+            throw new GuidedSetupError(
+              "SETUP_DOCTOR_FAILED",
+              doctorFailureMessage(
+                report,
+                "doctor failed after setup; newly selected trust settings were rolled back",
+              ),
+              { checks: report.checks, summary: report.summary },
+            );
+          }
+          return report;
+        },
+      );
     } catch (error) {
       await rollbackSelectedTrust({
         configAfterTrust: config,
@@ -322,31 +382,12 @@ export class GuidedSetupService {
         storageConfigPath: storage.configPath,
         updatedAt: this.clock().toISOString(),
       });
+      if (error instanceof GuidedSetupError) throw error;
       throw new GuidedSetupError(
         "SETUP_DOCTOR_FAILED",
         "doctor could not complete after setup; newly selected trust settings were rolled back",
         {},
         { cause: error },
-      );
-    }
-    if (!finalDoctor.ok) {
-      await rollbackSelectedTrust({
-        configAfterTrust: config,
-        configBeforeTrust,
-        dependencies: this.dependencies,
-        selected,
-        state,
-        stateStore,
-        storageConfigPath: storage.configPath,
-        updatedAt: this.clock().toISOString(),
-      });
-      throw new GuidedSetupError(
-        "SETUP_DOCTOR_FAILED",
-        doctorFailureMessage(
-          finalDoctor,
-          "doctor failed after setup; newly selected trust settings were rolled back",
-        ),
-        { checks: finalDoctor.checks, summary: finalDoctor.summary },
       );
     }
     state = await stateStore.write({
@@ -383,6 +424,23 @@ export class GuidedSetupService {
         })),
       },
     };
+  }
+}
+
+async function runSetupActivity<Result>(
+  prompt: GuidedSetupPrompt,
+  id: string,
+  label: string,
+  operation: () => Promise<Result>,
+): Promise<Result> {
+  prompt.progress?.({ id, label, state: "started" });
+  try {
+    const result = await operation();
+    prompt.progress?.({ id, label, state: "succeeded" });
+    return result;
+  } catch (error) {
+    prompt.progress?.({ id, label, state: "failed" });
+    throw error;
   }
 }
 

@@ -977,6 +977,14 @@ export {
   type RunDefaultRepoKnowledgeCliOptions,
 } from "./cli-runtime.js";
 export {
+  TERMINAL_PROGRESS_REFRESH_INTERVAL_MS,
+  createTerminalProgressRenderer,
+  type CreateTerminalProgressRendererOptions,
+  type TerminalActivityState,
+  type TerminalActivityUpdate,
+  type TerminalProgressRenderer,
+} from "./terminal-progress.js";
+export {
   DEFAULT_SETUP_LOOKBACK_DAYS,
   GuidedSetupError,
   GuidedSetupService,

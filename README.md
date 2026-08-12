@@ -61,7 +61,14 @@ repo-knowledge setup
 
 # workspace 外から repository 名を指定する場合
 repo-knowledge setup owner/repository --since 2026-05-01T00:00:00Z
+
+# 結果を機械的に読む場合（実 TTY は必要、stdout は JSON 1 document）
+repo-knowledge setup owner/repository --json
 ```
+
+実 TTY では repository 解決、local store 準備、doctor、同期、trust 候補検出を、spinner と経過時間付きの名前付き phase として stderr に表示します。
+質問を表示する前に spinner は停止し、完了時は repository、同期件数、外部送信、trust、health、次の操作を人間向けに要約します。
+従来の機械可読な全結果が必要な場合は `--json` を付けてください。この場合、stdout には JSON 1 document だけを出力し、progress は表示しません。
 
 中断または部分的な同期失敗後は同じ command を再実行すると、保存済み scope と checkpoint から再開します。
 canonical data と setup state は `~/.repo-knowledge/` 配下だけに保存され、対象 workspace へ `.repo-knowledge/` を作成しません。
@@ -318,7 +325,7 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 | command | 用途 |
 |---|---|
 | `serve [--repo owner/name]` | stdio MCP server を明示起動 |
-| `setup [repo] [--since <iso> \| --all-history]` | private storage、repository、外部送信、trust、初回同期を対話設定。既定範囲は直近 90 日 |
+| `setup [repo] [--json] [--since <iso> \| --all-history]` | private storage、repository、外部送信、trust、初回同期を対話設定。既定範囲は直近 90 日。既定出力は人間向け要約、`--json` は機械可読出力 |
 | `sync [repo] [--since <iso>]` | checkpoint から更新 PR を増分同期（cron 用、下記「cron 同期の運用」参照） |
 | `stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]` | versioned repository 集計を JSON 1 document で出力 |
 | `ingest [repo] <pr>` | 一つの complete PR snapshot を取り込む |
@@ -337,7 +344,8 @@ MCP plane から status を active / rejected に変更する tool は公開し�
 `stats` は MCP tool と CLI command が同じ schema version と集計値を返します（下記「stats の読み方と運用」参照）。
 引数なしで TTY から起動すると help、pipe から起動すると stdio server になります。
 
-`repo-knowledge review owner/repository` は、判断に必要な rule、scope、severity、origin、trust、evidence、possible match を表示し、`approve` / `reject` / `skip` / `edit` を順に受け付けます。
+`repo-knowledge review owner/repository` は、読み込みと更新の進捗を stderr に表示します。
+各候補では session の処理件数を先に示し、rule、再利用理由、scope、severity、source/trust、evidence、possible match、metadata の順に情報をまとめて、`approve` / `reject` / `skip` / `edit` を受け付けます。
 `skip` と途中終了では状態を変更しないため、次回の実行で再表示されます。
 表示後に候補が変更された場合は古い revision / ETag で書き込まず、最新内容を再表示します。
 このコマンドは stdin と stdout の両方が実 TTY の場合だけ状態を変更し、pipe、redirect、`--yes` は受け付けません。
