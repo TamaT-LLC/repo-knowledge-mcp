@@ -1,0 +1,73 @@
+name: Bug report
+description: 再現可能な不具合を報告する
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        security vulnerabilityはこのIssueへ書かず、[private vulnerability report](https://github.com/TamaT-LLC/repo-knowledge-mcp/security/advisories/new)から報告してください。
+        token、review本文、diff、個人情報、private repository名は貼り付けないでください。
+
+  - type: input
+    id: version
+    attributes:
+      label: Versionまたはcommit
+      description: 使用したnpm versionまたはcommit SHAを記載してください。
+      placeholder: repo-knowledge-mcp@0.3.0 または 0123456
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 発生した問題
+      description: 何が起きたかを簡潔に記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 再現手順
+      description: 最小の手順と入力条件を記載してください。
+      placeholder: |
+        1. `repo-knowledge ...`を実行する
+        2. ...
+        3. ...が発生する
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する結果
+      description: 正常時に期待する動作を記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 実行環境
+      description: OS、Node.js、npm、MCP client、実行方法を記載してください。
+      placeholder: macOS 15、Node.js 24、npm 11、Codex、npx
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 匿名化した診断情報
+      description: "`doctor`の結果やerrorを、秘密情報とreview contentを除いて記載してください。"
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 確認事項
+      options:
+        - label: 既存Issueに同じ報告がないことを確認しました。
+          required: true
+        - label: credential、review本文、diff、個人情報を除きました。
+          required: true
