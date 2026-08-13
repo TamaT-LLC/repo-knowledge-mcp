@@ -25,6 +25,7 @@ export const EXPECTED_PACKAGE_NAME = "repo-knowledge-mcp";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const requiredPackagePaths = [
+  "LICENSE",
   "README.md",
   "SECURITY.md",
   "dist/bin.js",

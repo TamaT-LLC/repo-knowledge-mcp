@@ -15,7 +15,10 @@
 検証対象 commit を checkout し、依存関係を固定して実行する。
 
 ```console
-npm ci
+npm ci --ignore-scripts
+npm audit --audit-level=high
+npm audit signatures
+npm rebuild
 gh auth status
 npm run --silent smoke:m1 -- \
   --manifest docs/testing/m1-smoke-manifest.json \

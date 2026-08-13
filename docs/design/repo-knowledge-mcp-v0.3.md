@@ -171,7 +171,7 @@ M3 の対象と受け入れ条件は、[M3 個人利用要件](./repo-knowledge-
 | DB | `better-sqlite3` | WAL 前提（§15.4）。native addon のため**バンドル対象外（external）** |
 | GitHub アクセス | `gh` CLI ラッパー (`execa`) | 認証を gh に委譲、トークンを一切保持しない |
 | glob 判定 | `picomatch` | scope マッチング |
-| frontmatter | `gray-matter` | knowledge md の読み書き |
+| frontmatter | `yaml` strict parser | 完全一致する `---` delimiter の knowledge md だけを読み書きし、実行可能 parser の選択を許可しない |
 | ID | ULID (`ulid`) | 連番は同時実行・git マージで衝突するため不採用（§15.1） |
 | ビルド / 配布 | **`tsc`** / npm publish (`bin` 指定) | tsup は不採用（メンテナンス状況と native addon の external 化を考慮すると、この規模では tsc が最も事故が少ない）。`npx -y repo-knowledge-mcp` で起動 |
 | ログ | `pino`（**stderr**） | stdout は JSON-RPC 専用。**console.log 禁止**、使うなら console.error |
@@ -2477,7 +2477,7 @@ repo rename 後も同じ 32 桁 storage-id を使用し、旧 owner/name は ali
 ##### F-05：確定技術スタックの実装
 
 SQLite 派生投影は better-sqlite3 と WAL を使用する。
-knowledge Markdown は gray-matter に strict YAML engine を組み合わせ、duplicate key と無効 schema を fail-closed で拒否する。
+knowledge Markdown は完全一致する `---` delimiter と strict YAML parser を使用し、language suffix、duplicate key、無効 schema を fail-closed で拒否する。
 
 <a id="implementation-facts"></a>
 
@@ -2490,7 +2490,7 @@ knowledge Markdown は gray-matter に strict YAML engine を組み合わせ、d
 M1-A の Markdown reader/writer、Canonical JSONL envelope、transaction journal、repo writer lock、recovery、reindex、ETag と revision、SQLite projection、repository registry を実装した。
 実装の入口は [canonical-transaction-store.ts](../../src/canonical-transaction-store.ts) である。
 SQLite projection は v0.2 の確定技術スタックに従い、[better-sqlite3 を用いた派生投影](../../src/sqlite-projection.ts) とした。
-gray-matter と strict YAML engine による frontmatter、実バイト ETag は [knowledge-document.ts](../../src/knowledge-document.ts) に実装した。
+完全一致する `---` delimiter と strict YAML parser による frontmatter、実バイト ETag は [knowledge-document.ts](../../src/knowledge-document.ts) に実装した。
 repo ID を基準にした global registry lock と 32 桁 storage-id は [repository-registry.ts](../../src/repository-registry.ts) に実装した。
 
 ### 5.2 kill-point で確認した収束境界

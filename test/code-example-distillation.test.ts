@@ -301,6 +301,22 @@ describe("M2 code example fixtures", () => {
     ]);
     expect(tokens.specifiers).toEqual(["@scope/pkg"]);
 
+    // Escaped delimiters stay inside one specifier instead of splitting the
+    // string and rejecting a grounded, syntactically valid example.
+    const escapedSpecifier = extractCodeExampleReferenceTokens(
+      'const fixture = "fixtures/\\"quoted\\"/case";\n' +
+        "loadFixture(fixture);",
+    );
+    expect(escapedSpecifier.identifiers).toEqual(["fixture", "loadFixture"]);
+    expect(escapedSpecifier.specifiers).toEqual(['fixtures/\\"quoted\\"/case']);
+
+    // A method named import is not JavaScript's dynamic import expression.
+    const importMethod = extractCodeExampleReferenceTokens(
+      'loader.import("fabricatedModule");',
+    );
+    expect(importMethod.identifiers).toEqual(["fabricatedModule", "loader"]);
+    expect(importMethod.specifiers).toEqual([]);
+
     // The exhaustive pass covers quoted bracket members, type annotations,
     // string-literal words, and declared bindings alike, while
     // standard-library type names stay excluded through the generic list.

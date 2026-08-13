@@ -87,7 +87,10 @@ export class RepositoryRegistry {
       this.lockTimeoutMs,
       async () => {
         const snapshot = await this.readSnapshot();
-        const previous = snapshot.document.repositories[request.repoId];
+        const previous = findRepositoryEntry(
+          snapshot.document.repositories,
+          request.repoId,
+        );
         const aliases = sortAndDedupeStrings([
           ...(previous?.aliases ?? []),
           ...(request.aliases ?? []),
@@ -108,10 +111,10 @@ export class RepositoryRegistry {
         await syncDirectory(join(this.registryRoot, "repos"));
 
         if (!registryEntriesEqual(previous, entry)) {
-          const repositories = {
-            ...snapshot.document.repositories,
-            [request.repoId]: entry,
-          };
+          const repositories = Object.fromEntries([
+            ...Object.entries(snapshot.document.repositories),
+            [request.repoId, entry],
+          ]);
           await this.writeDocument({ repositories }, snapshot.bytes);
         }
         return toResolvedRepository(this.registryRoot, request.repoId, entry);
@@ -126,7 +129,10 @@ export class RepositoryRegistry {
       join(this.registryRoot, ".registry.lock"),
       this.lockTimeoutMs,
       async () => {
-        const entry = (await this.readSnapshot()).document.repositories[repoId];
+        const entry = findRepositoryEntry(
+          (await this.readSnapshot()).document.repositories,
+          repoId,
+        );
         return entry
           ? toResolvedRepository(this.registryRoot, repoId, entry)
           : null;
@@ -183,7 +189,10 @@ export class RepositoryRegistry {
       bytes = await readFile(registryPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return { bytes: null, document: { repositories: {} } };
+        return {
+          bytes: null,
+          document: { repositories: Object.create(null) },
+        };
       }
       throw error;
     }
@@ -259,7 +268,7 @@ function parseRegistryDocument(bytes: Buffer): RepositoryRegistryDocument {
     );
   }
 
-  const repositories: Record<string, RepositoryRegistryEntry> = {};
+  const entries: Array<[string, RepositoryRegistryEntry]> = [];
   for (const [repoId, rawEntry] of Object.entries(value.repositories)) {
     if (
       !isRecord(rawEntry) ||
@@ -276,15 +285,18 @@ function parseRegistryDocument(bytes: Buffer): RepositoryRegistryDocument {
     }
     validateRepositoryIdentity(repoId, rawEntry.currentName);
     validateRepositoryAliases(rawEntry.aliases);
-    repositories[repoId] = {
-      aliases: sortAndDedupeStrings(rawEntry.aliases).filter(
-        (alias) => alias !== rawEntry.currentName,
-      ),
-      currentName: rawEntry.currentName,
-      path: rawEntry.path,
-    };
+    entries.push([
+      repoId,
+      {
+        aliases: sortAndDedupeStrings(rawEntry.aliases).filter(
+          (alias) => alias !== rawEntry.currentName,
+        ),
+        currentName: rawEntry.currentName,
+        path: rawEntry.path,
+      },
+    ]);
   }
-  return { repositories };
+  return { repositories: Object.fromEntries(entries) };
 }
 
 function validateRepositoryIdentity(repoId: string, currentName: string): void {
@@ -326,6 +338,15 @@ function registryEntriesEqual(
     left.aliases.length === right.aliases.length &&
     left.aliases.every((value, index) => value === right.aliases[index])
   );
+}
+
+function findRepositoryEntry(
+  repositories: Readonly<Record<string, RepositoryRegistryEntry>>,
+  repoId: string,
+): RepositoryRegistryEntry | undefined {
+  return Object.entries(repositories).find(
+    ([candidate]) => candidate === repoId,
+  )?.[1];
 }
 
 function toResolvedRepository(

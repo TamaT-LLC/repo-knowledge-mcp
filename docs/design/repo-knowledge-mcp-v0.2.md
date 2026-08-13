@@ -94,7 +94,7 @@ repo-knowledge-mcp は、リポジトリごとの PR レビュー指摘（人間
 | DB | `better-sqlite3` | WAL 前提（§15.4）。native addon のため**バンドル対象外（external）** |
 | GitHub アクセス | `gh` CLI ラッパー (`execa`) | 認証を gh に委譲、トークンを一切保持しない |
 | glob 判定 | `picomatch` | scope マッチング |
-| frontmatter | `gray-matter` | knowledge md の読み書き |
+| frontmatter | `yaml` strict parser | 完全一致する `---` delimiter の knowledge md だけを読み書きし、実行可能 parser の選択を許可しない |
 | ID | ULID (`ulid`) | 連番は同時実行・git マージで衝突するため不採用（§15.1） |
 | ビルド / 配布 | **`tsc`** / npm publish (`bin` 指定) | tsup は不採用（メンテナンス状況と native addon の external 化を考慮すると、この規模では tsc が最も事故が少ない）。`npx -y repo-knowledge-mcp` で起動 |
 | ログ | `pino`（**stderr**） | stdout は JSON-RPC 専用。**console.log 禁止**、使うなら console.error |

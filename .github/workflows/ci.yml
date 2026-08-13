@@ -27,7 +27,14 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-      - run: npm ci
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Audit dependency graph and registry signatures
+        run: |
+          npm audit --audit-level=high
+          npm audit signatures
+      - name: Run verified dependency lifecycle scripts
+        run: npm rebuild
       - run: npm run check
       # Offline M2 quality gate: recorded predictions only, no live network
       # access and no provider credential. Fails on any metric below its

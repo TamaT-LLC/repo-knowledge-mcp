@@ -34,6 +34,7 @@ package version、tag、GitHub release、npm registry version、report の値が
 | 長期 npm token を repository secret に置いていない | pass / fail | `___` |
 | 対象 version が registry で未使用である | pass / fail | `___` |
 | working tree が clean である | pass / fail | `___` |
+| security review に未解決の critical または high finding がない | pass / fail | `___` |
 
 一項目でも fail または未確認なら GitHub release を publish しない。
 詳細手順は [npm release runbook](./npm-release-runbook.md) に従う。
@@ -65,11 +66,27 @@ package version、tag、GitHub release、npm registry version、report の値が
 
 | command | exit | report / digest | 判定 |
 | --- | ---: | --- | --- |
-| `npm ci` |  | `___` | pass / fail |
+| `npm ci --ignore-scripts` |  | `___` | pass / fail |
+| `npm audit --audit-level=high` |  | `___` | pass / fail |
+| `npm audit signatures` |  | `___` | pass / fail |
+| `npm rebuild` |  | `___` | pass / fail |
 | `npm run check` |  | `___` | pass / fail |
 | `npm run golden` |  | `___` | pass / fail |
 | `npm run quality:gate` |  | `___` | pass / fail |
 | `npm run package:smoke` |  | `___` | pass / fail |
+
+### Security review
+
+| 項目 | 結果 | 根拠 |
+| --- | --- | --- |
+| CodeQL（Actions、JavaScript、TypeScript） | pass / fail | `___` |
+| GitHub secret scanning | pass / fail | `___` |
+| Git history の secret scan | pass / fail | `___` |
+| dependency audit | pass / fail | `___` |
+| registry signature audit | pass / fail | `___` |
+| package artifact の credential scan | pass / fail | `___` |
+| 手動レビューで確認した data、command、path、admin boundary | pass / fail | `___` |
+| 残余リスクと受容者 | pass / fail | `___` |
 
 ## 5. Pull Request CI
 
@@ -96,6 +113,7 @@ Pull Request CI の package smoke は registry package の証明ではない。
 | M3-AC-008 | pass / fail | `___` |
 | M3-AC-009 | pass / fail | `___` |
 | M3-AC-010 | pass / fail | `___` |
+| M3-AC-011 | pass / fail | `___` |
 
 ### Readiness 記録
 
@@ -159,7 +177,7 @@ registry smoke では `npx -y repo-knowledge-mcp@<exact-version>` 相当の exac
 | M2 pilot gate | go / no-go | §3 |
 | Local verification | go / no-go | §4 |
 | Pull Request CI Node.js 22 / 24 | go / no-go | §5 |
-| M3-AC-001〜010 | go / no-go | §6 |
+| M3-AC-001〜011 | go / no-go | §6 |
 | package artifact | go / no-go | §7 |
 | npm publish と registry smoke Node.js 22 / 24 | go / no-go | §8 |
 | version の全媒体一致 | go / no-go | §1 |

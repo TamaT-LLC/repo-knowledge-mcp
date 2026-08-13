@@ -534,7 +534,10 @@ structured diagnostic と provider log は stderr に書きます。
 ## 開発と release gate
 
 ```console
-npm ci
+npm ci --ignore-scripts
+npm audit --audit-level=high
+npm audit signatures
+npm rebuild
 npm run check
 npm run golden
 npm run quality:gate

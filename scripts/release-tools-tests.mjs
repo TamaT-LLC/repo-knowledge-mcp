@@ -26,6 +26,7 @@ import {
 
 test("package artifact paths use an explicit release allowlist", () => {
   for (const path of [
+    "LICENSE",
     "README.md",
     "SECURITY.md",
     "package.json",
@@ -185,7 +186,6 @@ test("release runtime version checks match the documented floor", () => {
 test("registry smoke requires the fixed package and an exact stable version", () => {
   const request = {
     attempts: 3,
-    intervalMs: 0,
     name: EXPECTED_PACKAGE_NAME,
     version: "0.3.0",
   };
@@ -196,6 +196,12 @@ test("registry smoke requires the fixed package and an exact stable version", ()
   );
   assert.throws(() =>
     validateRegistrySmokeRequest({ ...request, version: "latest" }),
+  );
+  assert.throws(() =>
+    validateRegistrySmokeRequest({ ...request, attempts: 0 }),
+  );
+  assert.throws(() =>
+    validateRegistrySmokeRequest({ ...request, attempts: 61 }),
   );
   assert.throws(() => parsePublishedVersion('["0.3.0"]'));
 });

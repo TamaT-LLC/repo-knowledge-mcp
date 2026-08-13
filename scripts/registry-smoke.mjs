@@ -12,6 +12,7 @@ export const REGISTRY_SMOKE_REPORT_KIND = "repo_knowledge_npm_registry_smoke";
 export const REGISTRY_SMOKE_REPORT_SCHEMA_VERSION = 1;
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const REGISTRY_RETRY_INTERVAL_MS = 10_000;
 const stableVersionPattern =
   /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u;
 
@@ -22,11 +23,12 @@ export function validateRegistrySmokeRequest(input) {
   if (!stableVersionPattern.test(input.version)) {
     throw new Error("registry smoke requires an exact stable version");
   }
-  if (!Number.isSafeInteger(input.attempts) || input.attempts < 1) {
-    throw new Error("registry smoke attempts must be a positive integer");
-  }
-  if (!Number.isSafeInteger(input.intervalMs) || input.intervalMs < 0) {
-    throw new Error("registry smoke interval must be a non-negative integer");
+  if (
+    !Number.isSafeInteger(input.attempts) ||
+    input.attempts < 1 ||
+    input.attempts > 60
+  ) {
+    throw new Error("registry smoke attempts must be between 1 and 60");
   }
   return input;
 }
@@ -116,21 +118,21 @@ async function waitForPublishedVersion(request, environment) {
         `npm view failed (${String(result.code)}): ${lastDiagnostics}`,
       );
     }
-    if (attempt < request.attempts) await delay(request.intervalMs);
+    if (attempt < request.attempts) await delay();
   }
   throw new Error(
     `package did not become visible after ${String(request.attempts)} attempts: ${lastDiagnostics}`,
   );
 }
 
-function delay(milliseconds) {
+function delay() {
   return new Promise((resolvePromise) =>
-    setTimeout(resolvePromise, milliseconds),
+    setTimeout(resolvePromise, REGISTRY_RETRY_INTERVAL_MS),
   );
 }
 
 function parseArguments(argv) {
-  const options = { attempts: 18, intervalMs: 10_000 };
+  const options = { attempts: 18 };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     const value = argv[index + 1];
@@ -143,15 +145,19 @@ function parseArguments(argv) {
     } else if (argument === "--attempts" && value !== undefined) {
       options.attempts = Number(value);
       index += 1;
-    } else if (argument === "--interval-ms" && value !== undefined) {
-      options.intervalMs = Number(value);
-      index += 1;
     } else {
       throw new Error(`unknown or incomplete argument ${String(argument)}`);
     }
   }
   if (options.name === undefined || options.version === undefined) {
     throw new Error("--name and --version are required");
+  }
+  if (
+    !Number.isSafeInteger(options.attempts) ||
+    options.attempts < 1 ||
+    options.attempts > 60
+  ) {
+    throw new Error("--attempts must be an integer between 1 and 60");
   }
   return options;
 }
