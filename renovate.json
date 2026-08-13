@@ -17,7 +17,7 @@
   "vulnerabilityAlerts": {
     "enabled": true,
     "automerge": false,
-    "dependencyDashboardApproval": false,
+    "dependencyDashboardApproval": true,
     "minimumReleaseAge": null,
     "addLabels": ["security"]
   },
