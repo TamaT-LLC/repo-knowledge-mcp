@@ -87,7 +87,10 @@ export class RepositoryRegistry {
       this.lockTimeoutMs,
       async () => {
         const snapshot = await this.readSnapshot();
-        const previous = snapshot.document.repositories[request.repoId];
+        const previous = findRepositoryEntry(
+          snapshot.document.repositories,
+          request.repoId,
+        );
         const aliases = sortAndDedupeStrings([
           ...(previous?.aliases ?? []),
           ...(request.aliases ?? []),
@@ -126,7 +129,10 @@ export class RepositoryRegistry {
       join(this.registryRoot, ".registry.lock"),
       this.lockTimeoutMs,
       async () => {
-        const entry = (await this.readSnapshot()).document.repositories[repoId];
+        const entry = findRepositoryEntry(
+          (await this.readSnapshot()).document.repositories,
+          repoId,
+        );
         return entry
           ? toResolvedRepository(this.registryRoot, repoId, entry)
           : null;
@@ -332,6 +338,15 @@ function registryEntriesEqual(
     left.aliases.length === right.aliases.length &&
     left.aliases.every((value, index) => value === right.aliases[index])
   );
+}
+
+function findRepositoryEntry(
+  repositories: Readonly<Record<string, RepositoryRegistryEntry>>,
+  repoId: string,
+): RepositoryRegistryEntry | undefined {
+  return Object.entries(repositories).find(
+    ([candidate]) => candidate === repoId,
+  )?.[1];
 }
 
 function toResolvedRepository(

@@ -357,11 +357,12 @@ function extractQuotedStrings(content: string): QuotedString[] {
     if (delimiter !== '"' && delimiter !== "'" && delimiter !== "`") continue;
 
     let end = start + 1;
-    while (
-      end < content.length &&
-      content[end] !== delimiter &&
-      content[end] !== "\n"
-    ) {
+    while (end < content.length && content[end] !== "\n") {
+      if (content[end] === "\\" && end + 1 < content.length) {
+        end += 2;
+        continue;
+      }
+      if (content[end] === delimiter) break;
       end += 1;
     }
     if (end < content.length && content[end] === delimiter && end > start + 1) {
@@ -384,7 +385,12 @@ function hasModuleKeywordPrefix(content: string, quoteStart: number): boolean {
   const keywordEnd = cursor + 1;
   while (cursor >= 0 && isAsciiWordCharacter(content[cursor]!)) cursor -= 1;
   const keyword = content.slice(cursor + 1, keywordEnd);
-  if (cursor >= 0 && isAsciiWordCharacter(content[cursor]!)) return false;
+  if (
+    cursor >= 0 &&
+    (isAsciiWordCharacter(content[cursor]!) || content[cursor] === ".")
+  ) {
+    return false;
+  }
   return (
     keyword === "import" ||
     (keyword === "require" && hasParenthesis) ||

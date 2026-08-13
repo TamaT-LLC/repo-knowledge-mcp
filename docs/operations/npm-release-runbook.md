@@ -105,8 +105,19 @@ npm は既存 package に対して trusted publisher を設定するため、未
 version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。
 
 ```console
+npm ci --ignore-scripts
+npm audit --audit-level=high
+npm audit signatures
+npm rebuild
+npm run check
+npm run golden
+npm run quality:gate
+npm run package:smoke
 npm run --silent release:verify -- --tag v0.3.0 --commit <full-commit-sha> --repository-visibility public
 ```
+
+この順序を入れ替えてはならない。
+lifecycle script を実行する `npm rebuild` は dependency と registry signature の検証後にだけ実行する。
 
 ## 5. 公開手順
 

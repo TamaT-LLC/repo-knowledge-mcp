@@ -62,6 +62,7 @@ attempts は 1 から 60 の範囲に制限し、programmatic request と CLI pa
 quoted string、module specifier、末尾 punctuation の抽出に、多項式時間となり得る正規表現があった。
 
 該当処理を一方向に走査する parser と `trimEnd` に置き換えた。
+escaped delimiter は同じ quoted string の一部として走査し、正当な specifier を複数の token に分割しない regression test を追加した。
 CodeQL の `js/polynomial-redos` は修正後に 0 件となった。
 
 ### SEC-004: repository registry の remote property injection
@@ -70,6 +71,7 @@ CodeQL の `js/polynomial-redos` は修正後に 0 件となった。
 外部入力由来の repository ID を通常 object の動的 property として扱い、prototype property を誤って解決する可能性があった。
 
 registry と canonical normalization は `Object.fromEntries` と null-prototype の空 object を使うよう変更した。
+registry の ID lookup は own entry の列挙結果だけを参照し、非空 registry でも継承 property に到達しない。
 `toString` と `__proto__` を ID / key に含む regression test を追加した。
 
 ### SEC-005: provider redirect 時の credential 転送
@@ -83,6 +85,7 @@ HTTPS endpoint の既存制約と合わせて test を追加した。
 ## Supply-chain と release workflow
 
 CI と release workflow は `npm ci --ignore-scripts` の後に dependency audit と registry signature audit を実行し、その後だけ `npm rebuild` で lifecycle script を許可する。
+README、smoke runbook、release report も同じ順序に統一し、ローカル検証が audit 前に lifecycle script を実行しないようにする。
 GitHub Actions は full commit SHA で pin し、release publish job は npm environment と OIDC の `id-token: write` に限定する。
 npm environment は tag `v*` だけを許可し、TakehiroT または Fuelda の reviewer approval を必要とし、self review を禁止する。
 repository secret に長期 npm token を置かない構成とする。

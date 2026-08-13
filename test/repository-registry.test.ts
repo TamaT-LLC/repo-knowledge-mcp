@@ -70,9 +70,19 @@ describe("repository registry", () => {
 
   it("does not resolve inherited object properties as repository IDs", async () => {
     const registry = new RepositoryRegistry(await createRegistryRoot());
+    await registry.register({
+      repoId: "R_existing",
+      currentName: "owner/existing",
+    });
 
     await expect(registry.resolveById("toString")).resolves.toBeNull();
     await expect(registry.resolveById("__proto__")).resolves.toBeNull();
+
+    const reserved = await registry.register({
+      repoId: "toString",
+      currentName: "owner/reserved",
+    });
+    await expect(registry.resolveById("toString")).resolves.toEqual(reserved);
   });
 });
 

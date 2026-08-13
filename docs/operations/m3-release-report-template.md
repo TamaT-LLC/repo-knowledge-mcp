@@ -66,13 +66,14 @@ package version、tag、GitHub release、npm registry version、report の値が
 
 | command | exit | report / digest | 判定 |
 | --- | ---: | --- | --- |
-| `npm ci` |  | `___` | pass / fail |
+| `npm ci --ignore-scripts` |  | `___` | pass / fail |
+| `npm audit --audit-level=high` |  | `___` | pass / fail |
+| `npm audit signatures` |  | `___` | pass / fail |
+| `npm rebuild` |  | `___` | pass / fail |
 | `npm run check` |  | `___` | pass / fail |
 | `npm run golden` |  | `___` | pass / fail |
 | `npm run quality:gate` |  | `___` | pass / fail |
 | `npm run package:smoke` |  | `___` | pass / fail |
-| `npm audit --audit-level=high` |  | `___` | pass / fail |
-| `npm audit signatures` |  | `___` | pass / fail |
 
 ### Security review
 
