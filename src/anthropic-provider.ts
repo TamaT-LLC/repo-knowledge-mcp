@@ -107,6 +107,7 @@ export class AnthropicProviderAdapter implements LlmProviderAdapter {
           "x-api-key": key,
         },
         method: "POST",
+        redirect: "error",
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       });
     } catch (error) {
@@ -246,6 +247,13 @@ function assertHttpUrl(value: string): void {
       "INVALID_CONFIGURATION",
       "system",
       "endpoint must be an absolute HTTPS URL",
+    );
+  }
+  if (parsed.username.length > 0 || parsed.password.length > 0) {
+    throw providerError(
+      "INVALID_CONFIGURATION",
+      "system",
+      "endpoint must not contain credentials",
     );
   }
 }

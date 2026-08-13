@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 
-import matter from "gray-matter";
 import { parseDocument, stringify } from "yaml";
 
 export interface KnowledgeFrontmatter extends Record<string, unknown> {
@@ -58,25 +57,10 @@ export function parseKnowledgeDocument(
     });
   }
 
-  if (!matter.test(markdown)) {
-    throw new KnowledgeStoreInvalidError(
-      path,
-      "expected a YAML frontmatter block delimited by ---",
-    );
-  }
-
-  let parsedFile: matter.GrayMatterFile<string>;
+  let parsedFile: ParsedFrontmatter;
 
   try {
-    parsedFile = matter(markdown, {
-      engines: {
-        yaml: {
-          parse: parseStrictYaml,
-          stringify: stringifyYaml,
-        },
-      },
-      language: "yaml",
-    });
+    parsedFile = parseYamlFrontmatter(markdown);
   } catch (error) {
     throw new KnowledgeStoreInvalidError(
       path,
@@ -104,15 +88,7 @@ export function serializeKnowledgeDocument(
   validateFrontmatter(path, frontmatter);
 
   try {
-    return matter.stringify(body, frontmatter, {
-      engines: {
-        yaml: {
-          parse: parseStrictYaml,
-          stringify: stringifyYaml,
-        },
-      },
-      language: "yaml",
-    });
+    return `---\n${stringifyYaml(frontmatter)}\n---\n${body}`;
   } catch (error) {
     throw new KnowledgeStoreInvalidError(
       path,
@@ -189,6 +165,47 @@ function parseStrictYaml(source: string): object {
   const parsed = document.toJS({ maxAliasCount: 0 }) as unknown;
   if (!isRecord(parsed)) throw new TypeError("frontmatter must be an object");
   return parsed;
+}
+
+interface ParsedFrontmatter {
+  readonly content: string;
+  readonly data: object;
+}
+
+/**
+ * Splits only an exact YAML `---` block. Language suffixes are deliberately
+ * rejected so untrusted Markdown can never select an executable parser.
+ */
+function parseYamlFrontmatter(markdown: string): ParsedFrontmatter {
+  const openingEnd = markdown.startsWith("---\n")
+    ? 4
+    : markdown.startsWith("---\r\n")
+      ? 5
+      : -1;
+  if (openingEnd === -1) {
+    throw new TypeError("expected a YAML frontmatter block delimited by ---");
+  }
+
+  let lineStart = openingEnd;
+  while (lineStart <= markdown.length) {
+    const newline = markdown.indexOf("\n", lineStart);
+    const lineEnd = newline === -1 ? markdown.length : newline;
+    const contentEnd =
+      lineEnd > lineStart && markdown.charCodeAt(lineEnd - 1) === 13
+        ? lineEnd - 1
+        : lineEnd;
+
+    if (markdown.slice(lineStart, contentEnd) === "---") {
+      return {
+        content: newline === -1 ? "" : markdown.slice(newline + 1),
+        data: parseStrictYaml(markdown.slice(openingEnd, lineStart)),
+      };
+    }
+    if (newline === -1) break;
+    lineStart = newline + 1;
+  }
+
+  throw new TypeError("frontmatter closing delimiter is missing");
 }
 
 function stringifyYaml(data: object): string {

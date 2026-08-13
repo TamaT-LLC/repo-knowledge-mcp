@@ -1,7 +1,8 @@
 {
   "name": "repo-knowledge-mcp",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Local-first MCP server that turns pull-request review knowledge into reusable repository rules",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -57,7 +58,6 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "better-sqlite3": "^13.0.3",
     "execa": "^10.0.1",
-    "gray-matter": "^4.0.3",
     "picomatch": "^4.0.5",
     "pino": "^10.3.1",
     "ulid": "^3.0.2",

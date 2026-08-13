@@ -24,7 +24,7 @@ describe("M1 real stdio MCP E2E", () => {
       protocolVersion: "2025-11-25",
     });
     expect(initialized).toMatchObject({
-      result: { serverInfo: { name: "repo-knowledge", version: "0.1.0" } },
+      result: { serverInfo: { name: "repo-knowledge", version: "0.3.0" } },
     });
     client.notify("notifications/initialized", {});
 

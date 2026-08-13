@@ -52,7 +52,7 @@ export function normalizeSetArrays<T>(value: T): T {
     return value;
   }
 
-  const normalized: Record<string, unknown> = {};
+  const normalized: Array<[string, unknown]> = [];
   for (const [key, item] of Object.entries(value)) {
     if (SET_LIKE_STRING_ARRAY_FIELDS.has(key)) {
       if (
@@ -61,14 +61,14 @@ export function normalizeSetArrays<T>(value: T): T {
       ) {
         throw new TypeError(`${key} must be an array of strings`);
       }
-      normalized[key] = sortAndDedupeStrings(item);
+      normalized.push([key, sortAndDedupeStrings(item)]);
       continue;
     }
 
-    normalized[key] = normalizeSetArrays(item);
+    normalized.push([key, normalizeSetArrays(item)]);
   }
 
-  return normalized as T;
+  return Object.fromEntries(normalized) as T;
 }
 
 export interface NormalizableComment {

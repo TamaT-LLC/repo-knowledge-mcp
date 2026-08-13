@@ -56,6 +56,7 @@ describe("AnthropicProviderAdapter", () => {
     expect(headers.get("anthropic-version")).toBe(ANTHROPIC_API_VERSION);
     expect(headers.get("content-type")).toBe("application/json");
     expect(headers.get("x-api-key")).toBe("secret-api-key");
+    expect(captured!.init!.redirect).toBe("error");
     const body = JSON.parse(String(captured!.init!.body)) as Record<
       string,
       unknown
@@ -78,6 +79,23 @@ describe("AnthropicProviderAdapter", () => {
       provider: "anthropic",
       responseId: "msg_123",
     });
+  });
+
+  it("rejects custom endpoints containing URL credentials", () => {
+    expect(
+      () =>
+        new AnthropicProviderAdapter({
+          apiKey: "secret-api-key",
+          defaultModel: "claude-test",
+          endpoint: "https://user:password@example.test/v1/messages",
+          fetch: vi.fn<typeof globalThis.fetch>(),
+        }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "INVALID_CONFIGURATION",
+        message: expect.stringContaining("credentials"),
+      }),
+    );
   });
 
   it("does not make a request without an API key", async () => {

@@ -204,4 +204,4 @@ repo rename 後も同じ 32 桁 storage-id を使用し、旧 owner/name は ali
 ### F-05：確定技術スタックの実装
 
 SQLite 派生投影は better-sqlite3 と WAL を使用する。
-knowledge Markdown は gray-matter に strict YAML engine を組み合わせ、duplicate key と無効 schema を fail-closed で拒否する。
+knowledge Markdown は完全一致する `---` delimiter と strict YAML parser を使用し、language suffix、duplicate key、無効 schema を fail-closed で拒否する。

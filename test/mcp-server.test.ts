@@ -57,7 +57,7 @@ describe("repo-knowledge MCP read server", () => {
 
     expect(connection.initializeResult).toMatchObject({
       instructions: REPO_KNOWLEDGE_SERVER_INSTRUCTIONS,
-      serverInfo: { name: "repo-knowledge", version: "0.1.0" },
+      serverInfo: { name: "repo-knowledge", version: "0.3.0" },
     });
 
     const listed = await connection.client.request("tools/list", {});

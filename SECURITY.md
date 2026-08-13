@@ -8,7 +8,7 @@ repo-knowledge-mcp は PR review という untrusted input を永続的な rule 
 security issue は public issue に詳細を書かず、GitHub の [private vulnerability report](https://github.com/TamaT-LLC/repo-knowledge-mcp/security/advisories/new) から報告してください。
 再現手順、影響範囲、対象 version、可能なら最小 fixture を含め、実 token、review 本文、個人情報は添付しないでください。
 
-M1 の security update 対象は最新の `0.1.x` です。
+初回公開後の security update 対象は最新の `0.3.x` です。
 未 release の main branch は best effort で修正します。
 
 ## Security boundary

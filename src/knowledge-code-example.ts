@@ -95,7 +95,7 @@ export function parseKnowledgeBodyCodeExample(
   const open = FENCE_OPEN_PATTERN.exec(section);
   if (open === null) return withoutExample;
   const fence = open.groups!.fence!;
-  const afterOpen = section.slice(open[0].length).replace(/\s+$/u, "");
+  const afterOpen = section.slice(open[0].length).trimEnd();
   const terminal = TERMINAL_FENCE_PATTERN.exec(afterOpen);
   if (terminal === null || terminal.groups!.fence !== fence) {
     return withoutExample;

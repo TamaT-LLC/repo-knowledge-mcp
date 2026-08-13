@@ -67,6 +67,13 @@ describe("repository registry", () => {
       repositoryStorageId("R_kgDOExample"),
     );
   });
+
+  it("does not resolve inherited object properties as repository IDs", async () => {
+    const registry = new RepositoryRegistry(await createRegistryRoot());
+
+    await expect(registry.resolveById("toString")).resolves.toBeNull();
+    await expect(registry.resolveById("__proto__")).resolves.toBeNull();
+  });
 });
 
 async function createRegistryRoot(): Promise<string> {

@@ -53,6 +53,22 @@ workflow は `id-token: write` を publish job だけに付与し、GitHub-hoste
 
 trusted publisher の動作確認後は、npm の publishing access を `Require two-factor authentication and disallow tokens` に設定する。
 
+初回 package 作成後は npm CLI 11.19.0 以降の `npm trust` でも同じ設定を作成・監査できる。
+実行する account が package owner または trusted publisher を管理できる maintainer であることを確認し、workflow filename には path ではなく basename だけを渡す。
+
+```console
+npm trust github repo-knowledge-mcp \
+  --repository TamaT-LLC/repo-knowledge-mcp \
+  --file release.yml \
+  --environment npm \
+  --allow-publish \
+  --yes
+npm trust list repo-knowledge-mcp --json
+```
+
+GitHub environment の required reviewer と deployment branch policy は GitHub plan で利用可能な場合に設定する。
+設定 API が plan 制約で拒否された場合も空の `npm` environment を release 承認の代替として扱わず、repository の public 化または plan 変更後に protection rule を再設定してから公開する。
+
 trusted publishing の要件は [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) を参照する。
 
 provenance の検証方法は [npm provenance statements](https://docs.npmjs.com/generating-provenance-statements/) を参照する。
@@ -84,6 +100,7 @@ npm は既存 package に対して trusted publisher を設定するため、未
 5. `npm run check`、`npm run golden`、`npm run quality:gate`、`npm run package:smoke` が成功している。
 6. M3 release では、M2 pilot の go 判定と M3 acceptance report が review 済みである。
 7. GitHub repository が public で、npm owner、license、trusted publisher、GitHub `npm` environment が確認済みである。
+8. 公開対象 commit の security review が完了し、CodeQL、secret scanning、依存関係監査に未解決の critical または high finding がない。
 
 version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。
 
@@ -99,6 +116,9 @@ npm run --silent release:verify -- --tag v0.3.0 --commit <full-commit-sha> --rep
 4. `verify release` と `registry smoke` の Node.js 22 と 24、および `publish exact tarball` が成功するまで release 完了としない。
 
 workflow の verify job は exact tag を checkout し、source check、golden、quality gate、package smoke を Node.js 22 と 24 で再実行する。
+
+verify job と publish job は lifecycle script を無効にして依存関係を展開し、`npm audit --audit-level=high` と `npm audit signatures` を通過してから `npm rebuild` で検証済み dependency の lifecycle script を実行する。
+既知の high または critical vulnerability、改ざんまたは署名欠落を検出した release は publish job へ進めない。
 
 publish job は `npm pack --dry-run --json` と実 tarball の manifest、integrity、shasum が一致することを検査する。
 

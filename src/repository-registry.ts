@@ -108,10 +108,10 @@ export class RepositoryRegistry {
         await syncDirectory(join(this.registryRoot, "repos"));
 
         if (!registryEntriesEqual(previous, entry)) {
-          const repositories = {
-            ...snapshot.document.repositories,
-            [request.repoId]: entry,
-          };
+          const repositories = Object.fromEntries([
+            ...Object.entries(snapshot.document.repositories),
+            [request.repoId, entry],
+          ]);
           await this.writeDocument({ repositories }, snapshot.bytes);
         }
         return toResolvedRepository(this.registryRoot, request.repoId, entry);
@@ -183,7 +183,10 @@ export class RepositoryRegistry {
       bytes = await readFile(registryPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return { bytes: null, document: { repositories: {} } };
+        return {
+          bytes: null,
+          document: { repositories: Object.create(null) },
+        };
       }
       throw error;
     }
@@ -259,7 +262,7 @@ function parseRegistryDocument(bytes: Buffer): RepositoryRegistryDocument {
     );
   }
 
-  const repositories: Record<string, RepositoryRegistryEntry> = {};
+  const entries: Array<[string, RepositoryRegistryEntry]> = [];
   for (const [repoId, rawEntry] of Object.entries(value.repositories)) {
     if (
       !isRecord(rawEntry) ||
@@ -276,15 +279,18 @@ function parseRegistryDocument(bytes: Buffer): RepositoryRegistryDocument {
     }
     validateRepositoryIdentity(repoId, rawEntry.currentName);
     validateRepositoryAliases(rawEntry.aliases);
-    repositories[repoId] = {
-      aliases: sortAndDedupeStrings(rawEntry.aliases).filter(
-        (alias) => alias !== rawEntry.currentName,
-      ),
-      currentName: rawEntry.currentName,
-      path: rawEntry.path,
-    };
+    entries.push([
+      repoId,
+      {
+        aliases: sortAndDedupeStrings(rawEntry.aliases).filter(
+          (alias) => alias !== rawEntry.currentName,
+        ),
+        currentName: rawEntry.currentName,
+        path: rawEntry.path,
+      },
+    ]);
   }
-  return { repositories };
+  return { repositories: Object.fromEntries(entries) };
 }
 
 function validateRepositoryIdentity(repoId: string, currentName: string): void {

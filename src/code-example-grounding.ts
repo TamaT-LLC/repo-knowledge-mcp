@@ -190,12 +190,7 @@ const MODULE_KEYWORD_TOKEN_REGEX = new RegExp(
   `(?<!${IDENTIFIER_CONTINUE})(?:import|from|use)\\s+(${MODULE_SPECIFIER})`,
   "gu",
 );
-const QUOTED_MODULE_SPECIFIER_REGEX =
-  /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["'`]([^"'`\n]+)["'`]/gu;
-const QUOTED_STRING_REGEX = /["'`]([^"'`\n]+)["'`]/gu;
 const SPECIFIER_RUN_REGEX = new RegExp(MODULE_SPECIFIER, "gu");
-const QUOTED_EVIDENCE_STRING_REGEX = /["'`]([^"'`\n]+)["'`]/gu;
-const TRAILING_SPECIFIER_PUNCTUATION_REGEX = /[.:/-]+$/u;
 
 export interface CodeExampleEvidenceSource {
   readonly body: string;
@@ -241,15 +236,19 @@ export interface CodeExampleGroundingResult {
 export function extractCodeExampleReferenceTokens(
   content: string,
 ): CodeExampleReferenceTokens {
+  const quotedStrings = extractQuotedStrings(content);
   const specifiers = sortAndDedupeStrings(
     [
       ...captureAll(content, MODULE_KEYWORD_TOKEN_REGEX),
-      ...captureAll(content, QUOTED_MODULE_SPECIFIER_REGEX),
-      ...captureAll(content, QUOTED_STRING_REGEX).filter(isSpecifierShaped),
+      ...quotedStrings
+        .filter(
+          (quoted) =>
+            hasModuleKeywordPrefix(content, quoted.start) ||
+            isSpecifierShaped(quoted.value),
+        )
+        .map((quoted) => quoted.value),
     ]
-      .map((specifier) =>
-        specifier.replace(TRAILING_SPECIFIER_PUNCTUATION_REGEX, ""),
-      )
+      .map(trimTrailingSpecifierPunctuation)
       .filter(
         (specifier) =>
           specifier.length > 0 &&
@@ -258,13 +257,7 @@ export function extractCodeExampleReferenceTokens(
   );
   // Quoted specifiers are validated as whole specifiers; blank their
   // interiors so their fragments are not reported or grounded separately.
-  const tokenizable = content
-    .replaceAll(QUOTED_MODULE_SPECIFIER_REGEX, (match) =>
-      " ".repeat(match.length),
-    )
-    .replaceAll(QUOTED_STRING_REGEX, (match, value: string) =>
-      isSpecifierShaped(value) ? " ".repeat(match.length) : match,
-    );
+  const tokenizable = blankQuotedSpecifiers(content, quotedStrings);
   const identifiers = sortAndDedupeStrings(
     (tokenizable.match(IDENTIFIER_TOKEN_REGEX) ?? []).filter(
       (token) => !GENERIC_TOKEN_SET.has(token.toLowerCase()),
@@ -325,11 +318,11 @@ function collectEvidenceSpecifiers(text: string): ReadonlySet<string> {
   const add = (value: string): void => {
     if (value.length === 0) return;
     specifiers.add(value);
-    const trimmed = value.replace(TRAILING_SPECIFIER_PUNCTUATION_REGEX, "");
+    const trimmed = trimTrailingSpecifierPunctuation(value);
     if (trimmed.length > 0) specifiers.add(trimmed);
   };
-  for (const match of text.matchAll(QUOTED_EVIDENCE_STRING_REGEX)) {
-    add(match[1]!);
+  for (const quoted of extractQuotedStrings(text)) {
+    add(quoted.value);
   }
   for (const match of text.matchAll(SPECIFIER_RUN_REGEX)) {
     add(match[0]);
@@ -349,4 +342,98 @@ function isSpecifierShaped(value: string): boolean {
 
 function captureAll(content: string, pattern: RegExp): string[] {
   return [...content.matchAll(pattern)].map((match) => match[1]!);
+}
+
+interface QuotedString {
+  readonly end: number;
+  readonly start: number;
+  readonly value: string;
+}
+
+function extractQuotedStrings(content: string): QuotedString[] {
+  const quoted: QuotedString[] = [];
+  for (let start = 0; start < content.length; start += 1) {
+    const delimiter = content[start];
+    if (delimiter !== '"' && delimiter !== "'" && delimiter !== "`") continue;
+
+    let end = start + 1;
+    while (
+      end < content.length &&
+      content[end] !== delimiter &&
+      content[end] !== "\n"
+    ) {
+      end += 1;
+    }
+    if (end < content.length && content[end] === delimiter && end > start + 1) {
+      quoted.push({
+        end: end + 1,
+        start,
+        value: content.slice(start + 1, end),
+      });
+      start = end;
+    }
+  }
+  return quoted;
+}
+
+function hasModuleKeywordPrefix(content: string, quoteStart: number): boolean {
+  let cursor = skipWhitespaceBackward(content, quoteStart - 1);
+  const hasParenthesis = content[cursor] === "(";
+  if (hasParenthesis) cursor = skipWhitespaceBackward(content, cursor - 1);
+
+  const keywordEnd = cursor + 1;
+  while (cursor >= 0 && isAsciiWordCharacter(content[cursor]!)) cursor -= 1;
+  const keyword = content.slice(cursor + 1, keywordEnd);
+  if (cursor >= 0 && isAsciiWordCharacter(content[cursor]!)) return false;
+  return (
+    keyword === "import" ||
+    (keyword === "require" && hasParenthesis) ||
+    (keyword === "from" && !hasParenthesis)
+  );
+}
+
+function skipWhitespaceBackward(content: string, start: number): number {
+  let cursor = start;
+  while (cursor >= 0 && content[cursor]!.trim().length === 0) cursor -= 1;
+  return cursor;
+}
+
+function isAsciiWordCharacter(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    character === "_" ||
+    character === "$"
+  );
+}
+
+function blankQuotedSpecifiers(
+  content: string,
+  quotedStrings: readonly QuotedString[],
+): string {
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const quoted of quotedStrings) {
+    if (
+      !hasModuleKeywordPrefix(content, quoted.start) &&
+      !isSpecifierShaped(quoted.value)
+    ) {
+      continue;
+    }
+    parts.push(
+      content.slice(cursor, quoted.start),
+      " ".repeat(quoted.end - quoted.start),
+    );
+    cursor = quoted.end;
+  }
+  parts.push(content.slice(cursor));
+  return parts.join("");
+}
+
+function trimTrailingSpecifierPunctuation(value: string): string {
+  let end = value.length;
+  while (end > 0 && ".:/-".includes(value[end - 1]!)) end -= 1;
+  return value.slice(0, end);
 }

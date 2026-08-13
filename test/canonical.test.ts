@@ -73,6 +73,20 @@ describe("normalizeSetArrays", () => {
       "scope must be an array of strings",
     );
   });
+
+  it("preserves special JSON keys without mutating object prototypes", () => {
+    const input = JSON.parse(
+      '{"__proto__":{"polluted":true},"scope":["repository"]}',
+    ) as unknown;
+
+    const normalized = normalizeSetArrays(input) as Record<string, unknown>;
+
+    expect(Object.prototype).not.toHaveProperty("polluted");
+    expect(Object.hasOwn(normalized, "__proto__")).toBe(true);
+    expect(canonicalizeJson(normalized)).toBe(
+      '{"__proto__":{"polluted":true},"scope":["repository"]}',
+    );
+  });
 });
 
 describe("normalizeComments", () => {
