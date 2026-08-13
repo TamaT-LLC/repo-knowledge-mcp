@@ -113,11 +113,20 @@ CLI、MCP ingest、reindex、recovery と直接編集を同時実行しない。
 `main` に branch protection / ruleset がないため、review と status check を経由しない直接 push を GitHub 設定上は拒否できない。
 npm publish 自体は environment reviewer で保護されるが、release source の完全性を高めるため、公開前に branch ruleset を設定することを推奨する。
 
+2026-08-14に、この指摘へのremediationとして`Protect main` ruleset（ID `20803864`）と`Require code owner review` ruleset（ID `20804041`）をactiveにした。
+前者はPull Request、review thread解決、Node.js 22と24のCI、ActionsとJavaScript向けCodeQL、strict status checkを必須とし、削除とforce pushを禁止する。
+後者は1件のCode Owner review、stale review取消、last push approvalを必須とする。
+`Protect main`のbypass actorは空であり、`TakehiroT`のPull Request経由のbypassは`Require code owner review`だけに設定している。
+このため、`TakehiroT`はCode Owner review条件をbypassできるが、`Protect main`の必須CIとCodeQLはbypassできない。
+Renovate Appを含むGitHub Appには、どちらのrulesetにもbypassを設定していない。
+
 ## GitHub 上の未解決 alert
 
 2026-08-13 時点の GitHub CodeQL には、修正前の `main` に対する critical 1 件と high 7 件が open のまま残っている。
 内訳は code injection 1 件、resource exhaustion 1 件、polynomial ReDoS 5 件、remote property injection 1 件である。
 これらを「修正済み」として手動 dismiss せず、修正 commit の GitHub CodeQL が閉じることを release gate とする。
+
+2026-08-14にCodeQLのopen alertが0件であることをGitHub APIで確認し、このrelease gateを通過した。
 
 ## 公開許可条件
 
