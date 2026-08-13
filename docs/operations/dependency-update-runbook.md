@@ -19,8 +19,12 @@ RenovateはGitHubのvulnerability alertを読み、修正版を選ぶために�
 
 ## 2. 更新方針
 
-通常のnpm updateは毎週月曜日の午前6時より前に処理し、公開から3日未満のversionを候補から外す。
+通常のnpm updateは毎週月曜日の午前0時から午前6時までに処理し、公開から3日未満のversionを候補から外す。
 Vulnerability fixは通常scheduleと公開後の待機期間を適用しないが、Dependency Dashboardでmaintainerが承認するまでPull Requestを作成しない。
+
+定期的なlockfile maintenanceは、package managerが選ぶtransitive dependencyに公開後3日の待機期間を適用できないため、有効化しない。
+Transitive dependencyのvulnerabilityはDependabot alertsからRenovateへ渡し、Dashboard承認後のsecurity updateで修正する。
+手動でlockfile全体を更新する場合は、変更versionをreviewし、`npm audit --audit-level=high`、`npm audit signatures`、必須CIを実行する。
 
 Major updateはDependency Dashboardでmaintainerが承認するまでPull Requestを作成しない。
 Development dependencyのminor updateとpatch updateは、一つのPull Requestへまとめる。
@@ -37,8 +41,23 @@ Renovateは自動mergeしない。
 Mend Renovate Appは`repo-knowledge-mcp`だけを選択してinstallする。
 組織の全repositoryへ一括で権限を付与しない。
 
-Renovateにはbranch、Pull Request、Issue、check、workflowを更新する権限がある。
-一方、repository rulesetではRenovateに`main`のbypassを付与しないため、Appは更新branchとPull Requestを経由する。
+Renovate Appに付与されるrepository permissionは次のとおりである。
+
+| Permission | Access | 用途 |
+| --- | --- | --- |
+| Contents | Read and write | repositoryを読み、更新branchを作成する |
+| Pull requests | Read and write | 更新Pull Requestを作成して更新する |
+| Issues | Read and write | Dependency Dashboardとwarning Issueを管理する |
+| Checks | Read and write | Renovateのcheck結果を管理する |
+| Commit statuses | Read and write | 更新branchのstatusを管理する |
+| Workflows | Read and write | GitHub Actionsの参照を更新する |
+| Dependabot alerts | Read | GitHubのvulnerability alertを取得する |
+| Administration | Read | branch protectionとrulesetを確認する |
+| Members | Read | teamとreviewerを解決する |
+| Packages | Read | package metadataを取得する |
+| Metadata | Read | GitHub Appに必須のrepository metadataを取得する |
+
+Repository rulesetではRenovateに`main`のbypassを付与しないため、Appは更新branchとPull Requestを経由する。
 
 2026-08-14時点では、`main`に次のrulesetを設定している。
 
@@ -59,10 +78,15 @@ Appの権限と保存情報は[Renovate security and permissions](https://docs.r
 1. `renovate.json`をdefault branchへmergeする。
 2. `Protect main`と`Require code owner review`がactiveであり、対象branch、必須check、review条件、bypass actorが前節と一致することをGitHub APIまたはrepository settingsで確認する。
 3. Rulesetが存在しない場合または設定が一致しない場合は有効化を中止し、rulesetを修復する。
-4. TamaT-LLCのRenovate App設定で`repo-knowledge-mcp`だけを選択する。
-5. RenovateのDependency Dashboardが作成され、configuration warningがないことを確認する。
-6. Renovateが作成した最初のPull Requestで、owner reviewと必須checkが適用されることを確認する。
-7. Renovateのvulnerability alert連携を確認してから、Dependabot security updatesを無効化する。
+4. GitHub dependency graphとDependabot alertsが有効であることをrepository settingsで確認する。
+5. Renovate Appに`Dependabot alerts: Read`が付与されていることをApp settingsで確認する。
+6. 前二項の条件を満たさない場合は有効化を中止し、GitHubのsecurity settingsまたはApp permissionを修復する。
+7. TamaT-LLCのRenovate App設定で`repo-knowledge-mcp`だけを選択する。
+8. RenovateのDependency Dashboardが作成され、configuration warningがないことを確認する。
+9. Renovateが作成した最初のPull Requestで、owner reviewと必須checkが適用されることを確認する。
+10. Renovateのvulnerability alert連携を確認してから、Dependabot security updatesを無効化する。
+
+GitHub dependency graphとDependabot alertsは、Dependabot security updatesを無効化した後も維持する。
 
 Renovateの確認前にDependabot security updatesを無効化すると、移行中にvulnerability fixの作成者が不在になる。
 移行中は重複Pull Requestより未検出期間の回避を優先する。

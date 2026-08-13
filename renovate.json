@@ -5,11 +5,10 @@
     "helpers:pinGitHubActionDigests",
     "security:minimumReleaseAgeNpm",
     ":configMigration",
-    ":enableVulnerabilityAlerts",
-    ":maintainLockFilesWeekly"
+    ":enableVulnerabilityAlerts"
   ],
   "timezone": "Asia/Tokyo",
-  "schedule": ["before 6am on Monday"],
+  "schedule": ["* 0-5 * * 1"],
   "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
   "automerge": false,
