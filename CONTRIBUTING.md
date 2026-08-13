@@ -68,6 +68,7 @@ Pull Requestには、変更理由、変更内容、関連Issue、検証結果を
 
 CODEOWNERSのreviewと必須CIが完了するまでmergeできません。
 version tag、GitHub Release、npm publishはmaintainerが[release runbook](./docs/operations/npm-release-runbook.md)に従って実行します。
+依存packageとGitHub Actionsの更新は[dependency update runbook](./docs/operations/dependency-update-runbook.md)に従って実行します。
 
 ## 行動規範
 
