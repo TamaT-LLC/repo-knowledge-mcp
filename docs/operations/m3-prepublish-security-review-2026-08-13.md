@@ -116,7 +116,9 @@ npm publish 自体は environment reviewer で保護されるが、release sourc
 2026-08-14に、この指摘へのremediationとして`Protect main` ruleset（ID `20803864`）と`Require code owner review` ruleset（ID `20804041`）をactiveにした。
 前者はPull Request、review thread解決、Node.js 22と24のCI、ActionsとJavaScript向けCodeQL、strict status checkを必須とし、削除とforce pushを禁止する。
 後者は1件のCode Owner review、stale review取消、last push approvalを必須とする。
-`TakehiroT`にはPull Request経由のbypassがあるが、Renovate Appを含むGitHub Appにはbypassを設定していない。
+`Protect main`のbypass actorは空であり、`TakehiroT`のPull Request経由のbypassは`Require code owner review`だけに設定している。
+このため、`TakehiroT`はCode Owner review条件をbypassできるが、`Protect main`の必須CIとCodeQLはbypassできない。
+Renovate Appを含むGitHub Appには、どちらのrulesetにもbypassを設定していない。
 
 ## GitHub 上の未解決 alert
 

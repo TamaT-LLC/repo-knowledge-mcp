@@ -61,12 +61,14 @@ Repository rulesetではRenovateに`main`のbypassを付与しないため、App
 
 2026-08-14時点では、`main`に次のrulesetを設定している。
 
-| Ruleset | ID | 強制内容 |
-| --- | --- | --- |
-| Protect main | `20803864` | Pull Request、review thread解決、Node.js 22と24のCI、ActionsとJavaScript向けCodeQL、strict status check、削除禁止、force push禁止 |
-| Require code owner review | `20804041` | 1件のCode Owner review、stale review取消、last push approval |
+| Ruleset | ID | Bypass actor | 強制内容 |
+| --- | --- | --- | --- |
+| Protect main | `20803864` | なし | Pull Request、review thread解決、Node.js 22と24のCI、ActionsとJavaScript向けCodeQL、strict status check、削除禁止、force push禁止 |
+| Require code owner review | `20804041` | `TakehiroT`のPull Request経由だけ | 1件のCode Owner review、stale review取消、last push approval |
 
-`TakehiroT`にはPull Request経由のbypassがあるが、Renovate Appにはbypass actorを設定していない。
+`TakehiroT`のbypassは`Require code owner review`だけに適用され、`Protect main`の必須CIとCodeQLを迂回できない。
+Renovate Appには、どちらのrulesetにもbypass actorを設定していない。
+RenovateのPull Requestでは`TakehiroT`のbypassを使用せず、Code Owner reviewを記録してからmergeする。
 
 Renovate設定には`postUpgradeTasks`、任意command、private registry credentialを追加しない。
 追加が必要になった場合は、権限と外部送信を別のsecurity reviewで確認する。
@@ -77,14 +79,15 @@ Appの権限と保存情報は[Renovate security and permissions](https://docs.r
 
 1. `renovate.json`をdefault branchへmergeする。
 2. `Protect main`と`Require code owner review`がactiveであり、対象branch、必須check、review条件、bypass actorが前節と一致することをGitHub APIまたはrepository settingsで確認する。
-3. Rulesetが存在しない場合または設定が一致しない場合は有効化を中止し、rulesetを修復する。
-4. GitHub dependency graphとDependabot alertsが有効であることをrepository settingsで確認する。
-5. Renovate Appに`Dependabot alerts: Read`が付与されていることをApp settingsで確認する。
-6. 前二項の条件を満たさない場合は有効化を中止し、GitHubのsecurity settingsまたはApp permissionを修復する。
-7. TamaT-LLCのRenovate App設定で`repo-knowledge-mcp`だけを選択する。
-8. RenovateのDependency Dashboardが作成され、configuration warningがないことを確認する。
-9. Renovateが作成した最初のPull Requestで、owner reviewと必須checkが適用されることを確認する。
-10. Renovateのvulnerability alert連携を確認してから、Dependabot security updatesを無効化する。
+3. `Protect main`のbypass actorが空であり、`TakehiroT`のPull Request経由のbypassが`Require code owner review`だけに設定されていることを確認する。
+4. Rulesetが存在しない場合または設定が一致しない場合は有効化を中止し、rulesetを修復する。
+5. GitHub dependency graphとDependabot alertsが有効であることをrepository settingsで確認する。
+6. Renovate Appに`Dependabot alerts: Read`が付与されていることをApp settingsで確認する。
+7. 前二項の条件を満たさない場合は有効化を中止し、GitHubのsecurity settingsまたはApp permissionを修復する。
+8. TamaT-LLCのRenovate App設定で`repo-knowledge-mcp`だけを選択する。
+9. RenovateのDependency Dashboardが作成され、configuration warningがないことを確認する。
+10. Renovateが作成した最初のPull Requestで、owner reviewと必須checkが適用されることを確認する。
+11. Renovateのvulnerability alert連携を確認してから、Dependabot security updatesを無効化する。
 
 GitHub dependency graphとDependabot alertsは、Dependabot security updatesを無効化した後も維持する。
 
