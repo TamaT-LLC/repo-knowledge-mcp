@@ -1,0 +1,59 @@
+name: Feature request
+description: 解決したい問題と受け入れ条件を提案する
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        実装方法だけでなく、現在困っていることと完了を判断できる条件を記載してください。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい問題
+      description: 現在の動作で何ができないか、誰が困るかを記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案する動作
+      description: 入力、出力、利用者が行う操作を記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 検討した代替案
+      description: 現在の回避策や、採用しなかった案があれば記載してください。
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Privacyとsecurityへの影響
+      description: 外部送信、credential、trust、approval、local storageへの影響を記載してください。
+      placeholder: 影響なし。外部送信と保存対象は変わらない。
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 受け入れ条件
+      description: 実装完了を確認できる条件を箇条書きで記載してください。
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 確認事項
+      options:
+        - label: 既存IssueとREADMEを確認しました。
+          required: true
+        - label: 実在するcredential、review本文、個人情報を含めていません。
+          required: true

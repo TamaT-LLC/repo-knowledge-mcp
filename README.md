@@ -396,6 +396,8 @@ npm 公開時は tag と commit を検証し、provenance 付き package を公�
 - [M2 acceptance matrix](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/testing/m2-acceptance-matrix.md)
 - [M3 acceptance matrix](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/testing/m3-acceptance-matrix.md)
 - [M3 release report template](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/m3-release-report-template.md)
+- [Contributing guide](./CONTRIBUTING.md)
+- [Code of Conduct](./CODE_OF_CONDUCT.md)
 
 ## License
 
