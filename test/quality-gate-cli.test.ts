@@ -41,12 +41,10 @@ describe("quality gate CLI", () => {
   it("passes the committed fixtures offline with exit code 0", async () => {
     const first = await execa(process.execPath, [CLI], {
       cwd: repositoryRoot,
-      env: { ...process.env, ANTHROPIC_API_KEY: "" },
       reject: false,
     });
     const second = await execa(process.execPath, [CLI], {
       cwd: repositoryRoot,
-      env: { ...process.env, ANTHROPIC_API_KEY: "" },
       reject: false,
     });
 

@@ -76,6 +76,9 @@ registry の ID lookup は own entry の列挙結果だけを参照し、非空 
 
 ### SEC-005: provider redirect 時の credential 転送
 
+> この項目は 2026-08-13 時点の direct API adapter に対する記録である。
+> 現行実装はログイン済み subscription CLI を起動し、Provider API key を扱わない。
+
 手動レビューで防御強化項目として検出した。
 Anthropic endpoint が redirect を返した場合に、API key と request body が別 endpoint へ転送される余地をなくす必要があった。
 

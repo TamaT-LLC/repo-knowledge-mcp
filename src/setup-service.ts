@@ -7,8 +7,13 @@ import type { InitializedStorage } from "./config.js";
 import type { DoctorReport } from "./doctor-service.js";
 import type {
   CommentObservation,
+  LlmConfig,
   RepoKnowledgeConfig,
 } from "./domain-schemas.js";
+import {
+  getLlmProviderDefinition,
+  type EnabledLlmProviderMode,
+} from "./llm-provider-config.js";
 import type { RepositoryResolution } from "./repository-resolver.js";
 import type { SetupState, SetupStateStore } from "./setup-state-store.js";
 import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
@@ -114,6 +119,7 @@ export type GuidedSetupErrorCode =
   | "SETUP_CONFIG_CONFLICT"
   | "SETUP_DOCTOR_FAILED"
   | "SETUP_PREPARATION_FAILED"
+  | "SETUP_PROVIDER_MODE_REQUIRED"
   | "SETUP_PROVIDER_MODEL_REQUIRED"
   | "SETUP_REPOSITORY_MISMATCH"
   | "SETUP_RESUME_SCOPE_MISMATCH"
@@ -565,6 +571,7 @@ async function chooseTransmission(
 ): Promise<{
   readonly hostAssisted: boolean;
   readonly provider: boolean;
+  readonly providerMode: EnabledLlmProviderMode | null;
   readonly providerModel: string | null;
 }> {
   const current = configuredTransmission(config);
@@ -574,10 +581,19 @@ async function chooseTransmission(
       defaultValue: false,
       id: "transmission.provider",
       message:
-        "Provider route sends review comment bodies and diff hunks to Anthropic and requires ANTHROPIC_API_KEY plus llm.model. Enable it?",
+        "Provider route sends review comment bodies and diff hunks through a locally logged-in subscription CLI. Enable it and choose Claude Code, Codex, or Grok CLI?",
     }));
+  const configuredMode = enabledProviderMode(config.llm);
+  const providerMode = provider
+    ? (configuredMode ?? (await readProviderMode(prompt)))
+    : configuredMode;
+  const configuredModel =
+    providerMode !== null && providerMode === configuredMode
+      ? config.llm.model
+      : null;
   const providerModel = provider
-    ? (config.llm.model ?? (await readProviderModel(prompt)))
+    ? (configuredModel ??
+      (await readProviderModel(prompt, requiredProviderMode(providerMode))))
     : config.llm.model;
   const hostAssisted =
     current.hostAssisted ||
@@ -587,21 +603,50 @@ async function chooseTransmission(
       message:
         "Host-assisted route returns review comment bodies to the connected MCP host model. Enable it?",
     }));
-  return { hostAssisted, provider, providerModel };
+  return { hostAssisted, provider, providerMode, providerModel };
 }
 
-async function readProviderModel(prompt: GuidedSetupPrompt): Promise<string> {
+async function readProviderMode(
+  prompt: GuidedSetupPrompt,
+): Promise<EnabledLlmProviderMode> {
+  if (prompt.input === undefined) {
+    throw new GuidedSetupError(
+      "SETUP_PROVIDER_MODE_REQUIRED",
+      "provider opt-in requires an LLM provider selection",
+    );
+  }
+  for (;;) {
+    const value = (
+      await prompt.input({
+        id: "transmission.provider-mode",
+        message: "LLM provider (anthropic, openai, xai)",
+      })
+    )
+      .trim()
+      .toLocaleLowerCase("en-US");
+    if (value === "anthropic" || value === "openai" || value === "xai") {
+      return value;
+    }
+    if (value === "grok" || value === "x.ai") return "xai";
+  }
+}
+
+async function readProviderModel(
+  prompt: GuidedSetupPrompt,
+  mode: EnabledLlmProviderMode,
+): Promise<string> {
+  const provider = getLlmProviderDefinition(mode);
   if (prompt.input === undefined) {
     throw new GuidedSetupError(
       "SETUP_PROVIDER_MODEL_REQUIRED",
-      "provider opt-in requires an Anthropic model ID input",
+      `provider opt-in requires a ${provider.displayName} model ID input`,
     );
   }
   for (;;) {
     const model = (
       await prompt.input({
         id: "transmission.provider-model",
-        message: "Anthropic model ID",
+        message: `${provider.displayName} subscription model ID (login: ${provider.loginCommand})`,
       })
     ).trim();
     if (model.length > 0) return model;
@@ -614,6 +659,7 @@ function setupConfig(
   transmission: {
     readonly hostAssisted: boolean;
     readonly provider: boolean;
+    readonly providerMode?: EnabledLlmProviderMode | null;
     readonly providerModel?: string | null;
   },
 ): unknown {
@@ -646,7 +692,7 @@ function setupConfig(
       ...(transmission.provider
         ? {
             allowCloudTransmission: true,
-            mode: "anthropic",
+            mode: requiredProviderMode(transmission.providerMode),
             model: transmission.providerModel ?? current.llm.model,
           }
         : {}),
@@ -665,6 +711,7 @@ function setupConfig(
 function configuredTransmission(config: RepoKnowledgeConfig): {
   readonly hostAssisted: boolean;
   readonly provider: boolean;
+  readonly providerMode: EnabledLlmProviderMode | null;
 } {
   return {
     hostAssisted:
@@ -672,7 +719,23 @@ function configuredTransmission(config: RepoKnowledgeConfig): {
       config.hostAssistedDistillation.allowReviewContentTransmission,
     provider:
       config.llm.mode !== "disabled" && config.llm.allowCloudTransmission,
+    providerMode: enabledProviderMode(config.llm),
   };
+}
+
+function enabledProviderMode(config: LlmConfig): EnabledLlmProviderMode | null {
+  return config.mode === "disabled" ? null : config.mode;
+}
+
+function requiredProviderMode(
+  mode: EnabledLlmProviderMode | null | undefined,
+): EnabledLlmProviderMode {
+  if (mode === null || mode === undefined) {
+    throw new TypeError(
+      "enabled provider transmission requires a provider mode",
+    );
+  }
+  return mode;
 }
 
 function transmissionState(config: RepoKnowledgeConfig): {

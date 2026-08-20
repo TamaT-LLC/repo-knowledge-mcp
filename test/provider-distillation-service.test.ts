@@ -390,7 +390,7 @@ describe("distillation prompt and output boundary", () => {
 });
 
 describe("ProviderDistillationService", () => {
-  it("never calls a provider for defaults, API-key-only config, or repo denial", async () => {
+  it("never calls a provider for defaults, missing consent, or repo denial", async () => {
     const repositoryRoot = await createRepository();
     const coordinator = createCoordinator(repositoryRoot);
     const baseConfig = config();
@@ -403,55 +403,44 @@ describe("ProviderDistillationService", () => {
     const adapter = new FakeProvider([
       JSON.stringify({ candidates: [], skip_reason: "pr_specific" }),
     ]);
-    const originalApiKey = process.env.ANTHROPIC_API_KEY;
-    process.env.ANTHROPIC_API_KEY = "present-but-not-consent";
-
-    try {
-      const deniedConfigs = [
-        baseConfig,
-        config({
-          llm: {
-            allowCloudTransmission: false,
-            mode: "anthropic",
-            model: "claude-configured",
-          },
-        }),
-        config({
-          llm: {
-            allowCloudTransmission: true,
-            mode: "anthropic",
-            model: "claude-configured",
-          },
-          repoPolicies: {
-            [REPOSITORY]: { allowCloudTransmission: false },
-          },
-        }),
-      ];
-      const results = [];
-      for (const deniedConfig of deniedConfigs) {
-        results.push(
-          await service(repositoryRoot, deniedConfig, adapter).run(
-            runRequest(created.job.job_id, thread),
-          ),
-        );
-      }
-
-      expect(results.map((result) => result.state)).toEqual([
-        "pending",
-        "pending",
-        "pending",
-      ]);
-      expect(adapter.requests).toEqual([]);
-      expect(
-        evaluateProviderTransmission(deniedConfigs[2]!, REPOSITORY),
-      ).toEqual({ allowed: false, reason: "repository_policy_denied" });
-    } finally {
-      if (originalApiKey === undefined) {
-        delete process.env.ANTHROPIC_API_KEY;
-      } else {
-        process.env.ANTHROPIC_API_KEY = originalApiKey;
-      }
+    const deniedConfigs = [
+      baseConfig,
+      config({
+        llm: {
+          allowCloudTransmission: false,
+          mode: "anthropic",
+          model: "claude-configured",
+        },
+      }),
+      config({
+        llm: {
+          allowCloudTransmission: true,
+          mode: "anthropic",
+          model: "claude-configured",
+        },
+        repoPolicies: {
+          [REPOSITORY]: { allowCloudTransmission: false },
+        },
+      }),
+    ];
+    const results = [];
+    for (const deniedConfig of deniedConfigs) {
+      results.push(
+        await service(repositoryRoot, deniedConfig, adapter).run(
+          runRequest(created.job.job_id, thread),
+        ),
+      );
     }
+
+    expect(results.map((result) => result.state)).toEqual([
+      "pending",
+      "pending",
+      "pending",
+    ]);
+    expect(adapter.requests).toEqual([]);
+    expect(evaluateProviderTransmission(deniedConfigs[2]!, REPOSITORY)).toEqual(
+      { allowed: false, reason: "repository_policy_denied" },
+    );
   });
 
   it("calls an allowed fake provider and returns complete provenance", async () => {

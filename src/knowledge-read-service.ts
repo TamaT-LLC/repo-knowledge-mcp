@@ -500,7 +500,7 @@ function learningNextAction(
 }
 
 function pendingDistillationNextAction(repo: string): string {
-  return `Enable one explicit distillation route in \`$REPO_KNOWLEDGE_HOME/config.json\` (or \`~/.repo-knowledge/config.json\`): configure \`llm.mode\`, \`llm.allowCloudTransmission\`, and \`llm.model\` plus \`ANTHROPIC_API_KEY\`, then run \`repo-knowledge distill ${repo}\`; or enable both \`hostAssistedDistillation.enabled\` and \`hostAssistedDistillation.allowReviewContentTransmission\`, then call \`prepare_distillation\` and \`submit_distillation\` from the MCP client.`;
+  return `Enable one explicit distillation route in \`$REPO_KNOWLEDGE_HOME/config.json\` (or \`~/.repo-knowledge/config.json\`): configure \`llm.mode\` (\`anthropic\`, \`openai\`, or \`xai\`), \`llm.allowCloudTransmission\`, and \`llm.model\`, sign in to the matching subscription CLI (\`claude auth login\`, \`codex login\`, or \`grok login\`), then run \`repo-knowledge distill ${repo}\`; or enable both \`hostAssistedDistillation.enabled\` and \`hostAssistedDistillation.allowReviewContentTransmission\`, then call \`prepare_distillation\` and \`submit_distillation\` from the MCP client.`;
 }
 
 function readiness(

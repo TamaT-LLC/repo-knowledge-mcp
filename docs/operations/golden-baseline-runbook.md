@@ -23,7 +23,7 @@ metric report は artifact 内の記録済み prediction だけから決定的�
 - 実測（`--live`）は operator がローカル端末で行う。**CI からは絶対に実行しない**。
   CLI は `CI` / `GITHUB_ACTIONS` 環境変数を検出すると
   `BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI` で拒否する（fail-closed）
-- 実測は匿名化 corpus 全文を Anthropic API へ送信する。送信には
+- 実測は匿名化 corpus 全文をログイン済み Claude Code が使う model へ送信する。送信には
   `--consent-cloud-transmission` フラグによる**明示 opt-in が必須**で、
   フラグなしの `--live` は `BASELINE_CLOUD_CONSENT_REQUIRED` で拒否される
 - corpus は読み込み時に秘匿情報 scan を通過しなければならない。検出対象は
@@ -34,7 +34,7 @@ metric report は artifact 内の記録済み prediction だけから決定的�
   検出時はエラーに **JSON パスとパターン種別のみ**が載り、値そのものは出力されない
 - 生成された artifact も保存前に同じ scan を通る。raw secret・token・
   非匿名化レビュー内容が baseline artifact に混入した場合、保存自体が失敗する
-- `ANTHROPIC_API_KEY` は環境変数でのみ渡す。ファイルや artifact には書かない
+- `claude auth login` 済みの対象サブスクリプションを使う。Provider API key は設定しない
 
 ## 1. replay での再現（ネットワーク不要・通常運用）
 
@@ -130,7 +130,7 @@ stdout に出力する（`report_kind: "m2_quality_gate_report"`）。
 ## 3. 実 provider での実測（operator のみ・明示 opt-in）
 
 ```console
-$ export ANTHROPIC_API_KEY=<operator の鍵>
+$ claude auth status --json
 $ node dist/golden-baseline-cli.js \
     --corpus test/fixtures/golden/m2-anonymized-corpus.json \
     --live --model <実測に使う model id> \
@@ -214,7 +214,7 @@ quality gate の通過は
 | `BASELINE_CORPUS_MISMATCH`             | corpus と recorded の世代不一致                                                                                         | 対になる corpus / recorded ファイルを揃える                                              |
 | `QUALITY_GATE_BASELINE_MISMATCH`       | thresholds が別の測定に紐づく（別時刻・別 model・別 prompt/schema/policy 世代、または review 後の prediction 差し替え） | 手順 4 で thresholds を対象 artifact に対して再 review し、`baseline` ブロックを更新する |
 | `BASELINE_RECORDED_PREDICTION_MISSING` | recorded に未収載スレッド                                                                                               | corpus 変更後に recorded prediction を取り直す                                           |
-| `AUTHENTICATION_MISSING`               | `ANTHROPIC_API_KEY` 未設定                                                                                              | operator の鍵を環境変数で設定する                                                        |
+| `AUTHENTICATION_MISSING`               | Claude Code に利用可能なサブスクリプション login がない                                                                | `claude auth login` を実行して subscription sign-in を選ぶ                               |
 
 ## corpus を変更する場合
 

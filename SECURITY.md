@@ -90,8 +90,8 @@ repo-knowledge-mcp は GitHub token を config、canonical JSONL、log に保存
 
 LLM への外部送信は二つの独立経路があります。
 
-- Provider Adapter は `llm.mode: "anthropic"` と実効 `allowCloudTransmission: true` の両方が必要です。
-  送信先は Anthropic Messages API で、API key は `ANTHROPIC_API_KEY` environment からだけ読みます。
+- Provider Adapter は `llm.mode` に `anthropic`、`openai`、または `xai` を設定し、実効 `allowCloudTransmission: true` にする必要があります。
+  server はログイン済みの Claude Code、Codex、または Grok CLI を headless mode で起動し、そのサブスクリプション session を使います。Provider API key environment は子 process から除外します。
 - host-assisted は `hostAssistedDistillation.enabled: true` と `allowReviewContentTransmission: true` の両方が必要です。
   server 自身が provider API を呼ぶのでなく、normalized review content を MCP client へ返し、client が利用する model に渡します。
 
@@ -100,7 +100,7 @@ Provider Adapter は review comment、actor metadata、path、取得済み diff 
 host-assisted は comment と actor metadata を返し、`includeDiffHunk: true` のときだけ diff hunk を含めます。
 
 通常経路に送信前 secret scanner はありません。
-API key や credential を review、diff、config に貼らないでください。
+credential を review、diff、config に貼らないでください。
 機密 repository では provider と host-assisted の両方を無効のまま使用してください。
 
 ## Sync / outcome / provider 測定の data boundary（M2）
@@ -120,11 +120,11 @@ M2 で追加された経路が扱う data の境界は次のとおりです。
   機密情報を書かない運用にしてください。outcome は active な rule にしか
   記録できず、検索ランキングへの影響は上限付きです。
 - **provider 測定（golden baseline の live 実測）**: 実測は匿名化 corpus 全文を
-  Anthropic API へ送るため、`--consent-cloud-transmission` フラグによる明示
+  ログイン済み Claude Code が使う model へ送るため、`--consent-cloud-transmission` フラグによる明示
   opt-in が必須で、CI 環境では fail-closed で拒否されます。corpus と生成
   artifact は保存前に secret scan（provider key、GitHub / Slack token、
   AWS key、private key、メールアドレス等）を通過する必要があり、検出時は
-  値を出力せず失敗します。`ANTHROPIC_API_KEY` は環境変数でのみ渡します。
+  値を出力せず失敗します。認証には Claude Code のサブスクリプション session を使います。
   CI と通常運用の gate は記録済み prediction の replay だけで動き、
   network にも credential にも触れません。手順は
   [golden baseline 測定 runbook](./docs/operations/golden-baseline-runbook.md) を参照してください。

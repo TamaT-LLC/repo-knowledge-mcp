@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { LLM_PROVIDER_MODES } from "./llm-provider-config.js";
+
 import { sortAndDedupeStrings } from "./canonical.js";
 
 const NON_EMPTY_MESSAGE = "must be a non-empty string";
@@ -82,7 +84,7 @@ export const TrustLevelSchema = z.enum(["trusted", "untrusted", "unknown"]);
 export const LlmConfigSchema = z
   .object({
     allowCloudTransmission: z.boolean().default(false),
-    mode: z.enum(["disabled", "anthropic"]).default("disabled"),
+    mode: z.enum(LLM_PROVIDER_MODES).default("disabled"),
     model: NonEmptyStringSchema.nullable().default(null),
   })
   .strict();

@@ -577,13 +577,49 @@ export {
   type ResolveHostAssistedDistillationSourceInput,
 } from "./host-assisted-distillation-service.js";
 export {
-  ANTHROPIC_API_VERSION,
   ANTHROPIC_PROVIDER,
-  DEFAULT_ANTHROPIC_MAX_TOKENS,
-  DEFAULT_ANTHROPIC_MESSAGES_ENDPOINT,
+  DEFAULT_ANTHROPIC_CLI_EXECUTABLE,
   AnthropicProviderAdapter,
   type AnthropicProviderAdapterOptions,
 } from "./anthropic-provider.js";
+export {
+  DEFAULT_OPENAI_CLI_EXECUTABLE,
+  OPENAI_PROVIDER,
+  OpenAiProviderAdapter,
+  type OpenAiProviderAdapterOptions,
+} from "./openai-provider.js";
+export {
+  DEFAULT_XAI_CLI_EXECUTABLE,
+  XAI_PROVIDER,
+  XaiProviderAdapter,
+  type XaiProviderAdapterOptions,
+} from "./xai-provider.js";
+export {
+  CliLlmSubscriptionInspector,
+  DEFAULT_SUBSCRIPTION_AUTH_TIMEOUT_MS,
+  DEFAULT_SUBSCRIPTION_CLI_MAX_BUFFER_BYTES,
+  DEFAULT_SUBSCRIPTION_CLI_TIMEOUT_MS,
+  SubscriptionCliOutputError,
+  SubscriptionCliProviderAdapter,
+  subscriptionOnlyEnvironment,
+  writePrivateSubscriptionFile,
+  type CliLlmSubscriptionInspectorOptions,
+  type LlmSubscriptionInspection,
+  type LlmSubscriptionInspectorLike,
+  type SubscriptionCliInvocation,
+  type SubscriptionCliInvocationContext,
+  type SubscriptionCliParsedOutput,
+  type SubscriptionCliProviderAdapterOptions,
+  type SubscriptionCliProviderDefinition,
+} from "./subscription-cli-provider.js";
+export {
+  ENABLED_LLM_PROVIDER_MODES,
+  LLM_PROVIDER_MODES,
+  getLlmProviderDefinition,
+  type EnabledLlmProviderMode,
+  type LlmProviderDefinition,
+  type LlmProviderMode,
+} from "./llm-provider-config.js";
 export {
   LlmProviderError,
   type LlmProviderAdapter,

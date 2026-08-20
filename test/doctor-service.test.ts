@@ -26,6 +26,7 @@ import {
   type GhCommandResult,
   type GhRunnerLike,
   type KnowledgeEvidence,
+  type LlmSubscriptionInspectorLike,
 } from "../src/index.js";
 
 const REPOSITORY = "owner/repository";
@@ -112,7 +113,7 @@ describe("RepoKnowledgeDoctor", () => {
     const providerGh = new FakeGhRunner();
 
     const providerResult = await provider
-      .doctor({ environment: {}, gh: providerGh })
+      .doctor({ gh: providerGh })
       .run({ repo: REPOSITORY });
 
     expect(check(providerResult, "config.provider_transmission")).toMatchObject(
@@ -136,6 +137,84 @@ describe("RepoKnowledgeDoctor", () => {
       check(hostResult, "config.host_assisted_transmission"),
     ).toMatchObject({ status: "warn" });
   });
+
+  it.each([
+    {
+      executable: "claude",
+      loginCommand: "claude auth login",
+      mode: "anthropic",
+      name: "Anthropic (Claude Code)",
+    },
+    {
+      executable: "codex",
+      loginCommand: "codex login",
+      mode: "openai",
+      name: "OpenAI (Codex)",
+    },
+    {
+      executable: "grok",
+      loginCommand: "grok login",
+      mode: "xai",
+      name: "xAI (Grok CLI)",
+    },
+  ] as const)(
+    "checks the $mode subscription CLI without making a model request",
+    async ({ executable, loginCommand, mode, name }) => {
+      const fixture = await createFixture({
+        llm: {
+          allowCloudTransmission: true,
+          mode,
+          model: "test-model",
+        },
+      });
+      const gh = new FakeGhRunner();
+      const missingCli = new FakeSubscriptionInspector({
+        authenticated: false,
+        cliAvailable: false,
+      });
+
+      const missing = await fixture
+        .doctor({ gh, subscription: missingCli })
+        .run({ repo: REPOSITORY });
+      expect(check(missing, "config.provider_transmission")).toMatchObject({
+        message: expect.stringContaining(`cannot find the ${executable} CLI`),
+        remedy: expect.stringContaining(loginCommand),
+        status: "fail",
+      });
+
+      const loggedOut = new FakeSubscriptionInspector({
+        authenticated: false,
+        cliAvailable: true,
+      });
+      const unauthenticated = await fixture
+        .doctor({ gh, subscription: loggedOut })
+        .run({ repo: REPOSITORY });
+      expect(
+        check(unauthenticated, "config.provider_transmission"),
+      ).toMatchObject({
+        message: expect.stringContaining(
+          `Enabled ${name} transmission has no usable subscription login`,
+        ),
+        remedy: expect.stringContaining(loginCommand),
+        status: "fail",
+      });
+
+      const loggedIn = new FakeSubscriptionInspector({
+        authenticated: true,
+        cliAvailable: true,
+        method: "subscription",
+      });
+      const configured = await fixture
+        .doctor({ gh, subscription: loggedIn })
+        .run({ repo: REPOSITORY });
+      expect(check(configured, "config.provider_transmission")).toMatchObject({
+        status: "pass",
+      });
+      expect(missingCli.modes).toEqual([mode]);
+      expect(loggedOut.modes).toEqual([mode]);
+      expect(loggedIn.modes).toEqual([mode]);
+    },
+  );
 
   it("reports invalid knowledge, JSONL, and duplicate IDs with target paths", async () => {
     const invalid = await createFixture();
@@ -387,9 +466,9 @@ describe("RepoKnowledgeDoctor", () => {
 
 interface Fixture {
   readonly doctor: (overrides?: {
-    readonly environment?: Readonly<Record<string, string | undefined>>;
     readonly filesystemType?: number;
     readonly gh?: GhRunnerLike;
+    readonly subscription?: LlmSubscriptionInspectorLike;
   }) => RepoKnowledgeDoctor;
   readonly knowledgePath: string;
   readonly repositoryRoot: string;
@@ -430,12 +509,16 @@ async function createFixture(
   return {
     doctor(overrides = {}) {
       return new RepoKnowledgeDoctor({
-        environment: overrides.environment ?? {
-          ANTHROPIC_API_KEY: "fixture-key",
-        },
         filesystemTypeReader: async () =>
           overrides.filesystemType ?? 0x0000_ef53,
         ghRunner: overrides.gh ?? new FakeGhRunner(),
+        llmSubscriptionInspector:
+          overrides.subscription ??
+          new FakeSubscriptionInspector({
+            authenticated: true,
+            cliAvailable: true,
+            method: "fixture",
+          }),
         nodeVersion: "24.4.0",
         platform: "linux",
         storageRoot,
@@ -446,6 +529,23 @@ async function createFixture(
     storageRoot,
     store,
   };
+}
+
+class FakeSubscriptionInspector implements LlmSubscriptionInspectorLike {
+  readonly modes: string[] = [];
+
+  constructor(
+    private readonly result: Awaited<
+      ReturnType<LlmSubscriptionInspectorLike["inspect"]>
+    >,
+  ) {}
+
+  async inspect(
+    mode: Parameters<LlmSubscriptionInspectorLike["inspect"]>[0],
+  ): Promise<Awaited<ReturnType<LlmSubscriptionInspectorLike["inspect"]>>> {
+    this.modes.push(mode);
+    return this.result;
+  }
 }
 
 class FakeGhRunner implements GhRunnerLike {
