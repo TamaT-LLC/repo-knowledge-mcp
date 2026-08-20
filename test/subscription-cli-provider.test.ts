@@ -236,6 +236,27 @@ describe("subscriptionOnlyEnvironment", () => {
       }),
     ).toEqual({ PATH: "/bin" });
   });
+
+  it("copies only safe names without dynamic object property writes", () => {
+    const base = Object.assign(Object.create(null) as Record<string, string>, {
+      PATH: "/bin",
+      REMOVE_ME: "old",
+      openai_api_key: "lowercase-secret",
+    });
+    Object.defineProperty(base, "__proto__", {
+      enumerable: true,
+      value: "polluted",
+    });
+
+    expect(
+      subscriptionOnlyEnvironment(base, {
+        ADDED: "yes",
+        PATH: "/usr/bin",
+        REMOVE_ME: undefined,
+      }),
+    ).toEqual({ ADDED: "yes", PATH: "/usr/bin" });
+    expect(Object.prototype).not.toHaveProperty("polluted");
+  });
 });
 
 function argumentValue(args: readonly string[], name: string): string {

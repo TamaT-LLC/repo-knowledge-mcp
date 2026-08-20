@@ -37,6 +37,16 @@ const PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES = [
   "XAI_API_KEY",
 ] as const;
 
+const PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLE_NAMES = new Set<string>(
+  PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES,
+);
+const UNSAFE_OBJECT_PROPERTY_NAMES = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
+const SAFE_ENVIRONMENT_VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+
 export interface SubscriptionCliProviderAdapterOptions {
   readonly defaultModel?: string;
   readonly environment?: Readonly<Record<string, string | undefined>>;
@@ -301,18 +311,31 @@ export function subscriptionOnlyEnvironment(
   base: Readonly<Record<string, string | undefined>>,
   additions: Readonly<Record<string, string | undefined>> = {},
 ): Readonly<Record<string, string | undefined>> {
-  const environment: Record<string, string | undefined> = {};
+  const environment = new Map<string, string>();
   for (const [name, value] of Object.entries(base)) {
-    if (value !== undefined) environment[name] = value;
+    if (isAllowedSubscriptionEnvironmentVariable(name) && value !== undefined) {
+      environment.set(name, value);
+    }
   }
   for (const [name, value] of Object.entries(additions)) {
-    if (value === undefined) delete environment[name];
-    else environment[name] = value;
+    if (
+      !isAllowedSubscriptionEnvironmentVariable(name) ||
+      value === undefined
+    ) {
+      environment.delete(name);
+    } else {
+      environment.set(name, value);
+    }
   }
-  for (const name of PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES) {
-    delete environment[name];
-  }
-  return environment;
+  return Object.fromEntries(environment);
+}
+
+function isAllowedSubscriptionEnvironmentVariable(name: string): boolean {
+  return (
+    SAFE_ENVIRONMENT_VARIABLE_NAME.test(name) &&
+    !UNSAFE_OBJECT_PROPERTY_NAMES.has(name) &&
+    !PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLE_NAMES.has(name.toUpperCase())
+  );
 }
 
 export interface LlmSubscriptionInspection {
