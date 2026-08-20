@@ -53,6 +53,7 @@ export interface SubscriptionCliProviderAdapterOptions {
   readonly executable?: string;
   readonly executor?: BufferedCommandExecutor;
   readonly maxBufferBytes?: number;
+  readonly removeTemporaryDirectory?: (path: string) => Promise<void>;
   readonly timeoutMs?: number;
 }
 
@@ -97,6 +98,7 @@ export class SubscriptionCliProviderAdapter implements LlmProviderAdapter {
   private readonly executable: string;
   private readonly executor: BufferedCommandExecutor;
   private readonly maxBufferBytes: number;
+  private readonly removeTemporaryDirectory: (path: string) => Promise<void>;
   private readonly timeoutMs: number;
 
   constructor(
@@ -114,6 +116,8 @@ export class SubscriptionCliProviderAdapter implements LlmProviderAdapter {
       options.maxBufferBytes ?? DEFAULT_SUBSCRIPTION_CLI_MAX_BUFFER_BYTES,
       "maxBufferBytes",
     );
+    this.removeTemporaryDirectory =
+      options.removeTemporaryDirectory ?? removeSubscriptionTemporaryDirectory;
     this.timeoutMs = positiveInteger(
       options.timeoutMs ?? DEFAULT_SUBSCRIPTION_CLI_TIMEOUT_MS,
       "timeoutMs",
@@ -145,16 +149,20 @@ export class SubscriptionCliProviderAdapter implements LlmProviderAdapter {
       (value) => ({ ok: true as const, value }),
       (error: unknown) => ({ error, ok: false as const }),
     );
+    let cleanupError: unknown;
     try {
-      await rm(temporaryDirectory, { force: true, recursive: true });
+      await this.removeTemporaryDirectory(temporaryDirectory);
     } catch (error) {
+      cleanupError = error;
+    }
+    if (!outcome.ok) throw outcome.error;
+    if (cleanupError !== undefined) {
       throw this.error(
         "PROVIDER_REQUEST_FAILED",
         "temporary subscription CLI files could not be removed",
-        error,
+        cleanupError,
       );
     }
-    if (!outcome.ok) throw outcome.error;
     return outcome.value;
   }
 
@@ -278,6 +286,12 @@ export class SubscriptionCliProviderAdapter implements LlmProviderAdapter {
       cause === undefined ? undefined : { cause },
     );
   }
+}
+
+async function removeSubscriptionTemporaryDirectory(
+  path: string,
+): Promise<void> {
+  await rm(path, { force: true, recursive: true });
 }
 
 export class SubscriptionCliOutputError extends Error {

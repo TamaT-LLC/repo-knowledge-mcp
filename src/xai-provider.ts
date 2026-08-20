@@ -13,16 +13,14 @@ import {
 export const XAI_PROVIDER = "xai";
 export const DEFAULT_XAI_CLI_EXECUTABLE = "grok";
 
-const GrokCliResultSchema = z
-  .object({
-    modelUsage: z.record(z.string(), z.object({}).passthrough()).optional(),
-    requestId: z.string().min(1).optional(),
-    sessionId: z.string().min(1).optional(),
-    stopReason: z.string().optional(),
-    structuredOutput: z.unknown().optional(),
-    text: z.string().optional(),
-  })
-  .passthrough();
+const GrokCliResultSchema = z.looseObject({
+  modelUsage: z.record(z.string(), z.looseObject({})).optional(),
+  requestId: z.string().min(1).optional(),
+  sessionId: z.string().min(1).optional(),
+  stopReason: z.string().optional(),
+  structuredOutput: z.unknown().optional(),
+  text: z.string().optional(),
+});
 
 export type XaiProviderAdapterOptions = SubscriptionCliProviderAdapterOptions;
 

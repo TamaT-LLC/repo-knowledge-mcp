@@ -338,7 +338,7 @@ MCP plane から status を active または rejected に変更する tool は�
 | `npm ERR! E404` | 公開状況と指定 version を確認する。`v0.3.0` 公開前は想定された結果 |
 | Node.js version error | Node 22.13 以降、または Node 24 以降へ変更する |
 | GitHub repository を読めない | `gh auth status` と対象アカウントの repository 権限を確認する |
-| Provider subscription を使えない | 選択した provider に応じて `claude auth status --json`、`codex login status`、または `grok models` を確認し、必要なら login command を再実行する |
+| Provider subscription を使えない | 選択した provider に応じて `claude auth status --json`、`codex login status`、または `GROK_DISABLE_API_KEY_AUTH=1 grok models` を確認し、必要なら login command を再実行する |
 | `setup` または `review` が TTY error で停止する | pipe や redirect の外で、stdin と stdout が実 TTY の terminal から実行する |
 | `readiness.state` が `setup_required` | `repo-knowledge setup owner/repository` を実行する |
 | `readiness.state` が `learning` | 外部送信の選択を確認し、蒸留後に `repo-knowledge review owner/repository` を実行する |

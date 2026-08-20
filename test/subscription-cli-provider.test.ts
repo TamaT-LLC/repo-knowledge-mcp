@@ -1,4 +1,4 @@
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, readFile, rm, writeFile } from "node:fs/promises";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -77,6 +77,25 @@ describe("OpenAiProviderAdapter", () => {
     await expect(access(captured!.cwd!)).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+
+  it("preserves the provider error when temporary cleanup also fails", async () => {
+    const adapter = new OpenAiProviderAdapter({
+      defaultModel: "gpt-test",
+      executor: async () => failed("Run `codex login`"),
+      removeTemporaryDirectory: async (path) => {
+        await rm(path, { force: true, recursive: true });
+        throw new Error("simulated cleanup failure");
+      },
+    });
+
+    await expect(
+      adapter.completeStructured({
+        input: "untrusted review data",
+        jsonSchema: DISTILLATION_OUTPUT_JSON_SCHEMA,
+        system: "system prompt",
+      }),
+    ).rejects.toMatchObject({ code: "AUTHENTICATION_MISSING" });
   });
 });
 

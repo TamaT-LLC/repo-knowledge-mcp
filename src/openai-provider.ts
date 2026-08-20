@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   SubscriptionCliOutputError,
@@ -22,7 +23,7 @@ const DEFINITION: SubscriptionCliProviderDefinition = {
       "output-schema.json",
       JSON.stringify(context.request.jsonSchema),
     );
-    const outputPath = `${context.temporaryDirectory}/last-message.json`;
+    const outputPath = join(context.temporaryDirectory, "last-message.json");
     await writePrivateSubscriptionFile(
       context.temporaryDirectory,
       "AGENTS.md",
@@ -79,5 +80,5 @@ export class OpenAiProviderAdapter extends SubscriptionCliProviderAdapter {
 }
 
 function errorCode(error: unknown): string {
-  return (error as NodeJS.ErrnoException).code ?? "UNKNOWN";
+  return (error as NodeJS.ErrnoException | null | undefined)?.code ?? "UNKNOWN";
 }

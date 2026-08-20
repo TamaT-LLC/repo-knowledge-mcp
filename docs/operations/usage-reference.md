@@ -112,7 +112,7 @@ API key は設定しません。server は provider CLI の子 process から AP
 | --- | --- | --- |
 | `anthropic` | Claude Code | `claude auth login` / `claude auth status --json` |
 | `openai` | Codex CLI | `codex login` / `codex login status` |
-| `xai` | Grok CLI | `grok login` / `grok models` |
+| `xai` | Grok CLI | `grok login` / `GROK_DISABLE_API_KEY_AUTH=1 grok models` |
 
 先に利用する CLI をインストールし、対象サブスクリプションへログインしてください。
 その後、`setup` で provider と model を選ぶか、次のように config を設定します。
