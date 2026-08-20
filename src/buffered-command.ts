@@ -2,8 +2,12 @@ import { execa } from "execa";
 
 export interface BufferedCommandRequest {
   readonly args: readonly string[];
+  readonly cwd?: string;
+  readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly executable: string;
+  readonly input?: string;
   readonly maxBuffer: number;
+  readonly signal?: AbortSignal;
   readonly shell: false;
   readonly timeout: number;
 }
@@ -29,12 +33,18 @@ export const executeBufferedCommand: BufferedCommandExecutor = async (
   request,
 ) => {
   const result = await execa(request.executable, [...request.args], {
+    ...(request.signal === undefined ? {} : { cancelSignal: request.signal }),
+    ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
     encoding: "utf8",
+    ...(request.environment === undefined
+      ? {}
+      : { env: { ...request.environment }, extendEnv: false }),
+    ...(request.input === undefined ? {} : { input: request.input }),
     maxBuffer: request.maxBuffer,
     reject: false,
     shell: request.shell,
     stderr: "pipe",
-    stdin: "ignore",
+    stdin: request.input === undefined ? "ignore" : "pipe",
     stdout: "pipe",
     stripFinalNewline: true,
     timeout: request.timeout,

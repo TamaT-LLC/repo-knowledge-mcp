@@ -27,6 +27,7 @@ import type { GhRunnerLike } from "./gh-runner.js";
 import { HostAssistedDistillationService } from "./host-assisted-distillation-service.js";
 import { IngestPrMutationService } from "./ingest-pr-mutation-service.js";
 import type { LlmProviderAdapter } from "./llm-provider.js";
+import { OpenAiProviderAdapter } from "./openai-provider.js";
 import {
   type RepositoryMutationPipelineFactory,
   type RepositoryMutationPipelineFactoryContext,
@@ -47,6 +48,7 @@ import {
   SyncRepoService,
   type SyncPullRequestEnumerator,
 } from "./sync-repo-service.js";
+import { XaiProviderAdapter } from "./xai-provider.js";
 
 export interface RepositoryApplicationOperations
   extends RepositoryMutationPipelineOperations, CliRepositoryOperations {}
@@ -98,12 +100,7 @@ export class DefaultRepositoryApplicationFactory
       canonicalizeJson(options.repositoryContext ?? {}),
     ) as unknown;
     this.adapter =
-      options.adapter ??
-      new AnthropicProviderAdapter({
-        ...(this.config.llm.model === null
-          ? {}
-          : { defaultModel: this.config.llm.model }),
-      });
+      options.adapter ?? createConfiguredProviderAdapter(this.config);
     this.snapshotClient =
       options.snapshotClient ??
       new GitHubPullRequestSnapshotClient({
@@ -275,6 +272,22 @@ export class DefaultRepositoryApplicationFactory
       submitFinalize: (request) => submit.submitFinalize(request),
       syncRepo: (request) => sync.sync(request),
     });
+  }
+}
+
+function createConfiguredProviderAdapter(
+  config: RepoKnowledgeConfig,
+): LlmProviderAdapter {
+  const options =
+    config.llm.model === null ? {} : { defaultModel: config.llm.model };
+  switch (config.llm.mode) {
+    case "openai":
+      return new OpenAiProviderAdapter(options);
+    case "xai":
+      return new XaiProviderAdapter(options);
+    case "anthropic":
+    case "disabled":
+      return new AnthropicProviderAdapter(options);
   }
 }
 

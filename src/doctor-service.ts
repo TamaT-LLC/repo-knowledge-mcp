@@ -25,6 +25,7 @@ import {
   KnowledgeStoreInvalidError,
   type KnowledgeDocument,
 } from "./knowledge-document.js";
+import { getLlmProviderDefinition } from "./llm-provider-config.js";
 import { repositoryStorageId } from "./repository-registry.js";
 import {
   RESOLVE_REPOSITORY_GRAPHQL,
@@ -36,6 +37,10 @@ import {
   captureCanonicalStateReadOnly,
   type ReadOnlyCanonicalStateCapture,
 } from "./sqlite-projection.js";
+import {
+  CliLlmSubscriptionInspector,
+  type LlmSubscriptionInspectorLike,
+} from "./subscription-cli-provider.js";
 
 export type DoctorCheckStatus = "fail" | "pass" | "warn";
 
@@ -73,6 +78,7 @@ export interface RepoKnowledgeDoctorOptions {
   readonly filesystemTypeReader?: (path: string) => Promise<bigint | number>;
   readonly ghRunner: GhRunnerLike;
   readonly gitRemoteReader?: GitRemoteReader;
+  readonly llmSubscriptionInspector?: LlmSubscriptionInspectorLike;
   readonly nodeVersion?: string;
   readonly platform?: NodeJS.Platform;
   readonly storageRoot: string;
@@ -120,25 +126,31 @@ const SYNCHRONIZED_PATH =
 /** Runs read-only installation, GitHub, canonical-state, and projection checks. */
 export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
   private readonly cwd: string;
-  private readonly environment: Readonly<Record<string, string | undefined>>;
   private readonly filesystemTypeReader: (
     path: string,
   ) => Promise<bigint | number>;
   private readonly ghRunner: GhRunnerLike;
   private readonly gitRemoteReader: GitRemoteReader;
+  private readonly llmSubscriptionInspector: LlmSubscriptionInspectorLike;
   private readonly nodeVersion: string;
   private readonly platform: NodeJS.Platform;
   private readonly storageRoot: string;
 
   constructor(options: RepoKnowledgeDoctorOptions) {
     this.cwd = resolve(options.cwd ?? process.cwd());
-    this.environment = options.environment ?? process.env;
     this.filesystemTypeReader =
       options.filesystemTypeReader ??
       (async (path) => (await statfs(path, { bigint: true })).type);
     this.ghRunner = options.ghRunner;
     this.gitRemoteReader =
       options.gitRemoteReader ?? new ExecaGitRemoteReader();
+    this.llmSubscriptionInspector =
+      options.llmSubscriptionInspector ??
+      new CliLlmSubscriptionInspector({
+        ...(options.environment === undefined
+          ? {}
+          : { environment: options.environment }),
+      });
     this.nodeVersion = options.nodeVersion ?? process.versions.node;
     this.platform = options.platform ?? process.platform;
     this.storageRoot = resolve(options.storageRoot);
@@ -149,7 +161,11 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
     checkRuntime(report, this.nodeVersion, this.platform);
     const storageExists = await this.inspectStorage(report);
     const config = storageExists ? await this.inspectConfig(report) : null;
-    checkTransmissionConfiguration(report, config, this.environment);
+    await checkTransmissionConfiguration(
+      report,
+      config,
+      this.llmSubscriptionInspector,
+    );
     await inspectSqliteFeatures(report);
     const github = await inspectGithub(report, this.ghRunner);
     const registry = storageExists
@@ -417,11 +433,11 @@ function checkRuntime(
   );
 }
 
-function checkTransmissionConfiguration(
+async function checkTransmissionConfiguration(
   report: DoctorReportBuilder,
   config: RepoKnowledgeConfig | null,
-  environment: Readonly<Record<string, string | undefined>>,
-): void {
+  subscriptionInspector: LlmSubscriptionInspectorLike,
+): Promise<void> {
   if (config === null) {
     for (const id of [
       "config.provider_transmission",
@@ -446,48 +462,59 @@ function checkTransmissionConfiguration(
         "Set llm.allowCloudTransmission to false, or configure mode and model intentionally.",
       status: "warn",
     });
-  } else if (
-    provider.mode === "anthropic" &&
-    !provider.allowCloudTransmission
-  ) {
+  } else if (provider.mode !== "disabled" && !provider.allowCloudTransmission) {
+    const definition = getLlmProviderDefinition(provider.mode);
     report.add({
       id: "config.provider_transmission",
-      message:
-        "Anthropic mode is configured but cloud transmission consent is false; provider calls remain disabled.",
+      message: `${definition.displayName} mode is configured but cloud transmission consent is false; provider calls remain disabled.`,
       remedy:
         "Either set mode to disabled or explicitly enable allowCloudTransmission after reviewing data disclosure.",
       status: "warn",
     });
   } else if (
-    provider.mode === "anthropic" &&
+    provider.mode !== "disabled" &&
     provider.allowCloudTransmission &&
     provider.model === null
   ) {
+    const definition = getLlmProviderDefinition(provider.mode);
     report.add({
       id: "config.provider_transmission",
-      message: "Enabled Anthropic transmission has no configured model.",
+      message: `Enabled ${definition.displayName} transmission has no configured model.`,
       remedy: "Set llm.model before running provider distillation.",
       status: "fail",
     });
-  } else if (
-    provider.mode === "anthropic" &&
-    provider.allowCloudTransmission &&
-    !environment.ANTHROPIC_API_KEY?.trim()
-  ) {
-    report.add({
-      id: "config.provider_transmission",
-      message: "Enabled Anthropic transmission has no ANTHROPIC_API_KEY.",
-      remedy:
-        "Provide ANTHROPIC_API_KEY in the process environment; never place it in config.json.",
-      status: "fail",
-    });
+  } else if (provider.mode !== "disabled") {
+    const definition = getLlmProviderDefinition(provider.mode);
+    const subscription = await subscriptionInspector.inspect(provider.mode);
+    if (!subscription.cliAvailable) {
+      report.add({
+        id: "config.provider_transmission",
+        message: `Enabled ${definition.displayName} transmission cannot find the ${definition.cliExecutable} CLI.`,
+        remedy: `Install ${definition.displayName}, then run ${definition.loginCommand}.`,
+        status: "fail",
+      });
+    } else if (!subscription.authenticated) {
+      report.add({
+        id: "config.provider_transmission",
+        message: `Enabled ${definition.displayName} transmission has no usable subscription login.`,
+        remedy: `Run ${definition.loginCommand} and choose subscription sign-in, then rerun doctor.`,
+        status: "fail",
+      });
+    } else {
+      report.add({
+        details: {
+          authentication: subscription.method ?? "subscription",
+          cli: definition.cliExecutable,
+        },
+        id: "config.provider_transmission",
+        message: `${definition.displayName} mode, model, consent, and subscription login are coherent.`,
+        status: "pass",
+      });
+    }
   } else {
     report.add({
       id: "config.provider_transmission",
-      message:
-        provider.mode === "disabled"
-          ? "Provider transmission is safely disabled."
-          : "Provider mode, model, consent, and credential presence are coherent.",
+      message: "Provider transmission is safely disabled.",
       status: "pass",
     });
   }

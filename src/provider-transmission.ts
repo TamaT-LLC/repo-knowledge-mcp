@@ -4,6 +4,7 @@ import {
   RepositoryNameSchema,
   type RepoKnowledgeConfig,
 } from "./domain-schemas.js";
+import type { EnabledLlmProviderMode } from "./llm-provider-config.js";
 
 export type ProviderTransmissionDeniedReason =
   "cloud_transmission_disabled" | "mode_disabled" | "repository_policy_denied";
@@ -15,7 +16,7 @@ export type ProviderTransmissionDecision =
     }
   | {
       readonly allowed: true;
-      readonly mode: "anthropic";
+      readonly mode: EnabledLlmProviderMode;
       readonly model: string | null;
     };
 

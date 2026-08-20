@@ -89,6 +89,21 @@ describe("repo knowledge config", () => {
     });
   });
 
+  it.each(["anthropic", "openai", "xai"] as const)(
+    "accepts the %s provider mode",
+    (mode) => {
+      expect(
+        parseRepoKnowledgeConfig({
+          llm: { allowCloudTransmission: true, mode, model: "test-model" },
+        }).llm,
+      ).toEqual({
+        allowCloudTransmission: true,
+        mode,
+        model: "test-model",
+      });
+    },
+  );
+
   it("validates an operator-local trusted-human activation eligibility record", () => {
     const base = parseRepoKnowledgeConfig({
       trust: {
@@ -126,7 +141,7 @@ describe("repo knowledge config", () => {
   });
 
   it.each([
-    { llm: { mode: "openai" } },
+    { llm: { mode: "unknown" } },
     { repoPolicies: { "tamat/private": { unknown: true } } },
     { hostAssistedDistillation: { maxCharactersPerJob: 0 } },
     {

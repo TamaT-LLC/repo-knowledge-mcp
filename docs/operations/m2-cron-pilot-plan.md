@@ -96,8 +96,8 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin
 
 - cron 同期は **provider 送信なし**（`llm.allowCloudTransmission` は無効のまま）。
   runbook の推奨どおり、cron は raw 保存と job 化までを担う
-- operator は Anthropic API key ではなく Claude Max subscription を利用しているため、
-  蒸留は Claude Code から MCP の **host-assisted distillation** を対話実行する。
+- pilot では provider CLI の自動実行を使わず、Claude Code から MCP の
+  **host-assisted distillation** を対話実行する。
   `llm.mode` / `llm.allowCloudTransmission` は無効のままとする
 - 実行時だけ `hostAssistedDistillation.enabled` と
   `hostAssistedDistillation.allowReviewContentTransmission` を明示的に有効化し、

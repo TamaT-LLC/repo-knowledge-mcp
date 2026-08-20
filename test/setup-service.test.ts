@@ -223,31 +223,62 @@ describe("guided setup service", () => {
     });
   });
 
-  it("collects an Anthropic model when provider transmission is enabled", async () => {
-    const current = await fixture();
-    const input = vi.fn(async () => " claude-setup-test ");
+  it.each([
+    {
+      inputMode: "anthropic",
+      message:
+        "Anthropic (Claude Code) subscription model ID (login: claude auth login)",
+      mode: "anthropic",
+      model: "claude-setup-test",
+    },
+    {
+      inputMode: "openai",
+      message: "OpenAI (Codex) subscription model ID (login: codex login)",
+      mode: "openai",
+      model: "openai-setup-test",
+    },
+    {
+      inputMode: "grok",
+      message: "xAI (Grok CLI) subscription model ID (login: grok login)",
+      mode: "xai",
+      model: "grok-setup-test",
+    },
+  ] as const)(
+    "collects provider mode $mode and model atomically when transmission is enabled",
+    async ({ inputMode, message, mode, model }) => {
+      const current = await fixture();
+      const input = vi
+        .fn()
+        .mockResolvedValueOnce(` ${inputMode} `)
+        .mockResolvedValueOnce(` ${model} `);
 
-    const result = await current.service.run(
-      { repo: REPOSITORY },
-      {
-        confirm: async (request) => request.id === "transmission.provider",
-        input,
-      },
-    );
+      const result = await current.service.run(
+        { repo: REPOSITORY },
+        {
+          confirm: async (request) => request.id === "transmission.provider",
+          input,
+        },
+      );
 
-    expect(input).toHaveBeenCalledWith({
-      id: "transmission.provider-model",
-      message: "Anthropic model ID",
-    });
-    expect(await loadRepoKnowledgeConfig(current.configPath)).toMatchObject({
-      llm: {
-        allowCloudTransmission: true,
-        mode: "anthropic",
-        model: "claude-setup-test",
-      },
-    });
-    expect(result.transmission.provider).toBe(true);
-  });
+      expect(input.mock.calls).toEqual([
+        [
+          {
+            id: "transmission.provider-mode",
+            message: "LLM provider (anthropic, openai, xai)",
+          },
+        ],
+        [{ id: "transmission.provider-model", message }],
+      ]);
+      expect(await loadRepoKnowledgeConfig(current.configPath)).toMatchObject({
+        llm: {
+          allowCloudTransmission: true,
+          mode,
+          model,
+        },
+      });
+      expect(result.transmission.provider).toBe(true);
+    },
+  );
 
   it("rolls config back when doctor fails before the initial sync", async () => {
     const current = await fixture();
@@ -259,7 +290,10 @@ describe("guided setup service", () => {
         { repo: REPOSITORY, workspacePath: current.workspacePath },
         {
           confirm: async () => true,
-          input: async () => "claude-test",
+          input: async (request) =>
+            request.id === "transmission.provider-mode"
+              ? "anthropic"
+              : "claude-test",
         },
       ),
     ).rejects.toMatchObject({ code: "SETUP_DOCTOR_FAILED" });

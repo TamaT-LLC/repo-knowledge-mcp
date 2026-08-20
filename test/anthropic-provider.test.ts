@@ -1,47 +1,49 @@
+import { access } from "node:fs/promises";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  ANTHROPIC_API_VERSION,
   AnthropicProviderAdapter,
   DISTILLATION_OUTPUT_JSON_SCHEMA,
   LlmProviderError,
+  type BufferedCommandExecutor,
+  type BufferedCommandRequest,
+  type BufferedCommandResult,
 } from "../src/index.js";
 
 describe("AnthropicProviderAdapter", () => {
-  it("uses the current Messages API structured-output contract", async () => {
-    let captured: { readonly init?: RequestInit; readonly url: string } | null =
-      null;
-    const fakeFetch = async (
-      input: string | URL | Request,
-      init?: RequestInit,
-    ): Promise<Response> => {
-      captured = {
-        ...(init === undefined ? {} : { init }),
-        url: String(input),
-      };
-      return new Response(
+  it("uses Claude Code structured output through subscription login", async () => {
+    let captured: BufferedCommandRequest | undefined;
+    const executor: BufferedCommandExecutor = async (request) => {
+      captured = request;
+      return succeeded(
         JSON.stringify({
-          content: [
-            {
-              text: JSON.stringify({
-                candidates: [],
-                skip_reason: "pr_specific",
-              }),
-              type: "text",
+          is_error: false,
+          modelUsage: {
+            "claude-test-resolved": {
+              canonicalModel: "claude-test-resolved",
             },
-          ],
-          id: "msg_123",
-          model: "claude-test-resolved",
-          stop_reason: "end_turn",
-          type: "message",
+          },
+          session_id: "session_123",
+          stop_reason: "tool_use",
+          structured_output: {
+            candidates: [],
+            skip_reason: "pr_specific",
+          },
+          subtype: "success",
+          type: "result",
+          uuid: "response_123",
         }),
-        { headers: { "request-id": "req_123" }, status: 200 },
       );
     };
     const adapter = new AnthropicProviderAdapter({
-      apiKey: "secret-api-key",
-      defaultModel: "claude-test",
-      fetch: fakeFetch,
+      defaultModel: "sonnet",
+      environment: {
+        ANTHROPIC_API_KEY: "must-not-be-forwarded",
+        ANTHROPIC_AUTH_TOKEN: "must-not-be-forwarded",
+        PATH: process.env.PATH,
+      },
+      executor,
     });
 
     const result = await adapter.completeStructured({
@@ -50,98 +52,46 @@ describe("AnthropicProviderAdapter", () => {
       system: "system prompt",
     });
 
-    expect(captured).not.toBeNull();
-    expect(captured!.url).toBe("https://api.anthropic.com/v1/messages");
-    const headers = new Headers(captured!.init!.headers);
-    expect(headers.get("anthropic-version")).toBe(ANTHROPIC_API_VERSION);
-    expect(headers.get("content-type")).toBe("application/json");
-    expect(headers.get("x-api-key")).toBe("secret-api-key");
-    expect(captured!.init!.redirect).toBe("error");
-    const body = JSON.parse(String(captured!.init!.body)) as Record<
-      string,
-      unknown
-    >;
-    expect(body).toMatchObject({
-      max_tokens: 4096,
-      messages: [{ content: "untrusted review data", role: "user" }],
-      model: "claude-test",
-      output_config: {
-        format: {
-          schema: DISTILLATION_OUTPUT_JSON_SCHEMA,
-          type: "json_schema",
-        },
-      },
-      system: "system prompt",
-    });
+    expect(captured).toBeDefined();
+    expect(captured!.executable).toBe("claude");
+    expect(captured!.input).toBe("untrusted review data");
+    expect(captured!.environment).not.toHaveProperty("ANTHROPIC_API_KEY");
+    expect(captured!.environment).not.toHaveProperty("ANTHROPIC_AUTH_TOKEN");
+    expect(captured!.args).toEqual(
+      expect.arrayContaining([
+        "--print",
+        "--output-format",
+        "json",
+        "--model",
+        "sonnet",
+        "--tools",
+        "",
+        "--no-session-persistence",
+        "--safe-mode",
+      ]),
+    );
+    const schemaIndex = captured!.args.indexOf("--json-schema");
+    expect(JSON.parse(captured!.args[schemaIndex + 1]!)).toEqual(
+      DISTILLATION_OUTPUT_JSON_SCHEMA,
+    );
     expect(result).toEqual({
       model: "claude-test-resolved",
       outputText: '{"candidates":[],"skip_reason":"pr_specific"}',
       provider: "anthropic",
-      responseId: "msg_123",
+      responseId: "response_123",
+    });
+    await expect(access(captured!.cwd!)).rejects.toMatchObject({
+      code: "ENOENT",
     });
   });
 
-  it("rejects custom endpoints containing URL credentials", () => {
-    expect(
-      () =>
-        new AnthropicProviderAdapter({
-          apiKey: "secret-api-key",
-          defaultModel: "claude-test",
-          endpoint: "https://user:password@example.test/v1/messages",
-          fetch: vi.fn<typeof globalThis.fetch>(),
-        }),
-    ).toThrow(
-      expect.objectContaining({
-        code: "INVALID_CONFIGURATION",
-        message: expect.stringContaining("credentials"),
-      }),
+  it("maps a missing Claude subscription login without exposing CLI output", async () => {
+    const executor = vi.fn<BufferedCommandExecutor>(async () =>
+      failed("Run `claude auth login`; private-review-secret"),
     );
-  });
-
-  it("does not make a request without an API key", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>();
     const adapter = new AnthropicProviderAdapter({
-      apiKey: () => undefined,
-      defaultModel: "claude-test",
-      fetch,
-    });
-
-    await expect(
-      adapter.completeStructured({
-        input: "private review text",
-        jsonSchema: DISTILLATION_OUTPUT_JSON_SCHEMA,
-        system: "system prompt",
-      }),
-    ).rejects.toMatchObject({ code: "AUTHENTICATION_MISSING" });
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("rejects plaintext custom endpoints before handling credentials", () => {
-    expect(
-      () =>
-        new AnthropicProviderAdapter({
-          apiKey: "secret-api-key",
-          defaultModel: "claude-test",
-          endpoint: "http://example.test/v1/messages",
-          fetch: vi.fn<typeof globalThis.fetch>(),
-        }),
-    ).toThrow(
-      expect.objectContaining({
-        code: "INVALID_CONFIGURATION",
-        message: expect.stringContaining("HTTPS"),
-      }),
-    );
-  });
-
-  it("surfaces HTTP failures without echoing response or review content", async () => {
-    const adapter = new AnthropicProviderAdapter({
-      apiKey: "secret-api-key",
-      defaultModel: "claude-test",
-      fetch: async () =>
-        new Response("private-review-secret", {
-          headers: { "request-id": "req_failure" },
-          status: 400,
-        }),
+      defaultModel: "sonnet",
+      executor,
     });
 
     const error = await adapter
@@ -154,10 +104,46 @@ describe("AnthropicProviderAdapter", () => {
 
     expect(error).toBeInstanceOf(LlmProviderError);
     expect(error).toMatchObject({
-      code: "PROVIDER_REQUEST_FAILED",
-      requestId: "req_failure",
-      status: 400,
+      code: "AUTHENTICATION_MISSING",
+      provider: "anthropic",
     });
     expect(String(error)).not.toContain("private-review-secret");
   });
+
+  it("rejects malformed CLI envelopes", async () => {
+    const adapter = new AnthropicProviderAdapter({
+      defaultModel: "sonnet",
+      executor: async () => succeeded("{}"),
+    });
+
+    await expect(
+      adapter.completeStructured({
+        input: "review",
+        jsonSchema: DISTILLATION_OUTPUT_JSON_SCHEMA,
+        system: "system prompt",
+      }),
+    ).rejects.toMatchObject({ code: "PROVIDER_RESPONSE_INVALID" });
+  });
 });
+
+function succeeded(stdout: string): BufferedCommandResult {
+  return {
+    exitCode: 0,
+    failed: false,
+    isMaxBuffer: false,
+    stderr: "",
+    stdout,
+    timedOut: false,
+  };
+}
+
+function failed(stderr: string): BufferedCommandResult {
+  return {
+    exitCode: 1,
+    failed: true,
+    isMaxBuffer: false,
+    stderr,
+    stdout: "",
+    timedOut: false,
+  };
+}

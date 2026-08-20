@@ -105,8 +105,19 @@ raw evidence と pending job はローカルに保存されるため、後から
 
 ## Provider Adapter で蒸留する
 
-Provider Adapter は、設定した provider API へ distillation prompt と review data を送ります。
-現在の adapter は Anthropic Messages API に対応しています。
+Provider Adapter は、ローカルでログイン済みの provider CLI を通じて distillation prompt と review data を送ります。
+API key は設定しません。server は provider CLI の子 process から API key environment を除外し、サブスクリプション login だけを使います。
+
+| `llm.mode` | 利用する CLI | login / 確認 |
+| --- | --- | --- |
+| `anthropic` | Claude Code | `claude auth login` / `claude auth status --json` |
+| `openai` | Codex CLI | `codex login` / `codex login status` |
+| `xai` | Grok CLI | `grok login` / `GROK_DISABLE_API_KEY_AUTH=1 grok models` |
+
+先に利用する CLI をインストールし、対象サブスクリプションへログインしてください。
+その後、`setup` で provider と model を選ぶか、次のように config を設定します。
+
+Anthropic（Claude Code）の設定例です。
 
 ```json
 {
@@ -119,12 +130,47 @@ Provider Adapter は、設定した provider API へ distillation prompt と rev
 ```
 
 ```console
-export ANTHROPIC_API_KEY=replace-with-your-secret
+claude auth login
 repo-knowledge distill owner/repository
 ```
 
-API key は config に書かず、process environment で渡してください。
+OpenAI の場合は次のように設定します。
+
+```json
+{
+  "llm": {
+    "mode": "openai",
+    "allowCloudTransmission": true,
+    "model": "your-openai-model-id"
+  }
+}
+```
+
+```console
+codex login
+repo-knowledge distill owner/repository
+```
+
+xAI の Grok を使う場合は次のように設定します。
+
+```json
+{
+  "llm": {
+    "mode": "xai",
+    "allowCloudTransmission": true,
+    "model": "your-grok-model-id"
+  }
+}
+```
+
+```console
+grok login
+repo-knowledge distill owner/repository
+```
+
 repository 単位の `repoPolicies.<owner/name>.allowCloudTransmission: false` は global opt-in より優先されます。
+MCP の `ingest_pr` と `sync_repo` も同じ Provider Adapter を使います。
+MCP server 起動後に `llm` 設定を変えた場合は、client から server を再接続して config を読み直してください。
 
 Provider Adapter が送る data には、comment ID、本文、時刻、actor と trust の metadata、path、取得済み diff hunk、repository context、candidate、既存 rule の要約が含まれます。
 review content と diff に対する secret scanner はないため、secret が含まれる可能性がある repository では有効にしないでください。
@@ -132,7 +178,7 @@ review content と diff に対する secret scanner はないため、secret が
 ## host-assisted distillation を使う
 
 host-assisted distillation は、接続中の Claude Code または Codex が使う host model へ一件ずつ job を渡します。
-Anthropic API key は使わず、`llm.mode` は `disabled` のままにします。
+Provider CLI は起動せず、`llm.mode` は `disabled` のままにします。
 
 ```json
 {
@@ -274,7 +320,7 @@ exit code は、成功が0、read failure が1、usage error が2です。
 ## quality gate
 
 抽出、分類、merge、検索の品質は、匿名化 corpus と記録済み provider prediction から再計算します。
-通常の quality gate は network と API key を使いません。
+通常の quality gate は network と provider login を使いません。
 
 ```console
 npm run golden
