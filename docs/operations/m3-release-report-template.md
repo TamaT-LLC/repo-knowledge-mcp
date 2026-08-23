@@ -39,19 +39,22 @@ package version、tag、GitHub release、npm registry version、report の値が
 一項目でも fail または未確認なら GitHub release を publish しない。
 詳細手順は [npm release runbook](./npm-release-runbook.md) に従う。
 
-## 3. M2 pilot release gate
+## 3. M2 release gate
 
 | 項目 | 値 |
 | --- | --- |
-| pilot ID | `___` |
-| 観測期間（UTC） | `___` 〜 `___` |
-| report path / URL | `___` |
-| report SHA-256 | `sha256:___` |
+| 14日pilot ID | `m2-cron-pilot-002` |
+| 観測期間（UTC） | `2026-08-09` 〜 `2026-08-22` |
+| 14日pilot report path / URL | `___` |
+| 14日pilot report SHA-256 | `sha256:___` |
+| 修正後限定再評価 ID | `m2-post-fix-revalidation-001` |
+| 修正後限定再評価 report path / URL | `___` |
+| 修正後限定再評価 report SHA-256 | `sha256:___` |
 | maintainer reviewers | `___` |
 | M2 decision | `go / no-go` |
-| Issue #70 | `closed / open` |
+| Issue #118 | `closed / open` |
 
-`go`、review 済み report、Issue #70 close がそろわなければ M3 release は no-go とする。
+14日運用gateと修正後ranking gateを組み合わせた`go`、review済みreport、Issue #118 closeがそろわなければM3 releaseはno-goとする。
 
 ## 4. Local verification
 

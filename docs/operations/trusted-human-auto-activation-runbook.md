@@ -46,7 +46,9 @@
    （最低直近 10 PR 分）を人間が確認し、trusted human 由来 candidate の
    precision が運用上十分と判断できること（設計 §2.3 の opt-in 条件）
 5. **M2 運用実績**: cron 同期での 2 週間運用（設計 §19 M2 完了条件）を
-   経ており、ランキング・抽出品質に未解決の回帰報告がないこと
+   経ており、ランキング・抽出品質に未解決の回帰報告がないこと。
+   2週間運用後に検索関連度だけを修正した場合は、合格済みの運用reportと
+   [修正後限定再評価report](./m2-post-fix-revalidation-report-m2-post-fix-revalidation-001.md)を組み合わせて確認する
 
 ## eligibility 記録
 
