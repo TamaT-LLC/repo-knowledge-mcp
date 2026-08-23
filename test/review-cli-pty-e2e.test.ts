@@ -187,7 +187,7 @@ describe("repo-knowledge review PTY E2E", () => {
     });
     const session = await startPty(fixture, { reviewDelayMs: 2_200 });
 
-    await session.waitFor("Loading review items (2.", 10_000);
+    await session.waitFor("Loading review items (", 10_000);
     await session.waitFor("Visible slow candidate");
     await session.waitFor(
       "Action ([a]pprove / [r]eject / [s]kip / [e]dit / [q]uit)",
@@ -196,7 +196,11 @@ describe("repo-knowledge review PTY E2E", () => {
     const result = await session.finish();
 
     expect(result.exitCode, result.output).toBe(0);
-    expect(result.output).toContain("✓ Loading review items (2.");
+    const completedPhase = /✓ Loading review items \((\d+\.\d)s\)/u.exec(
+      result.output,
+    );
+    expect(completedPhase, result.output).not.toBeNull();
+    expect(Number(completedPhase?.[1])).toBeGreaterThanOrEqual(2);
     expect(result.output).toContain("Review session paused");
   }, 15_000);
 

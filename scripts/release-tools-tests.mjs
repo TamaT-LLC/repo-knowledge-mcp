@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -10,6 +10,13 @@ import {
   findSecretPattern,
   validatePackagePath,
 } from "./package-artifact-gate.mjs";
+import {
+  BOOTSTRAP_RELEASE_TAG,
+  inspectBootstrapAuth,
+  parseArguments as parseBootstrapAuthArguments,
+  validateBootstrapAuth,
+  writeBootstrapAuthReport,
+} from "./bootstrap-auth-gate.mjs";
 import {
   parsePublishedVersion,
   validateRegistrySmokeRequest,
@@ -74,6 +81,120 @@ test("package artifact scanning recognizes credential material", () => {
     ),
     null,
   );
+});
+
+test("bootstrap authentication is fail-closed and restricted to v0.3.0", () => {
+  const bootstrap = validateBootstrapAuth({
+    expectedOwner: "maintainer",
+    observedOwner: "maintainer",
+    tag: BOOTSTRAP_RELEASE_TAG,
+    tokenPresent: true,
+  });
+  assert.equal(bootstrap.status, "pass");
+  assert.equal(bootstrap.authentication_mode, "bootstrap");
+  assert.equal(bootstrap.owner, "maintainer");
+
+  assert.deepEqual(
+    validateBootstrapAuth({
+      expectedOwner: "maintainer",
+      observedOwner: null,
+      tag: BOOTSTRAP_RELEASE_TAG,
+      tokenPresent: false,
+    }).failures,
+    ["bootstrap token is required for v0.3.0"],
+  );
+  assert.deepEqual(
+    validateBootstrapAuth({
+      expectedOwner: "",
+      observedOwner: "maintainer",
+      tag: BOOTSTRAP_RELEASE_TAG,
+      tokenPresent: true,
+    }).failures,
+    ["NPM_PACKAGE_OWNER is required for bootstrap"],
+  );
+  assert.deepEqual(
+    validateBootstrapAuth({
+      expectedOwner: "maintainer",
+      observedOwner: "different-owner",
+      tag: BOOTSTRAP_RELEASE_TAG,
+      tokenPresent: true,
+    }).failures,
+    ["bootstrap token owner does not match NPM_PACKAGE_OWNER"],
+  );
+  assert.deepEqual(
+    validateBootstrapAuth({
+      expectedOwner: "maintainer",
+      observedOwner: null,
+      tag: "v0.3.1",
+      tokenPresent: true,
+    }).failures,
+    ["bootstrap token is restricted to v0.3.0"],
+  );
+
+  const trusted = validateBootstrapAuth({
+    expectedOwner: "",
+    observedOwner: null,
+    tag: "v0.3.1",
+    tokenPresent: false,
+  });
+  assert.equal(trusted.status, "pass");
+  assert.equal(trusted.authentication_mode, "trusted_publishing");
+  assert.equal(trusted.owner, null);
+});
+
+test("bootstrap authentication requires an evidence report path", () => {
+  assert.throws(
+    () =>
+      parseBootstrapAuthArguments([
+        "--tag",
+        BOOTSTRAP_RELEASE_TAG,
+        "--expected-owner",
+        "maintainer",
+      ]),
+    /--report are required/u,
+  );
+  const options = parseBootstrapAuthArguments([
+    "--tag",
+    BOOTSTRAP_RELEASE_TAG,
+    "--expected-owner",
+    "maintainer",
+    "--report",
+    "bootstrap-auth-report.json",
+  ]);
+  assert.equal(options.tag, BOOTSTRAP_RELEASE_TAG);
+  assert.equal(options.expectedOwner, "maintainer");
+  assert.equal(options.reportPath, resolve("bootstrap-auth-report.json"));
+});
+
+test("bootstrap authentication persists a redacted report after owner lookup fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rkm-bootstrap-auth-"));
+  const reportPath = join(root, "bootstrap-auth-report.json");
+  const token = `npm_${"x".repeat(36)}`;
+  try {
+    const report = await inspectBootstrapAuth(
+      {
+        cwd: root,
+        expectedOwner: "maintainer",
+        tag: BOOTSTRAP_RELEASE_TAG,
+      },
+      {
+        environment: { NODE_AUTH_TOKEN: token },
+        readOwner: async () => {
+          throw new Error(`simulated owner lookup failure: ${token}`);
+        },
+      },
+    );
+    assert.equal(report.status, "fail");
+    assert.deepEqual(report.failures, [
+      "simulated owner lookup failure: [redacted]",
+    ]);
+    assert.doesNotMatch(JSON.stringify(report), new RegExp(token, "u"));
+
+    await writeBootstrapAuthReport(reportPath, report);
+    assert.deepEqual(JSON.parse(await readFile(reportPath, "utf8")), report);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 test("dry-run and packed manifests must describe the same artifact", () => {

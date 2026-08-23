@@ -20,11 +20,12 @@
 | 通常認証 | GitHub Actions OIDC による npm trusted publishing |
 | provenance | `npm publish --provenance` で生成 |
 
-2026-08-14 時点の公開準備状況は次のとおりである。
+2026-08-23 時点の公開準備状況は次のとおりである。
 
 | 項目 | 状態 |
 | --- | --- |
 | npm registry | `repo-knowledge-mcp` は未公開で、`npm view` は E404 |
+| npm package owner | 未確定。初回公開tokenの`npm whoami`とreview済みownerを照合する |
 | local npm認証 | 未認証 |
 | GitHub repository | public |
 | package version | `0.3.0` |
@@ -33,14 +34,15 @@
 | `main` protection | Pull Request、owner review、Node.js 22と24のCI、CodeQLを必須化済み |
 | version tag protection | `v*`の更新と削除を禁止済み |
 | release artifact | tag、GitHub Release、npm packageはいずれも未作成 |
-| M2 release gate | pilot-002の14日運用gateと修正後のranking human評価を組み合わせてgo |
+| M2 release gate | pilot-002の14日運用gateと修正後のranking human評価を組み合わせてgo。Issue `#118`はclosed |
+| bootstrap設定 | GitHub `npm` environmentの`NPM_PACKAGE_OWNER`と`NPM_BOOTSTRAP_TOKEN`は未設定 |
 
 E404はpackage名の確保やpublish権限を保証しない。
 初回公開前に、npm accountからpackage名、実際のowner、2FA、public accessを確認する。
 
 ## 2. trusted publishing の設定
 
-初回 package 作成後、npm package settings の trusted publisher を次の値で設定する。
+初回 package 作成後、release workflow はnpm package settingsのtrusted publisherを次の値で設定する。
 
 | npm 設定項目 | 値 |
 | --- | --- |
@@ -61,7 +63,7 @@ workflow は `id-token: write` を publish job だけに付与し、GitHub-hoste
 
 trusted publisher の動作確認後は、npm の publishing access を `Require two-factor authentication and disallow tokens` に設定する。
 
-初回 package 作成後は npm CLI 11.19.0 以降の `npm trust` でも同じ設定を作成して監査できる。
+初回 package 作成後は npm CLI 11.19.0 以降の `npm trust` で同じ設定を作成して監査する。
 実行する account が package owner または trusted publisher を管理できる maintainer であることを確認し、workflow filename には path ではなく basename だけを渡す。
 
 ```console
@@ -85,15 +87,35 @@ provenance の検証方法は [npm provenance statements](https://docs.npmjs.com
 
 npm は既存 package に対して trusted publisher を設定するため、未作成 package の初回公開だけは OIDC 設定より先に実施する必要がある。
 
-初回公開担当者は npm account の 2FA を有効にし、package 名、owner、license、version、tarball report を二者確認する。
+初回公開担当者は npm account の 2FA を有効にし、package 名、owner、license、version、tarball report をreviewする。
 
-初回公開には、対象packageのpublishに限定した有効期限の短いgranular access tokenをGitHub `npm` environment secretとして一時登録する。
+初回公開には、package作成とtrusted publisher設定に必要な最小権限だけを持つ、有効期限の短いgranular access tokenをGitHub `npm` environment secret `NPM_BOOTSTRAP_TOKEN`として一時登録する。
+自動化で2FAを迂回できるtokenは、この一回のbootstrapに必要な場合だけ許可する。
+review済みnpm usernameは同じenvironmentのvariable `NPM_PACKAGE_OWNER`へ登録する。
 
-通常の`release.yml`はtokenを参照せず、未作成packageの初回公開には使用できない。
-M2 pilotのgo判定後、初回公開専用workflowをreviewし、GitHub-hosted runner上でexact tarballに`npm publish --access public --provenance`を実行する。
-専用workflowは通常のrelease gate、GitHub `npm` environment、required reviewerを省略してはならない。
+```console
+gh variable set NPM_PACKAGE_OWNER --repo TamaT-LLC/repo-knowledge-mcp --env npm --body <npm-username>
+gh secret set NPM_BOOTSTRAP_TOKEN --repo TamaT-LLC/repo-knowledge-mcp --env npm
+```
 
-公開直後にtokenをnpmとGitHubの両方から失効または削除し、trusted publisherを前節の値で登録する。
+`gh secret set`には標準入力の対話promptを使い、tokenをshell引数やhistoryへ残さない。
+workflowは公開前に`npm whoami`と`NPM_PACKAGE_OWNER`を照合し、不一致ならpublishしない。
+
+`release.yml`のbootstrap経路は`v0.3.0`だけで`NPM_BOOTSTRAP_TOKEN`を許可する一時経路である。
+通常のrelease gate、GitHub `npm` environment、required reviewer、Node.js 22 / 24のverifyを省略しない。
+owner照合の判定はtoken値を含まない`npm-bootstrap-auth-report.json`としてrelease artifactへ保存する。
+GitHub-hosted runner上でexact tarballに`npm publish --access public --provenance`を実行した直後、同じjobで`npm trust github`を実行し、`release.yml`、repository、environment、publish権限を固定する。
+`npm trust list`の出力はrelease artifactの`trusted-publisher.json`へ保存する。
+
+workflow成功直後にtokenをnpmから失効し、GitHub environment secretを削除する。
+
+```console
+gh secret delete NPM_BOOTSTRAP_TOKEN --repo TamaT-LLC/repo-knowledge-mcp --env npm
+npm trust list repo-knowledge-mcp --json
+```
+
+tokenのnpm側失効はtokenを作成したaccountで行う。
+GitHub側の削除だけでnpm tokenは失効しない。
 
 初回公開のために長期tokenを作成したり、tokenをrepository、artifact、log、個人設定ファイルへ保存したりしてはならない。
 
@@ -113,7 +135,7 @@ Secretの値をcommitしてはならない。
 7. Issue `#118`がclosedであり、closeしたPull Request、M2 report、共有artifactの判定が一致している。
 8. M3 acceptance reportがreview済みである。
 9. GitHub repositoryがpublicで、npm owner、license、GitHub `npm` environmentが確認済みである。
-   初回公開ではbootstrap認証をreviewし、二回目以降はtrusted publisherを確認する。
+   初回公開では`NPM_PACKAGE_OWNER`、短期bootstrap token、exact `v0.3.0`制約をreviewし、二回目以降はtrusted publisherを確認する。
 10. 公開対象 commit の security review が完了し、CodeQL、secret scanning、依存関係監査に未解決の critical または high finding がない。
 
 version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。
@@ -135,12 +157,13 @@ lifecycle script を実行する `npm rebuild` は dependency と registry signa
 
 ## 5. 公開手順
 
-次の手順はtrusted publisher設定後の通常公開に使用する。
-未作成packageの初回公開は、前節の前提条件と第3節のbootstrap手順を満たした専用workflowから実行する。
+次の手順は初回bootstrapとtrusted publisher設定後の通常公開に共通して使用する。
+初回だけは、第3節のvariableとsecretを設定してからGitHub releaseをpublishする。
 
 1. main の検証済み commit に annotated tag を作成して push する。
 2. 同じ tag を指定した draft GitHub release に、review 済み release report を添付する。
 3. draft を publish して `Release npm package` workflow を開始する。
+   初回`v0.3.0`ではreview済みbootstrap tokenを使い、それ以外のtagではOIDC trusted publishingだけを使う。
 4. `verify release` と `registry smoke` の Node.js 22 と 24、および `publish exact tarball` が成功するまで release 完了としない。
 
 workflow の verify job は exact tag を checkout し、source check、golden、quality gate、package smoke を Node.js 22 と 24 で再実行する。
