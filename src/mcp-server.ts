@@ -67,6 +67,7 @@ export const REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION =
   "Before modifying code, call the repo-knowledge MCP `get_rules` tool with the files you expect to change.";
 export const REPO_KNOWLEDGE_SERVER_INSTRUCTIONS = [
   REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION,
+  "After a returned active rule has an observable applicability or work result, call `record_outcome` once with a stable `event_key`; never treat retrieval itself as `applied`.",
   "Use host-assisted distillation only when it is explicitly enabled; otherwise do not transmit review content or diffs through the host model.",
 ].join("\n\n");
 

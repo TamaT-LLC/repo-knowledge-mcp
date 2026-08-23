@@ -291,8 +291,10 @@ type KnowledgeEvidence = {
 「レビューで観測された回数（evidence）」「エージェントが違反した回数（violation）」「適用された回数（applied）」は異なるシグナルであり、混ぜない。
 
 ```typescript
-type Outcome = {
-  event_id: string;               // 必須。MCP リトライによる二重加算を防ぐ冪等キー
+type RecordOutcomeRequest = {
+  event_id?: string;              // 互換経路。caller が作る冪等キー
+  event_key?: string;             // 通常経路。host が作業結果ごとに安定生成
+  result_observed?: true;         // event_key 経路で必須
   knowledge_id: string;
   repo: string;
   outcome: "applied" | "violated" | "not_applicable" | "false_positive";
@@ -301,6 +303,16 @@ type Outcome = {
   at: string;
 };
 ```
+
+`event_id` と `event_key` はいずれか一方だけを指定する。
+
+Codex や Claude Code などの host は通常 `event_key` 経路を使う。
+`event_key` 経路は `result_observed: true`、空でない `context`、結果を説明する `note` を必須とし、いずれかが欠けた要求を書き込み前に拒否する。
+`event_key` は NFKC 正規化と trim の後に 256 文字以下とし、`repo_id`、`knowledge_id`、schema version とともに JCS 正規化した SHA-256 の先頭 128 bit から `evt_` 形式の `event_id` を決定的に導出する。
+同じ request の retry は同じ event を replay し、同じ identity で payload が変わった場合は冪等性 conflict として拒否する。
+
+canonical `OutcomeRecorded` には導出後の `event_id` と outcome payload だけを保存し、`event_key` と `result_observed` は保存しない。
+`get_rules` は read-only であり、rule が返った事実だけで `applied` を記録してはならない。
 
 ##### 6.5 SQLite（派生投影）
 
@@ -610,7 +622,19 @@ Before modifying code, call the repo-knowledge MCP `get_rules` tool with the fil
 
 ##### 12.3 record_outcome（v0.2）
 
-get_rules の出力に id が含まれるため、エージェントは違反指摘を受けた際 `record_outcome` を呼べる。event_id による冪等化（§6.4）を前提に v0.2 で導入する。
+host は次の順序で `record_outcome` を呼ぶ。
+
+1. 変更予定の file と task を付けて `get_rules` を呼び、active knowledge ID を受け取る。
+2. rule と実際の task の関係を判断し、実装、検証、または違反の確認まで行う。
+3. 実際に観測した結果を `applied`、`violated`、`not_applicable`、`false_positive` のいずれかに分類する。
+4. 作業結果ごとに安定した `event_key` を作り、`result_observed: true`、`context`、`note`、初回観測時の `at` とともに一度送る。
+5. transport error 時は `event_key` だけでなく `at` を含む request 全体を変えずに retry する。
+6. `stats` または次回の read で投影結果を観測する。
+
+`get_rules` の応答を受け取っただけの場合、作業結果が未確定の場合、テスト用に実在しない成功を作る場合は `record_outcome` を呼ばない。
+outcome 記録は local canonical store への書き込みであり、Provider Adapter、host-assisted distillation、API key の有効化を必要としない。
+`event_id` を直接渡す経路は既存 client 互換のため残すが、新規 host 実装の標準経路にはしない。
+MCP 境界ではどちらの identity 経路でも `result_observed: true`、`context`、`note` を必須とし、旧経路を観測契約の bypass に使えないようにする。
 
 #### 13. 検索とランキング — 二段階方式
 

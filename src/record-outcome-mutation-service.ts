@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { z } from "zod";
 
 import { canonicalizeJson } from "./canonical.js";
@@ -27,6 +29,7 @@ export const OUTCOME_RECORDED_RECORD_TYPE = "OutcomeRecorded";
 
 export const MAX_OUTCOME_NOTE_LENGTH = 2_000;
 export const MAX_OUTCOME_TASK_ID_LENGTH = 128;
+export const MAX_OUTCOME_EVENT_KEY_LENGTH = 256;
 export const MAX_OUTCOME_FILE_PATHS = 50;
 export const MAX_OUTCOME_FILE_PATH_LENGTH = 512;
 
@@ -37,6 +40,11 @@ export const OutcomeKindSchema = z.enum([
   "false_positive",
 ]);
 export type OutcomeKind = z.infer<typeof OutcomeKindSchema>;
+
+export const OutcomeEventKeySchema = z
+  .string()
+  .transform((value) => value.normalize("NFKC").trim())
+  .pipe(NonEmptyStringSchema.max(MAX_OUTCOME_EVENT_KEY_LENGTH));
 
 const RecordOutcomeContextSchema = z
   .object({
@@ -57,12 +65,56 @@ export const RecordOutcomeRequestSchema = z
   .object({
     at: IsoDateTimeSchema,
     context: RecordOutcomeContextSchema.optional(),
-    event_id: EventIdSchema,
+    event_id: EventIdSchema.optional().describe(
+      "Compatibility path for a caller-generated idempotency key. Supply exactly one of event_id or event_key.",
+    ),
+    event_key: OutcomeEventKeySchema.optional().describe(
+      "Stable host work-result key used to derive event_id deterministically. Reuse the exact request for retries.",
+    ),
     knowledge_id: KnowledgeIdSchema,
     note: NonEmptyStringSchema.max(MAX_OUTCOME_NOTE_LENGTH).optional(),
     outcome: OutcomeKindSchema,
+    result_observed: z
+      .literal(true)
+      .optional()
+      .describe(
+        "Required with event_key. Assert only after the host observes applicability or a real work result; get_rules retrieval alone is not an outcome.",
+      ),
   })
-  .strict();
+  .strict()
+  .superRefine((request, context) => {
+    const hasEventId = request.event_id !== undefined;
+    const hasEventKey = request.event_key !== undefined;
+    if (hasEventId === hasEventKey) {
+      context.addIssue({
+        code: "custom",
+        message: "supply exactly one of event_id or event_key",
+        path: ["event_key"],
+      });
+    }
+    if (!hasEventKey) return;
+    if (request.result_observed !== true) {
+      context.addIssue({
+        code: "custom",
+        message: "event_key requires result_observed: true",
+        path: ["result_observed"],
+      });
+    }
+    if (request.context === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "event_key requires observable task context",
+        path: ["context"],
+      });
+    }
+    if (request.note === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "event_key requires a note describing the observed result",
+        path: ["note"],
+      });
+    }
+  });
 
 export type RecordOutcomeRequest = z.infer<typeof RecordOutcomeRequestSchema>;
 
@@ -104,6 +156,40 @@ export interface RecordOutcomeMutationServiceOptions {
 interface BoundOutcomePayload {
   readonly eventId: string;
   readonly payload: KnowledgeOutcome;
+}
+
+export interface DeriveOutcomeEventIdRequest {
+  readonly eventKey: string;
+  readonly knowledgeId: string;
+  readonly repoId: string;
+}
+
+const CROCKFORD_BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/**
+ * Derives a stable event-shaped ID from one host-observed work-result key.
+ * The stable repository ID and knowledge ID prevent cross-binding, while a
+ * 128-bit SHA-256 prefix keeps collisions negligible without exposing the key.
+ */
+export function deriveOutcomeEventId(
+  request: DeriveOutcomeEventIdRequest,
+): string {
+  const eventKey = OutcomeEventKeySchema.parse(request.eventKey);
+  const knowledgeId = KnowledgeIdSchema.parse(request.knowledgeId);
+  const repoId = RepositoryIdSchema.parse(request.repoId);
+  const digest = createHash("sha256")
+    .update(
+      canonicalizeJson({
+        event_key: eventKey,
+        knowledge_id: knowledgeId,
+        repo_id: repoId,
+        schema_version: 1,
+      }),
+      "utf8",
+    )
+    .digest("hex")
+    .slice(0, 32);
+  return EventIdSchema.parse(`evt_${encodeCrockford128(digest)}`);
 }
 
 /**
@@ -192,7 +278,19 @@ export class RecordOutcomeMutationService {
       outcome: parsed.data.outcome,
       repo_id: this.repoId,
     });
-    return { eventId: parsed.data.event_id, payload };
+    const eventKey = parsed.data.event_key;
+    let eventId = parsed.data.event_id;
+    if (eventId === undefined) {
+      if (eventKey === undefined) {
+        throw new TypeError("validated outcome request has no event identity");
+      }
+      eventId = deriveOutcomeEventId({
+        eventKey,
+        knowledgeId: parsed.data.knowledge_id,
+        repoId: this.repoId,
+      });
+    }
+    return { eventId, payload };
   }
 
   private assertActiveKnowledgeBinding(
@@ -253,6 +351,16 @@ export class RecordOutcomeMutationService {
       violation_count: violationCount,
     };
   }
+}
+
+function encodeCrockford128(hex: string): string {
+  let remaining = BigInt(`0x${hex}`);
+  let encoded = "";
+  for (let index = 0; index < 26; index += 1) {
+    encoded = CROCKFORD_BASE32_ALPHABET[Number(remaining & 31n)]! + encoded;
+    remaining >>= 5n;
+  }
+  return encoded;
 }
 
 function normalizeOutcomeContext(

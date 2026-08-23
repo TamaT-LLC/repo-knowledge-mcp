@@ -22,7 +22,7 @@ M1 の受け入れ条件 1〜63 は [M1 acceptance matrix](./m1-acceptance-matri
 | M2-7 | cron から非対話で運用できる（exit code 0/1/2 の契約を含む） | [CLI test](../../test/cli.test.ts) の sync / stats exit code test、[sync cron runbook](../operations/sync-cron-runbook.md) の crontab・診断・再試行手順 | automated + operational |
 | M2-8 | provider disabled と enabled の双方で同期後の canonical state が整合する | [M2 product E2E](../../test/m2-product-e2e.test.ts) の収束 test | automated |
 
-## outcome（record_outcome）M2-9〜M2-13
+## outcome（record_outcome）M2-9〜M2-13c
 
 | # | 受け入れ条件 | 検証根拠 | 種別 |
 |---:|---|---|---|
@@ -31,6 +31,9 @@ M1 の受け入れ条件 1〜63 は [M1 acceptance matrix](./m1-acceptance-matri
 | M2-11 | applied / violated / not_applicable / false_positive を混ぜず別カウントで導出する | [record outcome service test](../../test/record-outcome-mutation-service.test.ts)、[domain projection test](../../test/domain-projection.test.ts) | automated |
 | M2-12 | outcome は canonical event として記録され reindex で同じ集計へ再構築できる | [record outcome service test](../../test/record-outcome-mutation-service.test.ts)、[stats service test](../../test/stats-read-service.test.ts) の reindex 一致 | automated |
 | M2-13 | active でない knowledge への outcome を拒否する | [record outcome service test](../../test/record-outcome-mutation-service.test.ts) | automated |
+| M2-13a | host の安定した `event_key` から決定的に `event_id` を導出し、初回のみ記録して同一 request の retry を replay する | [record outcome service test](../../test/record-outcome-mutation-service.test.ts)、[record_outcome MCP E2E](../../test/record-outcome-mcp-e2e.test.ts) | automated + process E2E |
+| M2-13b | `get_rules` だけでは outcome を記録せず、`event_key` 経路で観測確認・context・note が欠けると書き込み前に fail-closed とする | [record outcome service test](../../test/record-outcome-mutation-service.test.ts)、[MCP mutation tool test](../../test/mcp-mutation-tools.test.ts)、[record_outcome MCP E2E](../../test/record-outcome-mcp-e2e.test.ts) | automated + process E2E |
+| M2-13c | Provider Adapter と host-assisted distillation を起動せず、get_rules → 判断 → record_outcome → stats を local canonical state だけで完結する | [record_outcome MCP E2E](../../test/record-outcome-mcp-e2e.test.ts)、[M2 product E2E](../../test/m2-product-e2e.test.ts) | automated process E2E |
 
 ## stats M2-14〜M2-17
 

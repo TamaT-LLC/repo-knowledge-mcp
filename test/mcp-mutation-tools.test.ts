@@ -38,6 +38,7 @@ import {
 const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const JOB_ID = "job_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const EVENT_ID = "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const EVENT_KEY = "codex:issue-117:tool-result";
 const OUTCOME_AT = "2026-08-07T00:00:00.000Z";
 const REPOSITORY = "owner/repository";
 const RAW_HASH = "a".repeat(64);
@@ -312,6 +313,7 @@ describe("MCP mutation tools", () => {
       knowledge_id: KNOWLEDGE_ID,
       note: "guarded the input",
       outcome: "applied",
+      result_observed: true,
     } as const;
     const outcome = await callTool(connection.client, "record_outcome", {
       ...outcomeRequest,
@@ -353,10 +355,13 @@ describe("MCP mutation tools", () => {
 
     const replay = await callTool(connection.client, "record_outcome", {
       at: OUTCOME_AT,
+      context: { task_id: "retry-test" },
       event_id: EVENT_ID,
       knowledge_id: KNOWLEDGE_ID,
+      note: "observed the original successful result",
       outcome: "applied",
       repo: REPOSITORY,
+      result_observed: true,
     });
 
     expect(toolResult(replay)).not.toHaveProperty("isError", true);
@@ -369,6 +374,46 @@ describe("MCP mutation tools", () => {
         retryable: true,
       },
     });
+  });
+
+  it("forwards the fail-closed host event_key contract", async () => {
+    const fixture = createMutationFixture();
+    const connection = await connect(fixture.resolver);
+    const outcomeRequest = {
+      at: OUTCOME_AT,
+      context: { file_paths: ["src/index.ts"], task_id: "issue-117" },
+      event_key: EVENT_KEY,
+      knowledge_id: KNOWLEDGE_ID,
+      note: "typecheck completed after applying the rule",
+      outcome: "applied",
+      result_observed: true,
+    } as const;
+
+    const response = await callTool(connection.client, "record_outcome", {
+      ...outcomeRequest,
+      repo: REPOSITORY,
+    });
+
+    expect(toolResult(response)).not.toHaveProperty("isError", true);
+    expect(fixture.recordOutcome).toHaveBeenCalledWith(outcomeRequest);
+  });
+
+  it("rejects either identity path when no observable result is attested", async () => {
+    const fixture = createMutationFixture();
+    const connection = await connect(fixture.resolver);
+
+    for (const identity of [{ event_key: EVENT_KEY }, { event_id: EVENT_ID }]) {
+      const response = await callTool(connection.client, "record_outcome", {
+        at: OUTCOME_AT,
+        ...identity,
+        knowledge_id: KNOWLEDGE_ID,
+        outcome: "applied",
+        repo: REPOSITORY,
+      });
+      expect(toolResult(response)).toMatchObject({ isError: true });
+    }
+    expect(fixture.resolve).not.toHaveBeenCalled();
+    expect(fixture.recordOutcome).not.toHaveBeenCalled();
   });
 
   it("maps outcome idempotency conflicts and knowledge binding failures to operator errors", async () => {
@@ -402,10 +447,13 @@ describe("MCP mutation tools", () => {
     const call = async () =>
       callTool(connection.client, "record_outcome", {
         at: OUTCOME_AT,
+        context: { task_id: "binding-failure-test" },
         event_id: EVENT_ID,
         knowledge_id: KNOWLEDGE_ID,
+        note: "observed a rule violation",
         outcome: "violated",
         repo: REPOSITORY,
+        result_observed: true,
       });
 
     const conflict = await call();

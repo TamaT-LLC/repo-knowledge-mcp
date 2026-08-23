@@ -11,6 +11,8 @@ import {
   RecordOutcomeOutputSchema,
   RepositoryRegistry,
   SearchKnowledgeOutputSchema,
+  StatsOutputSchema,
+  deriveOutcomeEventId,
   serializeKnowledgeDocument,
   type KnowledgeStatus,
 } from "../src/index.js";
@@ -21,7 +23,12 @@ const OTHER_REPO_ID = "R_other_repository";
 const ACTIVE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const FOREIGN_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAX";
 const UNKNOWN_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAY";
-const EVENT_ID = "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const EVENT_KEY = "codex:issue-117:stdio-result";
+const EVENT_ID = deriveOutcomeEventId({
+  eventKey: EVENT_KEY,
+  knowledgeId: ACTIVE_ID,
+  repoId: REPO_ID,
+});
 const CREATED_AT = "2026-08-06T00:00:00.000Z";
 const OUTCOME_AT = "2026-08-07T00:00:00.000Z";
 const E2E_TIMEOUT_MS = 120_000;
@@ -56,11 +63,12 @@ describe("record_outcome MCP E2E over a real stdio server and canonical store", 
       const violatedRequest = {
         at: OUTCOME_AT,
         context: { file_paths: ["src/feature/a.ts"], pr_number: 7 },
-        event_id: EVENT_ID,
+        event_key: EVENT_KEY,
         knowledge_id: ACTIVE_ID,
         note: "agent violated the rule",
         outcome: "violated",
         repo: REPOSITORY,
+        result_observed: true,
       };
       // 1. get_rules hands out the id the agent will report an outcome for.
       const before = await runServe(environment, [
@@ -69,6 +77,7 @@ describe("record_outcome MCP E2E over a real stdio server and canonical store", 
           file_paths: ["src/feature/a.ts"],
           repo: REPOSITORY,
         }),
+        callTool(4, "stats", { repo: REPOSITORY }),
       ]);
       const toolNames = listedToolNames(replyById(before, 2));
       expect(toolNames).toContain("record_outcome");
@@ -79,13 +88,25 @@ describe("record_outcome MCP E2E over a real stdio server and canonical store", 
         id: ACTIVE_ID,
         violation_count: 0,
       });
+      // Retrieval is read-only: receiving a rule is never an applied outcome.
+      expect(
+        StatsOutputSchema.parse(structuredContent(before, 4)).outcomes,
+      ).toEqual({
+        by_type: {
+          applied: 0,
+          false_positive: 0,
+          not_applicable: 0,
+          violated: 0,
+        },
+        total: 0,
+      });
 
       // 2. The first record appends one canonical event and bumps the counter.
       const first = await runServe(environment, [
-        callTool(4, "record_outcome", violatedRequest),
+        callTool(5, "record_outcome", violatedRequest),
       ]);
       const recorded = RecordOutcomeOutputSchema.parse(
-        structuredContent(first, 4),
+        structuredContent(first, 5),
       );
       expect(recorded.ok).toBe(true);
       expect(recorded.result).toEqual({
@@ -97,27 +118,27 @@ describe("record_outcome MCP E2E over a real stdio server and canonical store", 
         violation_count: 1,
       });
 
-      // 3. A fresh MCP session retries and misuses the recorded event_id.
+      // 3. A fresh MCP session retries and misuses the derived event_id.
       const retried = await runServe(environment, [
-        callTool(5, "record_outcome", violatedRequest),
-        callTool(6, "record_outcome", {
+        callTool(6, "record_outcome", violatedRequest),
+        callTool(7, "record_outcome", {
           ...violatedRequest,
           outcome: "applied",
         }),
-        callTool(7, "record_outcome", {
-          ...violatedRequest,
-          event_id: "evt_01ARZ3NDEKTSV4RRFFQ69G5FAW",
-          knowledge_id: UNKNOWN_ID,
-        }),
         callTool(8, "record_outcome", {
           ...violatedRequest,
-          event_id: "evt_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          event_key: `${EVENT_KEY}:unknown`,
+          knowledge_id: UNKNOWN_ID,
+        }),
+        callTool(9, "record_outcome", {
+          ...violatedRequest,
+          event_key: `${EVENT_KEY}:foreign`,
           knowledge_id: FOREIGN_ID,
         }),
       ]);
       // The identical payload replays the stable original result.
       const replayed = RecordOutcomeOutputSchema.parse(
-        structuredContent(retried, 5),
+        structuredContent(retried, 6),
       );
       expect(replayed.ok).toBe(true);
       expect(replayed.result).toEqual({
@@ -125,22 +146,23 @@ describe("record_outcome MCP E2E over a real stdio server and canonical store", 
         replayed: true,
       });
       expect(replayed.summary.counts).toMatchObject({ recorded_events: 0 });
-      // Reusing the event_id for a different payload fails closed, and
+      // Reusing the derived event_id for a different payload fails closed, and
       // unknown or cross-repository ids never append events.
-      expect(errorCode(retried, 6)).toBe("IDEMPOTENCY_CONFLICT");
-      expect(errorCode(retried, 7)).toBe("KNOWLEDGE_NOT_FOUND");
-      expect(errorCode(retried, 8)).toBe("KNOWLEDGE_REPOSITORY_MISMATCH");
+      expect(errorCode(retried, 7)).toBe("IDEMPOTENCY_CONFLICT");
+      expect(errorCode(retried, 8)).toBe("KNOWLEDGE_NOT_FOUND");
+      expect(errorCode(retried, 9)).toBe("KNOWLEDGE_REPOSITORY_MISMATCH");
 
       // 4. Both read tools serve the updated canonical projection.
       const after = await runServe(environment, [
-        callTool(9, "search_knowledge", {
+        callTool(10, "search_knowledge", {
           query: "outcome",
           repo: REPOSITORY,
         }),
-        callTool(10, "get_knowledge", { id: ACTIVE_ID, repo: REPOSITORY }),
+        callTool(11, "get_knowledge", { id: ACTIVE_ID, repo: REPOSITORY }),
+        callTool(12, "stats", { repo: REPOSITORY }),
       ]);
       const search = SearchKnowledgeOutputSchema.parse(
-        structuredContent(after, 9),
+        structuredContent(after, 10),
       );
       expect(search.results).toHaveLength(1);
       expect(search.results[0]).toMatchObject({
@@ -149,12 +171,23 @@ describe("record_outcome MCP E2E over a real stdio server and canonical store", 
         violation_count: 1,
       });
       const knowledge = GetKnowledgeOutputSchema.parse(
-        structuredContent(after, 10),
+        structuredContent(after, 11),
       );
       expect(knowledge.knowledge).toMatchObject({
         applied_count: 0,
         id: ACTIVE_ID,
         violation_count: 1,
+      });
+      expect(
+        StatsOutputSchema.parse(structuredContent(after, 12)).outcomes,
+      ).toEqual({
+        by_type: {
+          applied: 0,
+          false_positive: 0,
+          not_applicable: 0,
+          violated: 1,
+        },
+        total: 1,
       });
     },
   );

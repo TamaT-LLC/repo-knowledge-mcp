@@ -257,14 +257,72 @@ checkpoint は最後に連続成功した Pull Request に留まるため、失�
 ## outcome とランキング
 
 `get_rules` が返す rule `id` を使うと、MCP tool の `record_outcome` で利用結果を記録できます。
+この操作は local canonical store へのみ書き込むため、Provider Adapter や host-assisted distillation の有効化は不要です。
 
-- `applied`：rule を適用した
-- `violated`：rule への違反を観測した
-- `not_applicable`：現在の task には適用できなかった
-- `false_positive`：検索結果が誤検出だった
+### Codex と Claude Code から記録する
 
-`event_id` は冪等 key です。
-同じ payload の retry は二重加算せず、同じ `event_id` に異なる payload を渡すと拒否します。
+通常は tool を手で呼び出す必要はありません。
+Codex または Claude Code に次のように依頼します。
+
+> 変更前に repo-knowledge の `get_rules` を使い、作業結果を実際に確認できた rule だけ `record_outcome` で一度記録してください。
+
+host が守る順序は次のとおりです。
+
+1. 変更対象の `file_paths` と `task` を渡して `get_rules` を呼びます。
+2. 返った rule を実装と検証に使い、適用可否または作業結果を確定します。
+3. rule ID と安定した `event_key` を使い、観測済みの結果を `record_outcome` で一度記録します。
+4. 通信結果が不明の場合は、`at` を含む初回 request 全体を変えずに再送します。
+5. 必要に応じて `stats` で outcome 件数を確認します。
+
+標準的な tool input は次の形です。
+
+```json
+{
+  "repo": "owner/repository",
+  "knowledge_id": "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "outcome": "applied",
+  "event_key": "codex:issue-347:implementation-result",
+  "result_observed": true,
+  "context": {
+    "task_id": "issue-347",
+    "file_paths": ["src/feature.ts"]
+  },
+  "note": "rule を適用し、typecheck と対象 test の成功を確認した",
+  "at": "2026-08-23T01:23:45.000Z"
+}
+```
+
+`event_key` は同じ作業結果で再利用できる値にします。
+server は repository ID、knowledge ID、`event_key` から privacy-safe な `event_id` を決定的に導出します。
+同じ request の retry は replay となり、カウントは増えません。
+同じ `event_key` で `outcome`、`at`、`context`、`note` のいずれかを変えると、冪等性 conflict として拒否されます。
+`event_id` を直接指定する旧経路も互換性のため使えますが、新しい host 連携では `event_key` を使ってください。
+MCP tool では旧経路にも `result_observed: true`、`context`、`note` が必要で、観測契約を省略できません。
+
+### 記録する結果の基準
+
+| outcome | 記録する条件 |
+| --- | --- |
+| `applied` | rule を実際に実装または判断に適用し、その結果を test や完了状態で確認した |
+| `violated` | 作成した差分、実行結果、またはレビューで rule 違反を実際に確認した |
+| `not_applicable` | 対象を調べた結果、rule が現在の task に適用されないと判断できた |
+| `false_positive` | 検索結果と file、task、実装内容を比較し、明らかな誤検出と確認した |
+
+`get_rules` が rule を返しただけで `applied` を記録してはいけません。
+作業が未完了の場合、結果を観測できない場合、pilot 用に成功件数を増やす場合も記録しません。
+`event_key` 経路は `result_observed: true`、空でない `context`、結果を説明する `note` がそろわない要求を書き込み前に拒否します。
+
+### privacy と誤記録
+
+`record_outcome` は review comment、diff hunk、prompt を外部へ送信しません。
+canonical event に保存されるのは、導出した event ID、knowledge ID、outcome、operator が渡した `context`、`note`、`at` です。
+secret、credential、review comment 本文、不要なソースコードを `event_key`、`context`、`note` へ入れないでください。
+
+現行 version の canonical outcome は append-only で、MCP からの取消・上書き tool はありません。
+誤って記録した場合は、同じ `event_key` の内容を変えて再送したり、逆の outcome を作って相殺したりしないでください。
+返った `event_id`、誤りの理由、影響した期間を local の作業記録に残し、pilot 集計や判定から除外します。
+ランキング影響を除く必要がある場合は writer を停止し、store 全体を backup した上で、独立した保守作業として扱います。
+稼働中の `events/outcomes.jsonl` を直接編集しないでください。
 
 `violated` は上限付きで順位を上げます。
 `applied` は三件以上の sample がある場合だけ順位へ反映します。

@@ -303,12 +303,18 @@ MCP server は次の 11 tools を公開します。
 | `get_knowledge` | detail、コード例、evidence を読む |
 | `ingest_pr` | 一つの Pull Request snapshot を取得する |
 | `sync_repo` | checkpoint から増分同期する |
-| `record_outcome` | rule の利用結果を冪等に記録する |
+| `record_outcome` | 実際に観測した rule の利用結果を冪等に記録する |
 | `add_knowledge` | manual knowledge を proposed で追加する |
 | `update_knowledge` | ETag を使って変更 proposal を作る |
 | `prepare_distillation` | host-assisted job を一件取得する |
 | `submit_distillation` | 蒸留結果を検証して提出する |
 | `stats` | repository の集計を読み取る |
+
+Codex や Claude Code は、変更前に `get_rules` を呼び、実装・検証・違反確認などの実結果が確定した rule だけ `record_outcome` で記録します。
+`get_rules` が rule を返しただけで `applied` を記録してはいけません。
+通常経路では作業結果ごとの安定した `event_key`、`result_observed: true`、`context`、`note` を渡します。
+同じ request の retry は二重記録されません。
+判定基準、privacy、誤記録時の扱いは[outcome 記録ガイド](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md#outcome-とランキング)を参照してください。
 
 MCP plane から status を active または rejected に変更する tool は公開しません。
 承認と却下は実 TTY を必要とする admin CLI だけが行います。

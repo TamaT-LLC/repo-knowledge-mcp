@@ -41,7 +41,7 @@ const PROMPT = parseDistillationPrompt(
 const BASE_MS = Date.parse("2026-08-01T00:00:00.000Z");
 const ONE_MINUTE_MS = 60_000;
 const OUTCOME_AT = "2026-08-06T00:00:00.000Z";
-const VIOLATED_EVENT_ID = "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const VIOLATED_EVENT_KEY = "codex:m2-e2e:observed-violation";
 const APPLIED_EVENT_ID = "evt_01ARZ3NDEKTSV4RRFFQ69G5FAW";
 const temporaryDirectories: string[] = [];
 const originalStdin = Object.getOwnPropertyDescriptor(process, "stdin")!;
@@ -161,8 +161,12 @@ describe("M2 product acceptance E2E", () => {
       generated_example: true,
       language: "typescript",
     });
+    // Retrieval alone has no outcome side effect.
+    await expect(operations.stats({})).resolves.toMatchObject({
+      outcomes: { total: 0 },
+    });
 
-    // 5. Agent-reported outcomes are idempotent per event_id.
+    // 5. The normal host path derives an id from one stable work-result key.
     const outcomes = new RecordOutcomeMutationService({
       repo: REPOSITORY,
       repoId: REPOSITORY_ID,
@@ -171,9 +175,11 @@ describe("M2 product acceptance E2E", () => {
     const violated = {
       at: OUTCOME_AT,
       context: { file_paths: ["src/ipc/handler.ts"] },
-      event_id: VIOLATED_EVENT_ID,
+      event_key: VIOLATED_EVENT_KEY,
       knowledge_id: knowledgeId,
+      note: "the completed implementation violated the returned rule",
       outcome: "violated",
+      result_observed: true,
     } as const;
     await expect(outcomes.recordOutcome(violated)).resolves.toMatchObject({
       replayed: false,
