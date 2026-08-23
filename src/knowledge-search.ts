@@ -62,6 +62,19 @@ export interface NormalizedKnowledgeSearchQuery {
   readonly queryMode: KnowledgeSearchQueryMode;
 }
 
+/**
+ * Deterministic, privacy-safe aliases for common bilingual technical terms.
+ *
+ * The read plane is frequently queried in English while distilled rules can
+ * be written in Japanese. Keep this list deliberately small and conceptual:
+ * aliases expand one term, never a complete query or a knowledge identifier.
+ */
+const LITERAL_TERM_SEARCH_ALIASES: Readonly<Record<string, readonly string[]>> =
+  Object.freeze({
+    logging: Object.freeze(["構造化ログ"]),
+    validation: Object.freeze(["妥当性"]),
+  });
+
 export function normalizeKnowledgeSearchQuery(
   query: string,
   queryMode: KnowledgeSearchQueryMode = "literal_phrase",
@@ -112,8 +125,14 @@ function toLiteralTermFtsQuery(query: string): string | null {
   for (const match of query.matchAll(/[\p{L}\p{N}][\p{L}\p{M}\p{N}]*/gu)) {
     const term = match[0];
     if ([...term].length < 3 || seen.has(term)) continue;
-    seen.add(term);
-    terms.push(term);
+    for (const candidate of [
+      term,
+      ...(LITERAL_TERM_SEARCH_ALIASES[term] ?? []),
+    ]) {
+      if (seen.has(candidate)) continue;
+      seen.add(candidate);
+      terms.push(candidate);
+    }
   }
   if (terms.length === 0) return null;
   return terms.map((term) => toFtsLiteral(term)).join(" OR ");

@@ -140,6 +140,16 @@ describe("knowledge search query handling", () => {
       mode: "fts",
       queryMode: "literal_terms",
     });
+    expect(
+      normalizeKnowledgeSearchQuery(
+        "stdout logging json purity",
+        "literal_terms",
+      ).ftsQuery,
+    ).toBe('"stdout" OR "logging" OR "構造化ログ" OR "json" OR "purity"');
+    expect(
+      normalizeKnowledgeSearchQuery("zod schema validation", "literal_terms")
+        .ftsQuery,
+    ).toBe('"zod" OR "schema" OR "validation" OR "妥当性"');
   });
 
   it("escapes percent and underscore in LIKE patterns", async () => {
