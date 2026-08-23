@@ -5,6 +5,10 @@ M3 v0.3 を公開するときに本ファイルを複製し、`m3-release-v<vers
 source checkout の結果、Pull Request CI、Release CI、npm registry の結果を混同しない。
 すべての digest、URL、実行 ID は再確認できる値を残す。
 
+main上のrelease commitとtagを確定した後、GitHub releaseをdraftのまま作成し、§1〜§7を埋めたreportをreviewする。
+公開前項目がgoになった後だけdraftをpublishし、Release CI完了後に§8〜§10を実測値で更新する。
+最終reportはGitHub release assetとmain上の文書で同じSHA-256になるよう固定する。
+
 ## 1. Release identity
 
 | 項目 | 値 |
@@ -30,13 +34,15 @@ package version、tag、GitHub release、npm registry version、report の値が
 | project license と `package.json` の license が確定している | pass / fail | `___` |
 | 空でない通常ファイルの `LICENSE` / `LICENSE.md` が release commit に存在する | pass / fail | `___` |
 | GitHub repository が public である | pass / fail | `___` |
-| npm trusted publisher が release workflow に束縛されている | pass / fail | `___` |
+| publish認証経路が初回bootstrapまたはtrusted publishingとして確定している | pass / fail | `___` |
+| 初回bootstrapのowner、短期token、exact `v0.3.0`制約がreview済みである | pass / fail / n/a | `___` |
 | 長期 npm token を repository secret に置いていない | pass / fail | `___` |
 | 対象 version が registry で未使用である | pass / fail | `___` |
 | working tree が clean である | pass / fail | `___` |
 | security review に未解決の critical または high finding がない | pass / fail | `___` |
 
 一項目でも fail または未確認なら GitHub release を publish しない。
+未作成packageの初回公開だけはtrusted publisherを事前設定できないため、review済みbootstrap経路を使い、公開直後のtrusted publisher設定とtoken失効を最終完了条件にする。
 詳細手順は [npm release runbook](./npm-release-runbook.md) に従う。
 
 ## 3. M2 release gate
@@ -150,6 +156,7 @@ Pull Request CI の package smoke は registry package の証明ではない。
 | tarball filename | `repo-knowledge-mcp-0.3.___.tgz` |
 | tarball SHA-256 | `sha256:___` |
 | package artifact report | `___` |
+| bootstrap auth report | `___` / n/a |
 | release gate report schema | `2` |
 | allowlist 判定 | pass / fail |
 | credential / local-data scan | pass / fail |
@@ -163,10 +170,20 @@ Pull Request CI の package smoke は registry package の証明ではない。
 | verify release | 22 | pass / fail | `___` |
 | verify release | 24 | pass / fail | `___` |
 | publish exact tarball | 24 | pass / fail | `___` |
+| establish trusted publisher after bootstrap | 24 | pass / fail / n/a | `___` |
 | registry smoke | 22 | pass / fail | `___` |
 | registry smoke | 24 | pass / fail | `___` |
 
 registry smoke では `npx -y repo-knowledge-mcp@<exact-version>` 相当の exact package から CLI と stdio MCP を起動したことを記録する。
+
+### npm公開後の認証固定
+
+| 項目 | 結果 | 根拠 |
+| --- | --- | --- |
+| `npm trust list`が`TamaT-LLC/repo-knowledge-mcp`、`release.yml`、`npm` environment、publish権限を示す | pass / fail | `___` |
+| GitHub `NPM_BOOTSTRAP_TOKEN` secretを削除した | pass / fail / n/a | `___` |
+| npm側のbootstrap tokenを失効した | pass / fail / n/a | `___` |
+| npm provenanceがrelease workflowとcommitを示す | pass / fail | `___` |
 
 ## 9. Incident と差分
 
@@ -186,6 +203,7 @@ registry smoke では `npx -y repo-knowledge-mcp@<exact-version>` 相当の exac
 | M3-AC-001〜011 | go / no-go | §6 |
 | package artifact | go / no-go | §7 |
 | npm publish と registry smoke Node.js 22 / 24 | go / no-go | §8 |
+| trusted publisher とbootstrap token cleanup | go / no-go | §8 |
 | version の全媒体一致 | go / no-go | §1 |
 
 **総合判定: M3 release 完了 / 未完了**

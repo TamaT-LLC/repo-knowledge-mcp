@@ -11,6 +11,10 @@ import {
   validatePackagePath,
 } from "./package-artifact-gate.mjs";
 import {
+  BOOTSTRAP_RELEASE_TAG,
+  validateBootstrapAuth,
+} from "./bootstrap-auth-gate.mjs";
+import {
   parsePublishedVersion,
   validateRegistrySmokeRequest,
 } from "./registry-smoke.mjs";
@@ -74,6 +78,65 @@ test("package artifact scanning recognizes credential material", () => {
     ),
     null,
   );
+});
+
+test("bootstrap authentication is fail-closed and restricted to v0.3.0", () => {
+  const bootstrap = validateBootstrapAuth({
+    expectedOwner: "maintainer",
+    observedOwner: "maintainer",
+    tag: BOOTSTRAP_RELEASE_TAG,
+    tokenPresent: true,
+  });
+  assert.equal(bootstrap.status, "pass");
+  assert.equal(bootstrap.authentication_mode, "bootstrap");
+  assert.equal(bootstrap.owner, "maintainer");
+
+  assert.deepEqual(
+    validateBootstrapAuth({
+      expectedOwner: "maintainer",
+      observedOwner: null,
+      tag: BOOTSTRAP_RELEASE_TAG,
+      tokenPresent: false,
+    }).failures,
+    ["bootstrap token is required for v0.3.0"],
+  );
+  assert.deepEqual(
+    validateBootstrapAuth({
+      expectedOwner: "",
+      observedOwner: "maintainer",
+      tag: BOOTSTRAP_RELEASE_TAG,
+      tokenPresent: true,
+    }).failures,
+    ["NPM_PACKAGE_OWNER is required for bootstrap"],
+  );
+  assert.deepEqual(
+    validateBootstrapAuth({
+      expectedOwner: "maintainer",
+      observedOwner: "different-owner",
+      tag: BOOTSTRAP_RELEASE_TAG,
+      tokenPresent: true,
+    }).failures,
+    ["bootstrap token owner does not match NPM_PACKAGE_OWNER"],
+  );
+  assert.deepEqual(
+    validateBootstrapAuth({
+      expectedOwner: "maintainer",
+      observedOwner: null,
+      tag: "v0.3.1",
+      tokenPresent: true,
+    }).failures,
+    ["bootstrap token is restricted to v0.3.0"],
+  );
+
+  const trusted = validateBootstrapAuth({
+    expectedOwner: "",
+    observedOwner: null,
+    tag: "v0.3.1",
+    tokenPresent: false,
+  });
+  assert.equal(trusted.status, "pass");
+  assert.equal(trusted.authentication_mode, "trusted_publishing");
+  assert.equal(trusted.owner, null);
 });
 
 test("dry-run and packed manifests must describe the same artifact", () => {
