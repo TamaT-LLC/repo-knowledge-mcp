@@ -63,25 +63,56 @@ export function validateBootstrapAuth(input) {
   };
 }
 
-async function inspectBootstrapAuth(options) {
-  const tokenPresent =
-    typeof process.env.NODE_AUTH_TOKEN === "string" &&
-    process.env.NODE_AUTH_TOKEN.length > 0;
-  const observedOwner =
-    tokenPresent && options.tag === BOOTSTRAP_RELEASE_TAG
-      ? (
+export async function inspectBootstrapAuth(options, dependencies = {}) {
+  const environment = dependencies.environment ?? process.env;
+  const token = environment.NODE_AUTH_TOKEN;
+  const tokenPresent = typeof token === "string" && token.length > 0;
+  try {
+    const readOwner =
+      dependencies.readOwner ??
+      (async () =>
+        (
           await runNpm(
             ["whoami", "--registry=https://registry.npmjs.org/"],
             options.cwd,
+            environment,
           )
-        ).stdout.trim()
-      : null;
-  return validateBootstrapAuth({
-    expectedOwner: options.expectedOwner,
-    observedOwner,
-    tag: options.tag,
-    tokenPresent,
-  });
+        ).stdout.trim());
+    const observedOwner =
+      tokenPresent && options.tag === BOOTSTRAP_RELEASE_TAG
+        ? await readOwner()
+        : null;
+    return validateBootstrapAuth({
+      expectedOwner: options.expectedOwner,
+      observedOwner,
+      tag: options.tag,
+      tokenPresent,
+    });
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = tokenPresent
+      ? rawMessage.split(token).join("[redacted]")
+      : rawMessage;
+    return {
+      authentication_mode:
+        options.tag === BOOTSTRAP_RELEASE_TAG
+          ? "bootstrap"
+          : "trusted_publishing",
+      failures: [message],
+      owner: null,
+      report_kind: BOOTSTRAP_AUTH_REPORT_KIND,
+      schema_version: BOOTSTRAP_AUTH_REPORT_SCHEMA_VERSION,
+      status: "fail",
+      tag: options.tag,
+      token_present: tokenPresent,
+    };
+  }
+}
+
+export async function writeBootstrapAuthReport(reportPath, report) {
+  const serialized = `${JSON.stringify(report, null, 2)}\n`;
+  await writeFile(reportPath, serialized, { mode: 0o600 });
+  return serialized;
 }
 
 function parseArguments(argv) {
@@ -108,18 +139,18 @@ function parseArguments(argv) {
   return options;
 }
 
-function runNpm(args, cwd) {
-  const npmExecPath = process.env.npm_execpath;
+function runNpm(args, cwd, environment) {
+  const npmExecPath = environment.npm_execpath;
   return npmExecPath === undefined
-    ? run("npm", args, cwd)
-    : run(process.execPath, [npmExecPath, ...args], cwd);
+    ? run("npm", args, cwd, environment)
+    : run(process.execPath, [npmExecPath, ...args], cwd, environment);
 }
 
-function run(command, args, cwd) {
+function run(command, args, cwd, environment) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env: environment,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -162,10 +193,10 @@ if (isMainModule()) {
   try {
     const options = parseArguments(process.argv.slice(2));
     const report = await inspectBootstrapAuth(options);
-    const serialized = `${JSON.stringify(report, null, 2)}\n`;
-    if (options.reportPath !== undefined) {
-      await writeFile(options.reportPath, serialized, { mode: 0o600 });
-    }
+    const serialized =
+      options.reportPath === undefined
+        ? `${JSON.stringify(report, null, 2)}\n`
+        : await writeBootstrapAuthReport(options.reportPath, report);
     process.stdout.write(serialized);
     if (report.status !== "pass") process.exitCode = 1;
   } catch (error) {

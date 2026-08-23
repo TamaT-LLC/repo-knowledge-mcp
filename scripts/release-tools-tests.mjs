@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -12,7 +12,9 @@ import {
 } from "./package-artifact-gate.mjs";
 import {
   BOOTSTRAP_RELEASE_TAG,
+  inspectBootstrapAuth,
   validateBootstrapAuth,
+  writeBootstrapAuthReport,
 } from "./bootstrap-auth-gate.mjs";
 import {
   parsePublishedVersion,
@@ -137,6 +139,37 @@ test("bootstrap authentication is fail-closed and restricted to v0.3.0", () => {
   assert.equal(trusted.status, "pass");
   assert.equal(trusted.authentication_mode, "trusted_publishing");
   assert.equal(trusted.owner, null);
+});
+
+test("bootstrap authentication persists a redacted report after owner lookup fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rkm-bootstrap-auth-"));
+  const reportPath = join(root, "bootstrap-auth-report.json");
+  const token = `npm_${"x".repeat(36)}`;
+  try {
+    const report = await inspectBootstrapAuth(
+      {
+        cwd: root,
+        expectedOwner: "maintainer",
+        tag: BOOTSTRAP_RELEASE_TAG,
+      },
+      {
+        environment: { NODE_AUTH_TOKEN: token },
+        readOwner: async () => {
+          throw new Error(`simulated owner lookup failure: ${token}`);
+        },
+      },
+    );
+    assert.equal(report.status, "fail");
+    assert.deepEqual(report.failures, [
+      "simulated owner lookup failure: [redacted]",
+    ]);
+    assert.doesNotMatch(JSON.stringify(report), new RegExp(token, "u"));
+
+    await writeBootstrapAuthReport(reportPath, report);
+    assert.deepEqual(JSON.parse(await readFile(reportPath, "utf8")), report);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 test("dry-run and packed manifests must describe the same artifact", () => {
