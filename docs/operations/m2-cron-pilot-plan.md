@@ -8,17 +8,18 @@ M2 完了条件「cron 同期で 2 週間運用し、ランキングが体感に
 
 ## pilot 識別子
 
-- `pilot_id`: `m2-cron-pilot-002`
+- `pilot_id`: `m2-cron-pilot-003`
 - 期間: 開始日（`--since` を確定した初回同期の翌 UTC 日）から **14 UTC 日**
-- 日次記録 log: `~/.repo-knowledge/pilot/m2-cron-pilot-002.jsonl`（追記専用 JSONL）
+- 日次記録 log: `~/.repo-knowledge/pilot/m2-cron-pilot-003.jsonl`（追記専用 JSONL）
 
 開始日・終了日は pilot 開始時に本節へ追記し、以後変更しない。
-中断した場合は新しい `pilot_id`（`-002` 以降）で最初からやり直す。
+中断した場合は新しい `pilot_id`（`-004` 以降）で最初からやり直す。
 
-- **開始日**: 2026-08-09（UTC）。初回同期（全期間、`--since` なし）は 2026-08-08 に完了し、
-  checkpoint は PR #84 / `2026-08-07T13:38:02Z`。同日中に再実行で `discovered: 0` の冪等性を確認済み
-- **終了日**: 2026-08-22（UTC、開始日を day 1 として 14 UTC 日）
-- **rubric checkpoint**: day 1 = 2026-08-09、day 7 = 2026-08-15、day 14 = 2026-08-22
+- **開始日**: 2026-08-24（UTC）。#116 と #117 の merge 後、current main
+  `b6738bb56583c2370d725ad48a6fd208d8854fce` の package artifact gate 通過 tarball へ
+  global package を揃え、2026-08-23 に doctor 26 pass と wrapper sync の成功を確認した
+- **終了日**: 2026-09-06（UTC、開始日を day 1 として 14 UTC 日）
+- **rubric checkpoint**: day 1 = 2026-08-24、day 7 = 2026-08-30、day 14 = 2026-09-06
 - **運用ノート**: 実行環境は operator の macOS（常時稼働ではない）。スリープ中の cron 未実行は
   欠測理由付き日次記録で追跡する。cron の失敗通知は MAILTO ではなく
   `~/log/repo-knowledge-sync.err` と日次記録の `runs_failed` で追跡する（ローカル MTA 未設定のため）
@@ -39,6 +40,15 @@ M2 完了条件「cron 同期で 2 週間運用し、ランキングが体感に
 
 `m2-cron-pilot-002` は 2026-08-09 の UTC 日初から存在する sync log を使って同日に再開始する。
 開始日の観測を失っていないため、終了日は 2026-08-22 のままとする。
+
+### pilot-002 から pilot-003 への再判定
+
+`m2-cron-pilot-002` は 2026-08-23 に 14 日分の完全集計を終え、cron、canonical integrity、quality gate に合格した。
+一方、Day 14 の固定 5 query 中 2 query が score 2 で、Day 7 / 14 の評価も qualified human の確認を欠いたため M2 は no-go とした。
+結果と根拠は [pilot-002 最終 report](./m2-cron-pilot-report-m2-cron-pilot-002.md) に固定し、事後の score 変更や synthetic outcome による補正は行わない。
+
+#116 の検索関連度改善と #117 の実 outcome 記録導線を merge したため、`m2-cron-pilot-003` を新しい 14 UTC 日の window で開始する。
+対象 repository、15 分 sync、privacy、rollback 条件、固定 5 query、`m2-pilot-human-rubric-v1` は変更しない。
 
 ## 固定条件
 
@@ -105,8 +115,8 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin
   次を取得する
 - 頻度は任意だが、backlog（`pending_jobs`）が日次記録で単調増加し続けないよう
   週 2 回以上を目安とする
-- この経路確定は初回蒸留前の 2026-08-09 に行った。pilot window、固定 query、
-  rubric を変更しないため pilot は再開始しない
+- この経路は pilot-002 と同じであり、pilot-003 開始時も provider と
+  host-assisted の送信設定が無効であることを doctor で確認する
 
 ### privacy 条件
 
@@ -144,10 +154,10 @@ incident として最終 report に記録する:
 $ repo-knowledge stats TamaT-LLC/repo-knowledge-mcp > /tmp/stats-$(date -u +%F).json
 $ npm run --silent quality:gate > /tmp/quality-gate-$(date -u +%F).json
 $ npm run --silent pilot:daily -- record \
-    --log ~/.repo-knowledge/pilot/m2-cron-pilot-002.jsonl \
-    --pilot m2-cron-pilot-002 \
+    --log ~/.repo-knowledge/pilot/m2-cron-pilot-003.jsonl \
+    --pilot m2-cron-pilot-003 \
     --date $(date -u +%F) \
-    --start 2026-08-09 --days 14 \
+    --start 2026-08-24 --days 14 \
     --sync-log ~/log/repo-knowledge-sync-$(date -u +%F).jsonl \
     --stats /tmp/stats-$(date -u +%F).json \
     --quality-gate /tmp/quality-gate-$(date -u +%F).json
@@ -156,15 +166,15 @@ $ npm run --silent pilot:daily -- record \
 - 記録できなかった日は放置せず、翌日以降に **欠測理由付き**で記録する
   （`--missing --reason "..."`）。summarize は理由のない欠落日を
   `unrecorded_dates` として検出する
-- launchd 用 script は record command に `--start 2026-08-09 --days 14` を渡し、CLI が期間外の日付を追記前に拒否する
-- launchd 用 script 自身も記録対象日を固定期間 `2026-08-09..2026-08-22` と照合し、期間外なら log へ追記せず正常終了する
+- launchd 用 script は record command に `--start 2026-08-24 --days 14` を渡し、CLI が期間外の日付を追記前に拒否する
+- launchd 用 script 自身も記録対象日を固定期間 `2026-08-24..2026-09-06` と照合し、期間外なら log へ追記せず正常終了する
 - 1 日 1 record。同一日の再記録は CLI が `PILOT_DUPLICATE_DATE` で拒否する
 - 期間終了後（または進捗確認時）に集約する:
 
 ```console
 $ npm run --silent pilot:daily -- summarize \
-    --log ~/.repo-knowledge/pilot/m2-cron-pilot-002.jsonl \
-    --start <開始日> --days 14 --require-complete
+    --log ~/.repo-knowledge/pilot/m2-cron-pilot-003.jsonl \
+    --start 2026-08-24 --days 14 --require-complete
 ```
 
 ## human rubric 評価（体感評価）
@@ -174,6 +184,11 @@ $ npm run --silent pilot:daily -- summarize \
 （`rubric_id: m2-pilot-human-rubric-v1`）で評価する。
 様式は outcome-ranking-golden の rubric（M2-20）を live 評価向けに流用したもので、
 固定 query 5 件 × 評価 criteria + 4 段階 scale + 3 checkpoint（day 1 / 7 / 14）から成る。
+
+- **named qualified human evaluator**: `TakehiroT`。対象 repository の maintainer であり、
+  日常の検索意図と期待する review rule を判断できるため選定する
+- Codex は固定 query の observation 取得と AI 事前評価までを担当する。
+  `TakehiroT` が各 checkpoint で明示確認した evaluation artifact だけを human rubric として判定に使い、Codex 単独の評価を human として扱わない
 
 - 各 checkpoint で全 query を `get_rules` で実行し、rubric の criteria を判定して
   score を付ける。評価結果は `PilotRubricEvaluationSchema`
