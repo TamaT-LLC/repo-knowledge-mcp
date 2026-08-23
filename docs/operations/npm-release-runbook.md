@@ -33,7 +33,7 @@
 | `main` protection | Pull Request、owner review、Node.js 22と24のCI、CodeQLを必須化済み |
 | version tag protection | `v*`の更新と削除を禁止済み |
 | release artifact | tag、GitHub Release、npm packageはいずれも未作成 |
-| M2 release gate | 14日pilotを観測中 |
+| M2 release gate | pilot-002の14日運用gateと修正後のranking human評価を組み合わせてgo |
 
 E404はpackage名の確保やpublish権限を保証しない。
 初回公開前に、npm accountからpackage名、実際のowner、2FA、public accessを確認する。
@@ -109,10 +109,12 @@ Secretの値をcommitしてはならない。
 3. 同じ exact version が npm registry に存在しない。
 4. Node.js 22 と 24 の CI が成功している。
 5. `npm run check`、`npm run golden`、`npm run quality:gate`、`npm run package:smoke` が成功している。
-6. M3 release では、M2 pilot の go 判定と M3 acceptance report が review 済みである。
-7. GitHub repositoryがpublicで、npm owner、license、GitHub `npm` environmentが確認済みである。
+6. M3 releaseでは、pilot-002の14日運用gateと修正後限定再評価のranking gateを組み合わせたM2 go判定、および共有されたobservation、human evaluation、human approvalがreview済みである。
+7. Issue `#118`がclosedであり、closeしたPull Request、M2 report、共有artifactの判定が一致している。
+8. M3 acceptance reportがreview済みである。
+9. GitHub repositoryがpublicで、npm owner、license、GitHub `npm` environmentが確認済みである。
    初回公開ではbootstrap認証をreviewし、二回目以降はtrusted publisherを確認する。
-8. 公開対象 commit の security review が完了し、CodeQL、secret scanning、依存関係監査に未解決の critical または high finding がない。
+10. 公開対象 commit の security review が完了し、CodeQL、secret scanning、依存関係監査に未解決の critical または high finding がない。
 
 version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。
 

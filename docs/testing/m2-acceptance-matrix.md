@@ -102,3 +102,10 @@ M1 の受け入れ条件 1〜63 は [M1 acceptance matrix](./m1-acceptance-matri
   [pilot report テンプレート](../operations/m2-cron-pilot-report-template.md) と
   [auto activation runbook](../operations/trusted-human-auto-activation-runbook.md) の
   棚卸し手順で記録する。
+  pilot-002で合格した運用契約を変更せず、検索関連度、またはcanonical transactionとranking policyを変更しないoutcome input contractとMCP導線だけを修正した場合は、
+  [修正後限定再評価計画](../operations/m2-post-fix-revalidation-plan.md)に従って運用証跡を再利用し、
+  固定queryのnamed human評価と、record-outcome service test、MCP E2E、M2 product E2E、outcome golden、doctor、canonical検査を実施して
+  [限定再評価report](../operations/m2-post-fix-revalidation-report-m2-post-fix-revalidation-001.md)へ記録する。
+  別reviewerは共有された[observation](./evidence/m2-post-fix-revalidation-001-observation.json)、
+  [human evaluation](./evidence/m2-post-fix-revalidation-001-human-evaluation.json)、
+  [human approval](./evidence/m2-post-fix-revalidation-001-human-approval.json)を照合する。

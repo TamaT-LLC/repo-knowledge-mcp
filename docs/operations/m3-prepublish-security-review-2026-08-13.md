@@ -5,7 +5,7 @@
 現在の作業ツリーに対する修正後レビューは条件付き pass とする。
 
 npm 公開は、修正 commit を GitHub 上の CodeQL で再検査し、未解決の critical / high finding が 0 件になるまで no-go とする。
-M2 pilot の go 判定、Issue #70 の close、Pull Request CI、release gate も別途必要であり、このレビューだけでは公開を許可しない。
+M2のgo判定、Issue #118のclose、Pull Request CI、release gateも別途必要であり、このレビューだけでは公開を許可しない。
 
 ## 対象
 
@@ -140,6 +140,6 @@ Renovate Appを含むGitHub Appには、どちらのrulesetにもbypassを設定
 3. GitHub secret scanning と Dependabot の open alert が 0 件である。
 4. `npm audit --audit-level=high` と `npm audit signatures` が成功する。
 5. `npm run check`、`npm run golden`、`npm run quality:gate`、`npm run package:smoke` が成功する。
-6. M2 pilot が go で終了し、review 済み report と Issue #70 close がそろう。
+6. pilot-002の14日運用gateと修正後限定再評価のranking gateを組み合わせたM2判定がgoで、review済みreportとIssue #118 closeがそろう。
 7. release gate が version、commit、tag、license、repository visibility、registry availability を fail-closed で確認する。
 8. 初回 publish 後に npm trusted publisher を設定し、provenance と exact-version registry smoke を確認する。

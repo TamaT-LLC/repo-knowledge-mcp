@@ -1,0 +1,55 @@
+{
+  "checkpoint_id": "cp-day-14-final",
+  "evaluated_at": "2026-08-23T05:55:07.496Z",
+  "evaluation_kind": "m2_pilot_rubric_evaluation",
+  "evaluator": "Codex (AI pre-evaluation; not human)",
+  "results": [
+    {
+      "criteria": [
+        { "criterion_id": "c-top3-relevant", "met": true },
+        { "criterion_id": "c-false-positive-demoted", "met": true }
+      ],
+      "notes": "fail-closed rules rank 1-3; false_positive outcomes are zero",
+      "query_id": "q-error-handling",
+      "score": 4
+    },
+    {
+      "criteria": [
+        { "criterion_id": "c-top3-relevant", "met": true },
+        { "criterion_id": "c-applied-not-buried", "met": false }
+      ],
+      "notes": "input date schema validation rule ranks 1; applied outcomes are zero and cannot support the second criterion",
+      "query_id": "q-schema-validation",
+      "score": 3
+    },
+    {
+      "criteria": [
+        { "criterion_id": "c-top3-relevant", "met": true },
+        { "criterion_id": "c-scopes-consistent", "met": true }
+      ],
+      "notes": "file lock rule ranks 1 with src/posix-file-lock.ts scope",
+      "query_id": "q-lock-concurrency",
+      "score": 4
+    },
+    {
+      "criteria": [
+        { "criterion_id": "c-top3-relevant", "met": true },
+        { "criterion_id": "c-violated-not-buried", "met": false }
+      ],
+      "notes": "checkpoint and resume rules rank 1-3; violated outcomes are zero and cannot support the second criterion",
+      "query_id": "q-sync-checkpoint",
+      "score": 3
+    },
+    {
+      "criteria": [
+        { "criterion_id": "c-top3-relevant", "met": true },
+        { "criterion_id": "c-zero-outcome-stable", "met": true }
+      ],
+      "notes": "structured cron result logging rule ranks 1; all rules remain on the zero-outcome baseline",
+      "query_id": "q-stdout-purity",
+      "score": 4
+    }
+  ],
+  "rubric_id": "m2-pilot-human-rubric-v1",
+  "schema_version": 1
+}

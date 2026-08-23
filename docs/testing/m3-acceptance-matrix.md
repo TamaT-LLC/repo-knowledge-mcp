@@ -12,7 +12,7 @@ M3 の個人利用要件を、自動テスト、CI、release workflow、運用�
 | Local | 開発 checkout の現在の Node.js | `npm run check`、`npm run golden`、`npm run quality:gate`、`npm run package:smoke` | source、E2E、fixture、local tarball |
 | Pull Request CI | GitHub-hosted Ubuntu の Node.js 22 / 24 | [CI workflow](../../.github/workflows/ci.yml) | Local と同じ四つの gate を対応 Node.js ごとに再実行 |
 | Release CI | GitHub release tag の Node.js 22 / 24 | [release workflow](../../.github/workflows/release.yml) | tag と commit、公開 tarball、npm registry の exact version |
-| Operational | 利用者のローカル環境 | 各 runbook の手順 | 14 日 pilot、live quality、公開権限、review 済み判定 |
+| Operational | 利用者のローカル環境 | 各 runbook の手順 | 14日pilotの運用証跡、修正後限定再評価、live quality、公開権限、review済み判定 |
 
 Local tarball の成功は registry package の公開成功を意味しない。
 M3 release は、Pull Request CI と Release CI の両方を通過し、公開後の registry smoke が成功した時点で成立する。
@@ -69,7 +69,7 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 
 次の項目は source test だけでは完了にできない。
 
-1. [M2 cron pilot 計画](../operations/m2-cron-pilot-plan.md) の 14 日分を完了し、review 済み report で `go` を記録する。
+1. [pilot-002最終report](../operations/m2-cron-pilot-report-m2-cron-pilot-002.md)の14日運用gateと、[修正後限定再評価report](../operations/m2-post-fix-revalidation-report-m2-post-fix-revalidation-001.md)のranking gateをreviewし、組み合わせたM2判定を`go`としてIssue `#118`をcloseする。
 2. npm package owner、license、GitHub repository の public visibility、npm trusted publisher を確定する。
 3. `package.json` の version、`v<version>` tag、GitHub release、npm registry の exact version を一致させる。
 4. Release CI の Node.js 22 / 24 `verify` と `registry-smoke` を成功させる。
