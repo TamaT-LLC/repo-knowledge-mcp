@@ -185,6 +185,10 @@ $ npm run --silent pilot:daily -- summarize \
   `validatePilotRubricEvaluation` が fail-closed で拒否する
 - query 集合と criteria は pilot 期間中変更しない（変更は rubric の新 version と
   pilot 再開始を意味する）
+- ranking 実装を変更した場合も、query と criteria は変更しない。
+  変更前後の `get_rules` 結果を privacy-safe fixed-query fixture と checkpoint artifact に残し、既に score 3 以上だった query の直接関連ルールが top 3 から外れていないことを pilot 開始前に確認する
+- `get_rules` の順位は、scope を候補の適格性に使い、task 一致、検索 score、severity の順で解釈する。
+  英語 task と日本語 rule/detail の対応は設計書 §8.1 の term alias 契約に限り、query ID や knowledge ID による例外は認めない
 - 判定の go 基準: **day 14 の全 query が score 3 以上**、かつ day 1 → day 14 で
   score が下がった query がないこと
 

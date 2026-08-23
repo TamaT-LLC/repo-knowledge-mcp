@@ -48,6 +48,8 @@ M1 の受け入れ条件 1〜63 は [M1 acceptance matrix](./m1-acceptance-matri
 | M2-18 | outcome スコアは上限付きで、violated は M1 violation boost と二重加算しない | [knowledge search test](../../test/knowledge-search.test.ts)、[outcome ranking golden](../../test/outcome-ranking-golden.test.ts) | automated |
 | M2-19 | outcome ゼロ件の順位は M1 と一致し、自己強化ループを作らない（applied は最小 sample 未満で無効） | [outcome ranking golden](../../test/outcome-ranking-golden.test.ts)、[knowledge search test](../../test/knowledge-search.test.ts) | automated |
 | M2-20 | ランキングが体感に合うことを MRR / NDCG + 人間 rubric で追跡する | [outcome ranking golden](../../test/outcome-ranking-golden.test.ts)、`npm run golden` の outcome fixture | automated + gate |
+| M2-20a | read plane の英語 task と日本語 rule/detail の技術語差を term alias で補い、schema / stdout の直接関連ルールを top 3 に保つ | [knowledge search test](../../test/knowledge-search.test.ts)、[read service test](../../test/knowledge-read-service.test.ts)、[privacy-safe fixed-query fixture](../../test/fixtures/golden/m2-live-ranking-regression.json) | automated |
+| M2-20b | `get_rules` は scope 適格性を維持したまま task 一致を severity 単独より先に評価し、同じ canonical state から決定的な順位を返す | [read service test](../../test/knowledge-read-service.test.ts) | automated |
 
 ## コード例（根拠制約付き detail）M2-21〜M2-23
 

@@ -199,6 +199,67 @@ describe("KnowledgeReadService.getRules", () => {
     ]);
   });
 
+  it("prioritizes task relevance over severity while retaining unrelated global rules", async () => {
+    const repository = await createRepository();
+    const globalMustId = await writeKnowledge(repository, {
+      rule: "Preserve deterministic identifiers",
+      scope: [],
+      severity: "must",
+    });
+    const taskShouldId = await writeKnowledge(repository, {
+      rule: "Validate request schema input",
+      severity: "should",
+    });
+
+    const result = await service(repository).getRules({
+      task: "request schema input",
+    });
+
+    expect(result.rules.map((rule) => rule.id)).toEqual([
+      taskShouldId,
+      globalMustId,
+    ]);
+  });
+
+  it("keeps the privacy-safe fixed-query regression targets in the top three deterministically", async () => {
+    const repository = await createRepository();
+    const fixture = JSON.parse(
+      await readFile(
+        new URL(
+          "./fixtures/golden/m2-live-ranking-regression.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as RankingRegressionFixture;
+    const idsByKey = new Map<string, string>();
+    for (const item of fixture.knowledge) {
+      idsByKey.set(item.key, await writeKnowledge(repository, item));
+    }
+    const readService = service(repository);
+
+    for (const query of fixture.queries) {
+      const first = await readService.getRules({ task: query.query });
+      const second = await readService.getRules({ task: query.query });
+      expect(
+        second.rules.map((rule) => rule.id),
+        query.id,
+      ).toEqual(first.rules.map((rule) => rule.id));
+      for (const relevantKey of query.relevant) {
+        const relevantId = idsByKey.get(relevantKey);
+        expect(relevantId, `${query.id}:${relevantKey}`).toBeDefined();
+        expect(
+          first.rules.findIndex((rule) => rule.id === relevantId),
+          `${query.id}:${relevantKey}`,
+        ).toBeGreaterThanOrEqual(0);
+        expect(
+          first.rules.findIndex((rule) => rule.id === relevantId),
+          `${query.id}:${relevantKey}`,
+        ).toBeLessThan(3);
+      }
+    }
+  });
+
   it("reports setup_required for a repository without sync, jobs, or knowledge", async () => {
     const repository = await createRepository();
 
@@ -631,6 +692,16 @@ interface KnowledgeInput {
   readonly scope?: readonly string[];
   readonly severity?: Severity;
   readonly status?: KnowledgeStatus;
+}
+
+interface RankingRegressionFixture {
+  readonly knowledge: readonly (KnowledgeInput & { readonly key: string })[];
+  readonly queries: readonly {
+    readonly id: string;
+    readonly query: string;
+    readonly relevant: readonly string[];
+  }[];
+  readonly schema_version: 1;
 }
 
 interface EvidenceInput {

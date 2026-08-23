@@ -1,0 +1,109 @@
+{
+  "knowledge": [
+    {
+      "detail": "Return a typed failure before any state mutation.",
+      "key": "error-direct",
+      "rule": "Fail closed with an explicit error when input parsing fails.",
+      "scope": ["src/parsing/**"],
+      "severity": "must"
+    },
+    {
+      "detail": "A broad validation invariant for a multi-step snapshot.",
+      "key": "snapshot-validation",
+      "rule": "Repeat snapshot validation before committing a generated identifier.",
+      "scope": ["src/snapshots/**"],
+      "severity": "must"
+    },
+    {
+      "detail": "The schema check must reject invalid calendar values before range comparison.",
+      "key": "schema-direct",
+      "rule": "入力値は schema で妥当性を確認してから利用する。",
+      "scope": ["src/input/**"],
+      "severity": "should"
+    },
+    {
+      "detail": "Schema identity is one part of an artifact quality gate.",
+      "key": "schema-artifact",
+      "rule": "Validate the complete schema identity of a measured artifact.",
+      "scope": ["src/quality/**"],
+      "severity": "must"
+    },
+    {
+      "detail": "Concurrent writers must serialize canonical mutations.",
+      "key": "lock-direct",
+      "rule": "Acquire the writer lock before concurrent canonical writes.",
+      "scope": ["src/storage/**"],
+      "severity": "must"
+    },
+    {
+      "detail": "A stored cursor makes an interrupted synchronization resumable.",
+      "key": "sync-direct",
+      "rule": "Persist the sync checkpoint before resume processing begins.",
+      "scope": ["src/sync/**"],
+      "severity": "must"
+    },
+    {
+      "detail": "Machine-readable JSON output must remain parseable after failures.",
+      "key": "stdout-direct",
+      "rule": "定期処理の結果は構造化ログとして JSON で記録し、平文を混在させない。",
+      "scope": ["scripts/automation/**"],
+      "severity": "should"
+    },
+    {
+      "detail": "The terminal trust boundary is unrelated to machine-readable logging.",
+      "key": "stdout-tty-one",
+      "rule": "Read confirmation from process.stdout only when the process is a real TTY.",
+      "scope": ["src/admin/**"],
+      "severity": "must"
+    },
+    {
+      "detail": "Do not allow an injected terminal to claim that stdout is interactive.",
+      "key": "stdout-tty-two",
+      "rule": "Verify process.stdout.isTTY at the administrative mutation boundary.",
+      "scope": ["src/admin/**"],
+      "severity": "must"
+    },
+    {
+      "detail": "The JSONL event path must be visible to the canonical projection.",
+      "key": "json-event-path",
+      "rule": "Keep canonical JSON event files under the configured discovery path.",
+      "scope": ["src/events/**"],
+      "severity": "must"
+    },
+    {
+      "detail": "This rule is global but has no terms from the fixed review tasks.",
+      "key": "global-unrelated",
+      "rule": "Preserve deterministic identifiers across rebuilds.",
+      "scope": [],
+      "severity": "must"
+    }
+  ],
+  "queries": [
+    {
+      "id": "q-error-handling",
+      "query": "error handling fail-closed",
+      "relevant": ["error-direct"]
+    },
+    {
+      "id": "q-schema-validation",
+      "query": "zod schema validation",
+      "relevant": ["schema-direct"]
+    },
+    {
+      "id": "q-lock-concurrency",
+      "query": "writer lock concurrency",
+      "relevant": ["lock-direct"]
+    },
+    {
+      "id": "q-sync-checkpoint",
+      "query": "sync checkpoint resume",
+      "relevant": ["sync-direct"]
+    },
+    {
+      "id": "q-stdout-purity",
+      "query": "stdout logging json purity",
+      "relevant": ["stdout-direct"]
+    }
+  ],
+  "schema_version": 1
+}

@@ -619,9 +619,9 @@ function compareRuleMatches(
   right: RuleMatchAccumulator,
 ): number {
   return (
+    compareOptionalScores(left.taskScore, right.taskScore) ||
     severityPriority(left.knowledge.severity) -
       severityPriority(right.knowledge.severity) ||
-    compareOptionalScores(left.taskScore, right.taskScore) ||
     right.knowledge.evidenceCount - left.knowledge.evidenceCount ||
     right.knowledge.violationCount - left.knowledge.violationCount ||
     compareCodeUnits(left.knowledge.id, right.knowledge.id)

@@ -393,7 +393,10 @@ MCP roots は 2026-07-28 仕様で deprecated のため依存しない。解決�
 - 対象は **status = active のみ**。proposed は返さない。
 - `file_paths` あり: global ルール（scope 未設定）+ いずれかの scope が一致するルール。
 - `file_paths` なし: global ルールのみ。`task` があれば task を query とした検索上位を加える。**無条件の全ルール返却はしない**（コンテキスト肥大の再発防止）。
-- `limit` で切り詰める際は must を優先的に残し、切れた場合は `truncated: true`。
+- `task` なしで `limit` を適用する場合は must を優先し、切れた場合は `truncated: true` とする。
+- `task` ありの場合は task 検索に一致したルールを一致しない global / scope ルールより先に置き、検索 score、severity、evidence、violation、ID の順で決定的に並べる。
+- scope は候補の適格性を決める。
+  `file_paths` を指定した場合、task に一致しても global または指定 path の scope に一致しないルールは返さない。
 - detail は返さない（`get_knowledge` で取得）。
 
 ##### 7.3 scope 仕様
@@ -1313,6 +1316,12 @@ NFKC と lowercase を適用したあと、文字・数字からなる 3 code po
 これにより自然な複数語 query はいずれかの relevant term から候補を取得でき、複数 term に一致する文書は BM25 で優先される。
 user が入力した `OR` や記号は operator として実行されない。
 
+英語 task と日本語 rule/detail の間で意味が同じ技術語だけが一致しない場合に備え、term 単位の小さな bilingual alias 表を候補取得時に適用する。
+alias は完全な query、knowledge ID、rubric ID をキーにせず、1 個の正規化済み term から同義の技術表現へだけ展開する。
+現行表は `validation` → `妥当性`、`logging` → `構造化ログ` である。
+元 term と alias はそれぞれ `toFtsLiteral` で quote し、user input や alias を FTS operator として実行しない。
+alias の追加は匿名化した ranking fixture と固定 query の非回帰確認を必須とする。
+
 この `literal_terms` mode は read plane の `get_rules.task` と `search_knowledge.query` に適用する。
 read plane は term OR で広がった active 候補を有限件で先に切らず、一貫した exhaustive snapshot を順位付けしてから caller の最終 limit を適用する。
 蒸留時の merge candidate search と admin plane の possible-match search は、候補集合を不必要に広げないため従来の `literal_phrase` mode を維持する。
@@ -1326,14 +1335,20 @@ function toFtsLiteral(query: string): string {
 
 function toLiteralTermFtsQuery(query: string): string | null {
   const terms = extractLiteralTerms(query).filter((term) => [...term].length >= 3);
+  const expanded = terms.flatMap((term) => [term, ...aliasesFor(term)]);
   return terms.length === 0
     ? null
-    : [...new Set(terms)].map(toFtsLiteral).join(" OR ");
+    : [...new Set(expanded)].map(toFtsLiteral).join(" OR ");
 }
 ```
 
 eligible term が 0 件の場合は、query 全体を literal LIKE fallback へ渡す。
 raw FTS / Boolean query mode は公開しない。
+
+`get_rules` の scope 判定と task 順位付けは別段階で扱う。
+scope は候補集合を制限し、task に一致した適格ルールは検索 score を severity 単独より先に比較する。
+検索 score 自体に bounded な severity boost が含まれるため、must の重要度を失わず、task と無関係な must が直接関連する should を押し下げることも防ぐ。
+task に一致しない global / scope ルールは適格候補として残すが、task 一致ルールの後ろで severity 順に並べる。
 
 ##### 8.2 フィルタは LIMIT より前に
 
