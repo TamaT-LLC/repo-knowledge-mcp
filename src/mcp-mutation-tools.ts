@@ -579,9 +579,31 @@ export const UpdateKnowledgeOutputSchema = mutationOutputSchema(
 
 // The canonical request schema is extended, not redefined, so the MCP surface
 // can never accept fields the outcome mutation service would reject.
-export const RecordOutcomeInputSchema = RecordOutcomeRequestSchema.extend(
+export const RecordOutcomeInputSchema = RecordOutcomeRequestSchema.safeExtend(
   RepositorySelectionShape,
-);
+).superRefine((request, context) => {
+  if (request.result_observed !== true) {
+    context.addIssue({
+      code: "custom",
+      message: "record_outcome requires result_observed: true",
+      path: ["result_observed"],
+    });
+  }
+  if (request.context === undefined) {
+    context.addIssue({
+      code: "custom",
+      message: "record_outcome requires observable task context",
+      path: ["context"],
+    });
+  }
+  if (request.note === undefined) {
+    context.addIssue({
+      code: "custom",
+      message: "record_outcome requires a note describing the observed result",
+      path: ["note"],
+    });
+  }
+});
 
 export const RecordOutcomeResultSchema = z
   .object({
@@ -949,7 +971,7 @@ export function registerMutationTools(
     {
       annotations: MUTATION_TOOL_ANNOTATIONS.record_outcome,
       description:
-        "Record one idempotent outcome event (applied, violated, not_applicable, or false_positive) for an active knowledge id returned by get_rules. Retrying the same event_id with the identical payload returns the stable original result; this tool can never change knowledge status, rule text, scope, or severity.",
+        "Record one idempotent outcome for an active knowledge id only after applicability or a real work result is observed. For the host-friendly path, supply a stable event_key, result_observed: true, context, and note; event_id is derived deterministically. Never record an outcome merely because get_rules returned a rule. Retrying the identical request returns the original result. This tool never enables provider transmission or changes knowledge content/status.",
       inputSchema: RecordOutcomeInputSchema,
       outputSchema: RecordOutcomeOutputSchema,
       title: "Record a rule outcome",
@@ -961,10 +983,18 @@ export function registerMutationTools(
           (await resolveMutationService(options, input)).recordOutcome({
             at: input.at,
             ...(input.context === undefined ? {} : { context: input.context }),
-            event_id: input.event_id,
+            ...(input.event_id === undefined
+              ? {}
+              : { event_id: input.event_id }),
+            ...(input.event_key === undefined
+              ? {}
+              : { event_key: input.event_key }),
             knowledge_id: input.knowledge_id,
             ...(input.note === undefined ? {} : { note: input.note }),
             outcome: input.outcome,
+            ...(input.result_observed === undefined
+              ? {}
+              : { result_observed: input.result_observed }),
           }),
         summarizeRecordOutcome,
       );

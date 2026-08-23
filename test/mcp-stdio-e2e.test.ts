@@ -59,10 +59,13 @@ describe("M1 real stdio MCP E2E", () => {
       prepare_distillation: { repo: REPOSITORY },
       record_outcome: {
         at: "2026-08-07T00:00:00.000Z",
+        context: { task_id: "m1-stdio-gate" },
         event_id: "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
         knowledge_id: KNOWLEDGE_ID,
+        note: "observed the stdio fixture result",
         outcome: "applied",
         repo: REPOSITORY,
+        result_observed: true,
       },
       search_knowledge: { query: "stdio", repo: REPOSITORY },
       stats: { repo: REPOSITORY },

@@ -13,12 +13,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CanonicalTransactionStore,
+  MAX_OUTCOME_EVENT_KEY_LENGTH,
   MAX_OUTCOME_FILE_PATHS,
   MAX_OUTCOME_NOTE_LENGTH,
   MAX_OUTCOME_TASK_ID_LENGTH,
   OUTCOME_EVENT_PATH,
   OUTCOME_RECORDED_RECORD_TYPE,
   RecordOutcomeMutationService,
+  deriveOutcomeEventId,
   serializeKnowledgeDocument,
   type CanonicalCommitPoint,
   type CanonicalProjectionSnapshot,
@@ -36,6 +38,8 @@ const FOREIGN_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAX";
 const UNKNOWN_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAY";
 const EVENT_ID = "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const OTHER_EVENT_ID = "evt_01ARZ3NDEKTSV4RRFFQ69G5FAW";
+const EVENT_KEY = "codex:issue-117:apply-rule";
+const DERIVED_EVENT_ID = "evt_14ZA1B7N9H11HKQ4ZQTH7HYNAZ";
 
 const temporaryRepositories: string[] = [];
 
@@ -169,6 +173,70 @@ describe("RecordOutcomeMutationService idempotency", () => {
   });
 });
 
+describe("RecordOutcomeMutationService host event identity", () => {
+  it("derives a stable privacy-safe event_id from normalized host context", () => {
+    expect(
+      deriveOutcomeEventId({
+        eventKey: EVENT_KEY,
+        knowledgeId: ACTIVE_ID,
+        repoId: REPO_ID,
+      }),
+    ).toBe(DERIVED_EVENT_ID);
+    expect(
+      deriveOutcomeEventId({
+        eventKey: "  ｃｏｄｅｘ:issue-117:apply-rule  ",
+        knowledgeId: ACTIVE_ID,
+        repoId: REPO_ID,
+      }),
+    ).toBe(DERIVED_EVENT_ID);
+    expect(
+      deriveOutcomeEventId({
+        eventKey: `${EVENT_KEY}:another-result`,
+        knowledgeId: ACTIVE_ID,
+        repoId: REPO_ID,
+      }),
+    ).not.toBe(DERIVED_EVENT_ID);
+  });
+
+  it("records one observed host result and replays an identical retry", async () => {
+    const root = await createFixture();
+    const store = new CanonicalTransactionStore(root);
+    const outcomes = service(store);
+    const request = hostRequest();
+
+    const first = await outcomes.recordOutcome(request);
+    const replay = await outcomes.recordOutcome(request);
+
+    expect(first).toMatchObject({
+      applied_count: 1,
+      event_id: DERIVED_EVENT_ID,
+      replayed: false,
+      violation_count: 0,
+    });
+    expect(replay).toEqual({ ...first, replayed: true });
+    expect(await readOutcomeLines(root)).toHaveLength(1);
+    expect(countsOf(await store.readSnapshot(), ACTIVE_ID)).toEqual({
+      applied: 1,
+      violated: 0,
+    });
+  });
+
+  it("rejects a changed result under the same event_key", async () => {
+    const root = await createFixture();
+    const store = new CanonicalTransactionStore(root);
+    const outcomes = service(store);
+    await outcomes.recordOutcome(hostRequest());
+
+    await expect(
+      outcomes.recordOutcome(hostRequest({ outcome: "violated" })),
+    ).rejects.toMatchObject({
+      code: "IDEMPOTENCY_CONFLICT",
+      name: "RecordOutcomeError",
+    });
+    expect(await readOutcomeLines(root)).toHaveLength(1);
+  });
+});
+
 describe("RecordOutcomeMutationService knowledge binding", () => {
   it.each([
     { code: "KNOWLEDGE_NOT_FOUND", knowledgeId: UNKNOWN_ID },
@@ -237,6 +305,44 @@ describe("RecordOutcomeMutationService request contract", () => {
       },
     },
     { name: "an unknown field", request: { unexpected: true } },
+    {
+      name: "neither event identity",
+      request: { event_id: undefined },
+    },
+    {
+      name: "both event identities",
+      request: { event_key: EVENT_KEY },
+    },
+    {
+      name: "an event_key without an observed result",
+      request: { event_id: undefined, event_key: EVENT_KEY },
+    },
+    {
+      name: "an event_key without context",
+      request: {
+        context: undefined,
+        event_id: undefined,
+        event_key: EVENT_KEY,
+        result_observed: true,
+      },
+    },
+    {
+      name: "an event_key without a result note",
+      request: {
+        event_id: undefined,
+        event_key: EVENT_KEY,
+        note: undefined,
+        result_observed: true,
+      },
+    },
+    {
+      name: "an event_key over the limit",
+      request: {
+        event_id: undefined,
+        event_key: "e".repeat(MAX_OUTCOME_EVENT_KEY_LENGTH + 1),
+        result_observed: true,
+      },
+    },
   ])("rejects $name without any canonical write", async ({ request }) => {
     const root = await createFixture();
     const store = new CanonicalTransactionStore(root);
@@ -330,6 +436,10 @@ interface OutcomeRequestOverrides {
   readonly outcome?: string;
 }
 
+interface HostOutcomeRequestOverrides {
+  readonly outcome?: string;
+}
+
 function baseRequest(
   overrides: OutcomeRequestOverrides = {},
 ): Record<string, unknown> {
@@ -344,6 +454,23 @@ function baseRequest(
     knowledge_id: overrides.knowledge_id ?? ACTIVE_ID,
     note: "applied cleanly",
     outcome: overrides.outcome ?? "applied",
+  };
+}
+
+function hostRequest(
+  overrides: HostOutcomeRequestOverrides = {},
+): Record<string, unknown> {
+  return {
+    at: NOW,
+    context: {
+      file_paths: ["src/feature/a.ts"],
+      task_id: "issue-117",
+    },
+    event_key: EVENT_KEY,
+    knowledge_id: ACTIVE_ID,
+    note: "tests passed after applying the rule",
+    outcome: overrides.outcome ?? "applied",
+    result_observed: true,
   };
 }
 
