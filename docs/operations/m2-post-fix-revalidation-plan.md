@@ -20,7 +20,9 @@ M2がno-goになった理由は次の二点である。
 
 - `revalidation_id`: `m2-post-fix-revalidation-001`
 - 対象repository: `TamaT-LLC/repo-knowledge-mcp`
-- 対象実装: #116と#117を含むcurrent main
+- 関連Issue: #116と#117
+- 実装PR: #120（merge `2cb2b4f600d832063a8ac51a4afbee43d292c96f`）と#121（merge `b6738bb56583c2370d725ad48a6fd208d8854fce`）
+- 対象実装: PR #120とPR #121を含むcurrent main
 - rubric: `m2-pilot-human-rubric-v1`
 - named qualified human evaluator: `TakehiroT`
 - 外部送信: provider、host-assistedともに無効
@@ -33,9 +35,9 @@ M2がno-goになった理由は次の二点である。
 1. current mainから作成したpackage artifact gate通過tarballをglobal packageへ反映する。
 2. Codex、Claude、launchdが同じbinaryを参照し、doctorがfail 0、provider送信とhost-assisted送信が無効であることを確認する。
 3. launchd wrapperでsyncを1回以上成功させ、canonical破損とversion skewがないことを確認する。
-4. 固定5 queryをglobal MCPのfresh processで実行し、queryごとの上位3件、scope、severity、canonical digestをobservation artifactへ保存する。
+4. 固定5 queryをglobal MCPのfresh processで実行し、queryごとの上位3件、scope、severity、canonical digestをprivacy-safeな共有observation artifactへ保存する。
 5. Codexはrubricに基づく事前評価だけを作る。
-6. named qualified human evaluatorが各queryのcriteriaとscoreを確認し、必要なら修正したうえで明示承認する。
+6. named qualified human evaluatorが各queryのcriteriaとscoreを確認し、必要なら修正したうえで明示承認し、evaluationとapproval artifactを共有する。
 7. `npm run check`、`npm run golden`、`npm run quality:gate`、`npm run package:smoke`を実行する。
 8. 修正前後の比較、outcome実測件数、incident、M2 go/no-goをreview済みreportへ記録する。
 

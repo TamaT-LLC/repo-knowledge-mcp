@@ -71,12 +71,15 @@ pilot-002でscore 3以上だった3 queryは悪化していない。
 
 human evaluationは`PilotRubricEvaluationSchema`を通過し、`validatePilotRubricEvaluation`のissuesは0件だった。
 
+共有artifactにはreview comment本文とdiff hunkを含めていない。
+別reviewerは、observation、AI事前評価、human evaluation、approvalをリポジトリ内で照合できる。
+
 | artifact | SHA-256 |
 | --- | --- |
-| `~/.repo-knowledge/pilot/m2-post-fix-revalidation-001-observation.json` | `88934bd78f0d4cf95fa8fb083439ee4cbdd1a861026103fdd44ab53aef2b62ac` |
-| `~/.repo-knowledge/pilot/m2-post-fix-revalidation-001-ai-pre-evaluation.json` | `365733431cdea79ce8fd213ad31d13a7f0ff29a65e24937e105d38b58f49cdce` |
-| `~/.repo-knowledge/pilot/m2-post-fix-revalidation-001-human-evaluation.json` | `7e816c12ce44d33a104fc73018429b3098f07e1394b65d511beca6b040b8f22d` |
-| `~/.repo-knowledge/pilot/m2-post-fix-revalidation-001-human-approval.json` | `483ab2cb9ab863c225e6c18674e8de7087e794e0c38d02054d5663377ffa470e` |
+| [observation](../testing/evidence/m2-post-fix-revalidation-001-observation.json) | `f45dcfadc3779be59825bcdb85aa4d6d7b70364fb3301370821e5b23a9a41531` |
+| [AI pre-evaluation](../testing/evidence/m2-post-fix-revalidation-001-ai-pre-evaluation.json) | `365733431cdea79ce8fd213ad31d13a7f0ff29a65e24937e105d38b58f49cdce` |
+| [human evaluation](../testing/evidence/m2-post-fix-revalidation-001-human-evaluation.json) | `7e816c12ce44d33a104fc73018429b3098f07e1394b65d511beca6b040b8f22d` |
+| [human approval](../testing/evidence/m2-post-fix-revalidation-001-human-approval.json) | `88934752d2e92d6a508e87d354883d0fd225866fbc141d9c401008c1245ca63e` |
 
 ## 5. outcome実測
 

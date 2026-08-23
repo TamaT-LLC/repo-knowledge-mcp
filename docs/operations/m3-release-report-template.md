@@ -50,11 +50,14 @@ package version、tag、GitHub release、npm registry version、report の値が
 | 修正後限定再評価 ID | `m2-post-fix-revalidation-001` |
 | 修正後限定再評価 report path / URL | `___` |
 | 修正後限定再評価 report SHA-256 | `sha256:___` |
+| ranking observation path / SHA-256 | `___` / `sha256:___` |
+| human evaluation path / SHA-256 | `___` / `sha256:___` |
+| human approval path / SHA-256 | `___` / `sha256:___` |
 | maintainer reviewers | `___` |
 | M2 decision | `go / no-go` |
 | Issue #118 | `closed / open` |
 
-14日運用gateと修正後ranking gateを組み合わせた`go`、review済みreport、Issue #118 closeがそろわなければM3 releaseはno-goとする。
+14日運用gateと修正後ranking gateを組み合わせた`go`、共有されたranking評価artifact、review済みreport、Issue #118 closeがそろわなければM3 releaseはno-goとする。
 
 ## 4. Local verification
 

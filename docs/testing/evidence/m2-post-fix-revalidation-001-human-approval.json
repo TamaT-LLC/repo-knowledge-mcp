@@ -1,0 +1,18 @@
+{
+  "approval_kind": "m2_post_fix_human_approval",
+  "approval_source": "Codex thread operator confirmation",
+  "approval_statement": "approved the recorded criteria and scores",
+  "approved_at": "2026-08-23T09:48:26Z",
+  "evaluation_sha256": "7e816c12ce44d33a104fc73018429b3098f07e1394b65d511beca6b040b8f22d",
+  "evaluator": "TakehiroT",
+  "observation_sha256": "f45dcfadc3779be59825bcdb85aa4d6d7b70364fb3301370821e5b23a9a41531",
+  "revalidation_id": "m2-post-fix-revalidation-001",
+  "schema_version": 1,
+  "scores": {
+    "q-error-handling": 4,
+    "q-lock-concurrency": 4,
+    "q-schema-validation": 3,
+    "q-stdout-purity": 4,
+    "q-sync-checkpoint": 3
+  }
+}

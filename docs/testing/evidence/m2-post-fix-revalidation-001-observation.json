@@ -1,0 +1,161 @@
+{
+  "active_knowledge": 59,
+  "canonical_digest": "58da42c3fd709534cc803ed6c3e8b2d94de670744cb17a0aca56fb687b55ce4c",
+  "checkpoint_id": "cp-day-14-final",
+  "observation_kind": "m2_pilot_rubric_query_observation_summary",
+  "observed_at": "2026-08-23T05:55:07.496Z",
+  "outcomes": {
+    "applied": 0,
+    "false_positive": 0,
+    "not_applicable": 0,
+    "total": 0,
+    "violated": 0
+  },
+  "pilot_id": "m2-post-fix-revalidation-001",
+  "proposed_knowledge": 5,
+  "repo": "TamaT-LLC/repo-knowledge-mcp",
+  "results": [
+    {
+      "matched_count": 10,
+      "query_id": "q-error-handling",
+      "readiness": "ready",
+      "top_rules": [
+        {
+          "id": "kn_01KZJN89XCRC2648CB735686DF",
+          "rank": 1,
+          "rule_summary": "finalize直前にsnapshot identityと集計を再検証し、並行変更時はfail closedにする",
+          "scope": ["src/github-pull-request-client.ts"],
+          "severity": "must"
+        },
+        {
+          "id": "kn_01KZJNP6F1M2T2FVYHDYM3HZ1P",
+          "rank": 2,
+          "rule_summary": "低速provider処理ではlease renewal heartbeatを設け、renewal失敗時はfail closedにする",
+          "scope": ["src/provider-distillation-service.ts"],
+          "severity": "must"
+        },
+        {
+          "id": "kn_01KZJPV4MVA8TMK0B1VYPWHY55",
+          "rank": 3,
+          "rule_summary": "background heartbeat停止時は進行中処理を待ち、失敗を呼び出し元へ伝播する",
+          "scope": ["src/provider-distillation-service.ts"],
+          "severity": "must"
+        }
+      ]
+    },
+    {
+      "matched_count": 5,
+      "query_id": "q-schema-validation",
+      "readiness": "ready",
+      "top_rules": [
+        {
+          "id": "kn_01KZJPTWAG4A5QA1E5TY2GXY60",
+          "rank": 1,
+          "rule_summary": "入力日付をwindow判定前に日付schemaで暦日検証する",
+          "scope": ["src/pilot-daily-record-cli.ts"],
+          "severity": "should"
+        },
+        {
+          "id": "kn_01KZJNBSVW5K4NTBTFWB881WXC",
+          "rank": 2,
+          "rule_summary": "snapshot整合性検証ではobserved_atを最終一貫性queryの直前に記録する",
+          "scope": ["src/github-pull-request-client.ts"],
+          "severity": "must"
+        },
+        {
+          "id": "kn_01KZJP6NPQV9WJVM4BVRDX9JST",
+          "rank": 3,
+          "rule_summary": "quality gateはreview済みbaselineの完全なidentityを検証する",
+          "scope": ["src/golden-cli.ts"],
+          "severity": "must"
+        }
+      ]
+    },
+    {
+      "matched_count": 3,
+      "query_id": "q-lock-concurrency",
+      "readiness": "ready",
+      "top_rules": [
+        {
+          "id": "kn_01KZJNC7N0NRBBC97TQM8XTAPR",
+          "rank": 1,
+          "rule_summary": "file lockはfsync後のhard linkでlock pathへ原子的に公開する",
+          "scope": ["src/posix-file-lock.ts"],
+          "severity": "must"
+        },
+        {
+          "id": "kn_01KZJPYKNRP10ECBC8EX8NTB56",
+          "rank": 2,
+          "rule_summary": "長時間検索の前後でcanonical snapshotを再検証し、変更時はfinalizeをblockする",
+          "scope": ["src/host-assisted-distillation-service.ts"],
+          "severity": "must"
+        },
+        {
+          "id": "kn_01KZJNC2RTPSVD8QJ4Q19JXK6X",
+          "rank": 3,
+          "rule_summary": "engines.nodeをnpm scriptsの依存runtime要件と揃える",
+          "scope": ["package.json"],
+          "severity": "should"
+        }
+      ]
+    },
+    {
+      "matched_count": 6,
+      "query_id": "q-sync-checkpoint",
+      "readiness": "ready",
+      "top_rules": [
+        {
+          "id": "kn_01KZJPQZMY6Y5AGJ9DRF68YM7Q",
+          "rank": 1,
+          "rule_summary": "syncのsince境界は保存済みcheckpointと比較して安全に拡張する",
+          "scope": ["src/setup-service.ts"],
+          "severity": "should"
+        },
+        {
+          "id": "kn_01KZJQ4ES8B1X0CP26NVPGC5Z8",
+          "rank": 2,
+          "rule_summary": "checkpointと明示boundの間を列挙せずにcheckpointを前進させない",
+          "scope": ["src/sync-repo-service.ts"],
+          "severity": "must"
+        },
+        {
+          "id": "kn_01KZJQ7QMK3TZV6N5H22R02PQW",
+          "rank": 3,
+          "rule_summary": "sync mismatch判定前にrepository identityを安定したrepo_idへ解決する",
+          "scope": ["src/sync-repo-service.ts"],
+          "severity": "must"
+        }
+      ]
+    },
+    {
+      "matched_count": 8,
+      "query_id": "q-stdout-purity",
+      "readiness": "ready",
+      "top_rules": [
+        {
+          "id": "kn_01KZJPJYJPF67XME8T9J09XRYD",
+          "rank": 1,
+          "rule_summary": "異常終了を含む定期job結果を一貫した構造化logへ記録する",
+          "scope": ["docs/operations/*.md"],
+          "severity": "must"
+        },
+        {
+          "id": "kn_01KZJPVNXQVPP6AJ2FPV1JYB6S",
+          "rank": 2,
+          "rule_summary": "security関連のTTY flagを注入可能なterminal抽象化へ自己申告させない",
+          "scope": ["src/admin-plane-service.ts"],
+          "severity": "must"
+        },
+        {
+          "id": "kn_01KZJPW65JYTX255XMQFF565DG",
+          "rank": 3,
+          "rule_summary": "security上重要な確認I/Oを差し替え可能な公開APIにしない",
+          "scope": ["src/admin-plane-service.ts"],
+          "severity": "must"
+        }
+      ]
+    }
+  ],
+  "rubric_id": "m2-pilot-human-rubric-v1",
+  "schema_version": 1
+}

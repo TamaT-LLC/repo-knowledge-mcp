@@ -109,7 +109,7 @@ Secretの値をcommitしてはならない。
 3. 同じ exact version が npm registry に存在しない。
 4. Node.js 22 と 24 の CI が成功している。
 5. `npm run check`、`npm run golden`、`npm run quality:gate`、`npm run package:smoke` が成功している。
-6. M3 releaseでは、pilot-002の14日運用gateと修正後限定再評価のranking gateを組み合わせたM2 go判定、およびM3 acceptance reportがreview済みである。
+6. M3 releaseでは、pilot-002の14日運用gateと修正後限定再評価のranking gateを組み合わせたM2 go判定、共有されたobservation、human evaluation、human approval、およびM3 acceptance reportがreview済みである。
 7. GitHub repositoryがpublicで、npm owner、license、GitHub `npm` environmentが確認済みである。
    初回公開ではbootstrap認証をreviewし、二回目以降はtrusted publisherを確認する。
 8. 公開対象 commit の security review が完了し、CodeQL、secret scanning、依存関係監査に未解決の critical または high finding がない。

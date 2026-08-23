@@ -106,3 +106,6 @@ M1 の受け入れ条件 1〜63 は [M1 acceptance matrix](./m1-acceptance-matri
   [修正後限定再評価計画](../operations/m2-post-fix-revalidation-plan.md)に従って運用証跡を再利用し、
   固定queryのnamed human評価だけを再実施して
   [限定再評価report](../operations/m2-post-fix-revalidation-report-m2-post-fix-revalidation-001.md)へ記録する。
+  別reviewerは共有された[observation](./evidence/m2-post-fix-revalidation-001-observation.json)、
+  [human evaluation](./evidence/m2-post-fix-revalidation-001-human-evaluation.json)、
+  [human approval](./evidence/m2-post-fix-revalidation-001-human-approval.json)を照合する。
