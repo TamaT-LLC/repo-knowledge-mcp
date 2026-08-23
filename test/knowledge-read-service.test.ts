@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   CanonicalTransactionStore,
   KNOWLEDGE_CODE_EXAMPLE_MARKER_PREFIX,
   KnowledgeReadError,
   KnowledgeReadService,
+  SeveritySchema,
   createDomainId,
   renderKnowledgeBodyWithCodeExample,
   serializeCanonicalJsonlRecord,
@@ -31,6 +33,66 @@ const HASH_B = `sha256:${"b".repeat(64)}`;
 const REPO_ID = "R_repo_1";
 const REPO_NAME = "owner/repository";
 const temporaryRepositories: string[] = [];
+
+const RankingRegressionFixtureSchema = z
+  .object({
+    knowledge: z.array(
+      z
+        .object({
+          detail: z.string().min(1),
+          key: z.string().min(1),
+          rule: z.string().min(1),
+          scope: z.array(z.string().min(1)),
+          severity: SeveritySchema,
+        })
+        .strict(),
+    ),
+    queries: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          query: z.string().min(1),
+          relevant: z.array(z.string().min(1)).min(1),
+        })
+        .strict(),
+    ),
+    schema_version: z.literal(1),
+  })
+  .strict()
+  .superRefine((fixture, context) => {
+    const knowledgeKeys = new Set<string>();
+    for (const [index, item] of fixture.knowledge.entries()) {
+      if (knowledgeKeys.has(item.key)) {
+        context.addIssue({
+          code: "custom",
+          message: `duplicate knowledge key: ${item.key}`,
+          path: ["knowledge", index, "key"],
+        });
+      }
+      knowledgeKeys.add(item.key);
+    }
+
+    const queryIds = new Set<string>();
+    for (const [queryIndex, query] of fixture.queries.entries()) {
+      if (queryIds.has(query.id)) {
+        context.addIssue({
+          code: "custom",
+          message: `duplicate query id: ${query.id}`,
+          path: ["queries", queryIndex, "id"],
+        });
+      }
+      queryIds.add(query.id);
+      for (const [relevantIndex, relevantKey] of query.relevant.entries()) {
+        if (!knowledgeKeys.has(relevantKey)) {
+          context.addIssue({
+            code: "custom",
+            message: `unknown relevant knowledge key: ${relevantKey}`,
+            path: ["queries", queryIndex, "relevant", relevantIndex],
+          });
+        }
+      }
+    }
+  });
 
 afterEach(async () => {
   await Promise.all(
@@ -223,15 +285,7 @@ describe("KnowledgeReadService.getRules", () => {
 
   it("keeps the privacy-safe fixed-query regression targets in the top three deterministically", async () => {
     const repository = await createRepository();
-    const fixture = JSON.parse(
-      await readFile(
-        new URL(
-          "./fixtures/golden/m2-live-ranking-regression.json",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    ) as RankingRegressionFixture;
+    const fixture = await loadRankingRegressionFixture();
     const idsByKey = new Map<string, string>();
     for (const item of fixture.knowledge) {
       idsByKey.set(item.key, await writeKnowledge(repository, item));
@@ -258,6 +312,34 @@ describe("KnowledgeReadService.getRules", () => {
         ).toBeLessThan(3);
       }
     }
+  });
+
+  it("rejects invalid ranking fixture versions, duplicate keys, and dangling references", async () => {
+    const fixture = await loadRankingRegressionFixture();
+
+    expect(() =>
+      RankingRegressionFixtureSchema.parse({
+        ...fixture,
+        schema_version: 2,
+      }),
+    ).toThrow();
+    expect(() =>
+      RankingRegressionFixtureSchema.parse({
+        ...fixture,
+        knowledge: [...fixture.knowledge, fixture.knowledge[0]],
+      }),
+    ).toThrow(/duplicate knowledge key/u);
+    expect(() =>
+      RankingRegressionFixtureSchema.parse({
+        ...fixture,
+        queries: [
+          {
+            ...fixture.queries[0],
+            relevant: ["missing-knowledge"],
+          },
+        ],
+      }),
+    ).toThrow(/unknown relevant knowledge key/u);
   });
 
   it("reports setup_required for a repository without sync, jobs, or knowledge", async () => {
@@ -694,16 +776,6 @@ interface KnowledgeInput {
   readonly status?: KnowledgeStatus;
 }
 
-interface RankingRegressionFixture {
-  readonly knowledge: readonly (KnowledgeInput & { readonly key: string })[];
-  readonly queries: readonly {
-    readonly id: string;
-    readonly query: string;
-    readonly relevant: readonly string[];
-  }[];
-  readonly schema_version: 1;
-}
-
 interface EvidenceInput {
   readonly eligibleForCount?: boolean;
   readonly evidenceId: string;
@@ -720,6 +792,22 @@ async function createRepository(): Promise<string> {
   temporaryRepositories.push(repository);
   await mkdir(join(repository, "knowledge"), { recursive: true });
   return repository;
+}
+
+async function loadRankingRegressionFixture(): Promise<
+  z.infer<typeof RankingRegressionFixtureSchema>
+> {
+  return RankingRegressionFixtureSchema.parse(
+    JSON.parse(
+      await readFile(
+        new URL(
+          "./fixtures/golden/m2-live-ranking-regression.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ),
+  );
 }
 
 function service(
