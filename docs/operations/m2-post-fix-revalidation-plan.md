@@ -12,7 +12,7 @@ M2がno-goになった理由は次の二点である。
 - `q-schema-validation`と`q-stdout-purity`がscore 2だった
 - Day 7とDay 14の評価にnamed qualified human evaluatorの確認がなかった
 
-#116はread planeの検索関連度を修正し、#117は実利用で観測したoutcomeを記録する導線を追加した。
+Issue `#116`はread planeの検索関連度を修正し、Issue `#117`は実利用で観測したoutcomeを記録する導線を追加した。
 両変更は、pilot-002が検証したsync scheduling、checkpoint、writer lock、canonical transaction、日次集計の契約を変更していない。
 したがって、同じ運用耐久試験は繰り返さず、変更した契約と未達項目だけを再評価する。
 
@@ -73,7 +73,12 @@ M2の完了条件はoutcome件数ではなく、固定queryのhuman評価と既�
 - canonical transaction、recovery、reindex
 - pilot日次集計またはquality threshold
 
-検索関連度、表示、文書、release workflowだけを変更した場合は、変更箇所に対応する自動testと限定再評価を行う。
+次の変更は、記載した条件と検証を満たす場合に限定再評価を使用できる。
+
+- 検索関連度、表示、文書、release workflowの変更は、変更箇所に対応する自動testと限定再評価を行う
+- Issue `#117`のoutcome input contractとMCP導線の変更は、canonical transaction、recovery、reindex、outcome ranking policyを変更していない場合に限り、record-outcome service test、MCP E2E、M2 product E2E、outcome golden、doctor、canonical検査を行う
+
+この条件を外れるoutcome変更は、pilot-002の運用証跡を再利用しない。
 
 ## M2判定
 

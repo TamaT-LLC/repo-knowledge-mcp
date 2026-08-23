@@ -55,7 +55,7 @@ M2 の no-go は、固定 5 query 中 2 query の関連度不足と、Day 7 お�
 一方、Day 14 の固定 5 query 中 2 query が score 2 で、Day 7 / 14 の評価も qualified human の確認を欠いたため M2 は no-go とした。
 結果と根拠は [pilot-002 最終 report](./m2-cron-pilot-report-m2-cron-pilot-002.md) に固定し、事後の score 変更や synthetic outcome による補正は行わない。
 
-#116 の検索関連度改善と #117 の実 outcome 記録導線を merge した後、`m2-cron-pilot-003` を 2026-08-24 から開始する計画を一度固定した。
+Issue `#116`の検索関連度改善とIssue `#117`の実outcome記録導線をmergeした後、`m2-cron-pilot-003`を2026-08-24から開始する計画を一度固定した。
 しかし、両変更は pilot-002 が合格した sync scheduling、checkpoint、writer lock、canonical transaction、日次集計の契約を変更していない。
 このため maintainer は 2026-08-23 に、Day 1 の日次 record が作られる前に pilot-003 の追加 14 日運用を中止した。
 開始 artifact と空の JSONL は監査証跡としてローカルに保持し、M2 の go 根拠には使用しない。

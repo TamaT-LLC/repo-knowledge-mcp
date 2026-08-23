@@ -88,7 +88,7 @@ release判定のためのsynthetic outcomeは作成していない。
 
 live weightingは未観測のまま残る。
 一方、outcomeの冪等性、競合拒否、canonical再構築、重み上限、zero-outcome互換性は自動testとgolden fixtureで検証済みである。
-#117により、今後は実利用結果を安定した`event_key`から記録できる。
+Issue `#117`により、今後は実利用結果を安定した`event_key`から記録できる。
 
 ## 6. pilot-003の中止
 
