@@ -115,7 +115,7 @@ export async function writeBootstrapAuthReport(reportPath, report) {
   return serialized;
 }
 
-function parseArguments(argv) {
+export function parseArguments(argv) {
   const options = { cwd: repositoryRoot };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -133,8 +133,12 @@ function parseArguments(argv) {
       throw new Error(`unknown or incomplete argument ${String(argument)}`);
     }
   }
-  if (options.tag === undefined || options.expectedOwner === undefined) {
-    throw new Error("--tag and --expected-owner are required");
+  if (
+    options.tag === undefined ||
+    options.expectedOwner === undefined ||
+    options.reportPath === undefined
+  ) {
+    throw new Error("--tag, --expected-owner, and --report are required");
   }
   return options;
 }
@@ -193,10 +197,10 @@ if (isMainModule()) {
   try {
     const options = parseArguments(process.argv.slice(2));
     const report = await inspectBootstrapAuth(options);
-    const serialized =
-      options.reportPath === undefined
-        ? `${JSON.stringify(report, null, 2)}\n`
-        : await writeBootstrapAuthReport(options.reportPath, report);
+    const serialized = await writeBootstrapAuthReport(
+      options.reportPath,
+      report,
+    );
     process.stdout.write(serialized);
     if (report.status !== "pass") process.exitCode = 1;
   } catch (error) {
