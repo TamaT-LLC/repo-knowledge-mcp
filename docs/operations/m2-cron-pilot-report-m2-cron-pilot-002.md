@@ -21,7 +21,7 @@ host-assisted session では review comment 本文だけを一時的な明示同
 
 ## 2. 日次記録の集約結果
 
-`pilot:daily -- summarize --require-complete` は 2026-08-23 09:36 JST に exit 0 で完了した。
+`npm run --silent pilot:daily -- summarize --log ~/.repo-knowledge/pilot/m2-cron-pilot-002.jsonl --start 2026-08-09 --days 14 --require-complete` は 2026-08-23 09:36 JST に exit 0 で完了した。
 
 | 判定材料 | 実測値 | go 条件 | 判定 |
 | --- | --- | --- | --- |
@@ -119,19 +119,21 @@ host-assisted session では review comment 本文だけを一時的な明示同
 
 pilot-002 では、canonical 増殖、integrity failure、2 UTC 日連続の全 run 失敗、未回復の storage 破損は発生していない。
 
-## 4. human rubric 評価結果
+## 4. human rubric artifact と評価者資格
 
 評価 artifact は local privacy boundary 内に mode 0600 で保存し、report には path と SHA-256 だけを記録する。
 
-| checkpoint | evaluation path | SHA-256 |
-| --- | --- | --- |
-| Day 1 | `~/.repo-knowledge/pilot/m2-cron-pilot-002-rubric-day-01-evaluation.json` | `82d6ecad1b0118099d3a575c994e16817f10975ca98802438e4e5555e664365b` |
-| Day 7 | `~/.repo-knowledge/pilot/m2-cron-pilot-002-rubric-day-07-evaluation.json` | `f6fdf787d253971578f1573cc13577b677c30cc01c9ca7407c857372bd963310` |
-| Day 14 | `~/.repo-knowledge/pilot/m2-cron-pilot-002-rubric-day-14-evaluation.json` | `7ebd35cc04c823c08642a2dce5ddc1942455e49384af33a78b636905b3ba1b69` |
+| checkpoint | evaluation path | SHA-256 | 評価区分 / evaluator |
+| --- | --- | --- | --- |
+| Day 1 | `~/.repo-knowledge/pilot/m2-cron-pilot-002-rubric-day-01-evaluation.json` | `82d6ecad1b0118099d3a575c994e16817f10975ca98802438e4e5555e664365b` | human / TakehiroT |
+| Day 7 | `~/.repo-knowledge/pilot/m2-cron-pilot-002-rubric-day-07-evaluation.json` | `f6fdf787d253971578f1573cc13577b677c30cc01c9ca7407c857372bd963310` | AI pre-evaluation / Codex（operator-delegated） |
+| Day 14 | `~/.repo-knowledge/pilot/m2-cron-pilot-002-rubric-day-14-evaluation.json` | `7ebd35cc04c823c08642a2dce5ddc1942455e49384af33a78b636905b3ba1b69` | AI pre-evaluation / Codex（operator-delegated） |
 
-3 artifact は `PilotRubricEvaluationSchema` と `validatePilotRubricEvaluation` を通過した。
+3 artifact は `PilotRubricEvaluationSchema` と `validatePilotRubricEvaluation` を通過したが、この検証は evaluator が人間かどうかを保証しない。
 
-| query | day 1 | day 7 | day 14 | 悪化なし | day 14 が 3 以上 |
+Day 7 と Day 14 は Codex が observation を基に作成した事前評価であり、human rubric の人間評価として扱わない。
+
+| query | day 1 human | day 7 AI pre-evaluation | day 14 AI pre-evaluation | 悪化なし（参考） | day 14 が 3 以上（参考） |
 | --- | ---: | ---: | ---: | --- | --- |
 | `q-error-handling` | 1 | 3 | 3 | yes | yes |
 | `q-schema-validation` | 1 | 2 | 2 | yes | **no** |
@@ -143,9 +145,11 @@ Day 14 の `q-schema-validation` では、入力 schema rule が rank 5 で top 
 
 Day 14 の `q-stdout-purity` では、structured-log rule が rank 6 で top 3 の外に残った。
 
-Day 7 から Day 14 まで保存対象 ranking ID に変化はなく、全 query で Day 1 からの悪化はなかった。
+Day 7 から Day 14 まで保存対象 ranking ID に変化はなく、AI pre-evaluation 上は全 query で Day 1 からの悪化がなかった。
 
-評価者と評価日時は、Day 1 が TakehiroT / 2026-08-09T06:55:44Z、Day 7 が Codex（operator-delegated）/ 2026-08-15T00:40:54Z、Day 14 が Codex（operator-delegated）/ 2026-08-22T00:37:17Z である。
+評価日時は、Day 1 が 2026-08-09T06:55:44Z、Day 7 が 2026-08-15T00:40:54Z、Day 14 が 2026-08-22T00:37:17Z である。
+
+Day 7 と Day 14 は qualified human evaluator の確認を受けていないため、human rubric の go 条件は fail-closed で未充足とする。
 
 ## 5. 未達項目と follow-up Issue
 
@@ -154,6 +158,7 @@ Day 7 から Day 14 まで保存対象 ranking ID に変化はなく、全 query
 | schema relevance | `q-schema-validation` の直接的な入力 schema rule が top 3 に入らない | [#116](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/116) |
 | stdout relevance | `q-stdout-purity` の structured-log rule が top 3 に入らない | [#116](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/116) |
 | live outcome evidence | pilot 期間中の outcome が 0 件で、applied / violated / false-positive の live ranking 効果を評価できない | [#117](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/117) |
+| qualified human evaluation | Day 7 と Day 14 は AI pre-evaluation のみで、human rubric の評価者要件を満たさない | [#118](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/118) |
 | M2 再評価 | 上記を実利用で検証していないため、新しい pilot_id で固定 query と rubric を再評価する必要がある | [#118](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/118) |
 
 ## 6. proposed 承認 / trusted-human auto activation 判断
@@ -171,7 +176,7 @@ Day 7 から Day 14 まで保存対象 ranking ID に変化はなく、全 query
 | 完了条件 | 判定 | 根拠（§2〜§6 の参照） |
 | --- | --- | --- |
 | cron 同期で 2 週間運用できた | go | 14/14 日記録、成功率 0.9948、integrity failure 0、final pending 0、rollback 条件非該当（§2〜§3） |
-| ランキングが体感に合う | no-go | Day 14 の 5 query 中 2 query が score 2 で、全 query score 3 以上の固定条件を満たさない（§4〜§5） |
+| ランキングが体感に合う | no-go | Day 7 / 14 の qualified human evaluation がなく、AI pre-evaluation でも 5 query 中 2 query が score 2 のため、human rubric の固定条件を満たさない（§4〜§5） |
 
 **総合判定: M2 未完了**
 
