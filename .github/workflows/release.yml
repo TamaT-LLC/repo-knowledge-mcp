@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_NPM_VERSION: 11.19.0
+  RELEASE_NPM_VERSION: 12.0.2
 
 jobs:
   verify:
@@ -36,6 +36,8 @@ jobs:
         run: npm install --global "npm@${RELEASE_NPM_VERSION}"
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
+      - name: Verify dependency install-script decisions
+        run: npm run install-scripts:check
       - name: Audit dependency graph and registry signatures
         run: |
           npm audit --audit-level=high
@@ -95,6 +97,8 @@ jobs:
           fi
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
+      - name: Verify dependency install-script decisions
+        run: npm run install-scripts:check
       - name: Re-audit dependency graph and registry signatures
         run: |
           npm audit --audit-level=high

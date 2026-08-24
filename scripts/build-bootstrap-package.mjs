@@ -19,6 +19,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { EXPECTED_PACKAGE_NAME } from "./package-artifact-gate.mjs";
+import { parseSingleNpmPackResult } from "./npm-pack-result.mjs";
 
 export const BOOTSTRAP_VERSION = "0.0.0-bootstrap.0";
 export const BOOTSTRAP_TAG = "bootstrap";
@@ -77,7 +78,7 @@ export async function buildBootstrapPackage(options) {
     await writeFile(join(staging, "README.md"), bootstrapReadme(), "utf8");
     await copyFile(join(repositoryRoot, "LICENSE"), join(staging, "LICENSE"));
 
-    const packed = parsePackResult(
+    const packed = parseBootstrapPackResult(
       runNpm([
         "pack",
         "--json",
@@ -150,12 +151,17 @@ function runNpm(args) {
   return result.stdout;
 }
 
-function parsePackResult(stdout) {
-  const results = JSON.parse(stdout);
-  if (!Array.isArray(results) || results.length !== 1) {
-    throw new Error("npm pack returned an invalid result envelope");
-  }
-  return results[0];
+export function parseBootstrapPackResult(stdout) {
+  const result = parseSingleNpmPackResult(stdout);
+  return {
+    ...result,
+    entryCount:
+      typeof result.entryCount === "number"
+        ? result.entryCount
+        : Array.isArray(result.files)
+          ? result.files.length
+          : result.entryCount,
+  };
 }
 
 function assertPackResult(result) {

@@ -68,7 +68,7 @@ workflow は `id-token: write` を publish job だけに付与し、GitHub-hoste
 
 trusted publisher の動作確認後は、npm の publishing access を `Require two-factor authentication and disallow tokens` に設定する。
 
-初回 package 作成後は npm CLI 11.19.0 以降の `npm trust` で同じ設定を作成して監査する。
+初回 package 作成後は npm CLI 12.0.2 以降の `npm trust` で同じ設定を作成して監査する。
 実行する account が package owner または trusted publisher を管理できる maintainer であることを確認し、workflow filename には path ではなく basename だけを渡す。
 
 ```console
@@ -117,7 +117,7 @@ npm access list packages tamat-llc:developers
 `@tamat-llc/repo-knowledge-mcp`へのwrite権限を確認した後、固定したnpm CLIでplaceholderだけを`bootstrap` dist-tagへ公開する。
 
 ```console
-npx --yes npm@11.19.0 publish \
+npx --yes npm@12.0.2 publish \
   ./npm-bootstrap/tamat-llc-repo-knowledge-mcp-0.0.0-bootstrap.0.tgz \
   --access public \
   --tag bootstrap
@@ -129,7 +129,7 @@ npm registryが初回versionへ`latest`を自動付与しても、bootstrap vers
 exact bootstrap versionを直ちにdeprecateし、stable `0.3.0`の公開時にrelease workflowの`--tag latest`でdist-tagを移す。
 
 ```console
-npx --yes npm@11.19.0 deprecate \
+npx --yes npm@12.0.2 deprecate \
   '@tamat-llc/repo-knowledge-mcp@0.0.0-bootstrap.0' \
   'Bootstrap placeholder only; install a supported stable version after it is published.'
 ```
@@ -137,13 +137,13 @@ npx --yes npm@11.19.0 deprecate \
 placeholderの公開直後にtrusted publisherを設定する。
 
 ```console
-npx --yes npm@11.19.0 trust github @tamat-llc/repo-knowledge-mcp \
+npx --yes npm@12.0.2 trust github @tamat-llc/repo-knowledge-mcp \
   --repository TamaT-LLC/repo-knowledge-mcp \
   --file release.yml \
   --environment npm \
   --allow-publish \
   --yes
-npx --yes npm@11.19.0 trust list @tamat-llc/repo-knowledge-mcp --json
+npx --yes npm@12.0.2 trust list @tamat-llc/repo-knowledge-mcp --json
 ```
 
 その後、npm package settingsでtraditional token publicationを禁止する。
@@ -170,6 +170,7 @@ version、tag、commit、working tree、Node.js、npm、registry の重複、rep
 
 ```console
 npm ci --ignore-scripts
+npm run install-scripts:check
 npm audit --audit-level=high
 npm audit signatures
 npm rebuild
@@ -182,6 +183,8 @@ npm run --silent release:verify -- --tag v0.3.0 --commit <full-commit-sha> --rep
 
 この順序を入れ替えてはならない。
 lifecycle script を実行する `npm rebuild` は dependency と registry signature の検証後にだけ実行する。
+`package.json` の `allowScripts` は、review 済みの `better-sqlite3` を exact version で許可し、任意依存の `fsevents` を明示的に拒否する。
+dependency 更新で install script の対象が変わった場合は、script と package 内容を再確認して decision を更新し、`install-scripts:check` を通す。
 
 ## 5. 公開手順
 
@@ -196,7 +199,8 @@ lifecycle script を実行する `npm rebuild` は dependency と registry signa
 
 workflow の verify job は exact tag を checkout し、source check、golden、quality gate、package smoke を Node.js 22 と 24 で再実行する。
 
-verify job と publish job は lifecycle script を無効にして依存関係を展開し、`npm audit --audit-level=high` と `npm audit signatures` を通過してから `npm rebuild` で検証済み dependency の lifecycle script を実行する。
+CI、verify job、publish job は npm 12 を固定し、lifecycle script を無効にして依存関係を展開する。
+install script の全対象に明示的な許可または拒否があること、`npm audit --audit-level=high`、`npm audit signatures` を順に通過してから、`npm rebuild` で許可済み dependency の lifecycle script だけを実行する。
 既知の high または critical vulnerability、改ざんまたは署名欠落を検出した release は publish job へ進めない。
 
 publish job は `npm pack --dry-run --json` と実 tarball の manifest、integrity、shasum が一致することを検査する。

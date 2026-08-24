@@ -42,10 +42,12 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update the npm CLI used by the release workflow",
-      "managerFilePatterns": ["/^\\.github\\/workflows\\/release\\.yml$/"],
+      "description": "Update the npm CLI used by CI and release workflows",
+      "managerFilePatterns": [
+        "/^\\.github\\/workflows\\/(?:ci|registry-smoke|release)\\.yml$/"
+      ],
       "matchStrings": [
-        "RELEASE_NPM_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+        "(?:CI|REGISTRY_SMOKE|RELEASE)_NPM_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)"
       ],
       "depNameTemplate": "npm",
       "datasourceTemplate": "npm",

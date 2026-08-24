@@ -72,7 +72,7 @@
   "scripts": {
     "bootstrap:pack": "node scripts/build-bootstrap-package.mjs",
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run format:check && npm run docs:check && npm run lint && npm run typecheck && npm run golden:corpus:check && npm run test:release-tools && npm run test:coverage-thresholds && npm run test:coverage",
+    "check": "npm run format:check && npm run docs:check && npm run install-scripts:check && npm run lint && npm run typecheck && npm run golden:corpus:check && npm run test:release-tools && npm run test:coverage-thresholds && npm run test:coverage",
     "docs:check": "node check-markdown-links.mjs",
     "format": "biome format --write . && prettier --write '.github/**/*.yml'",
     "format:check": "biome format . && prettier --check '.github/**/*.yml'",
@@ -80,6 +80,7 @@
     "golden:baseline:replay": "npm run build && node dist/golden-baseline-cli.js --corpus test/fixtures/golden/m2-anonymized-corpus.json --replay test/fixtures/golden/m2-recorded-predictions.json --out test/fixtures/golden/m2-provider-baseline.json",
     "golden:corpus:check": "node scripts/generate-m2-baseline-corpus.mjs --check",
     "golden:corpus:generate": "node scripts/generate-m2-baseline-corpus.mjs",
+    "install-scripts:check": "node scripts/install-scripts-gate.mjs",
     "lint": "biome lint --error-on-warnings .",
     "package:gate": "node scripts/package-artifact-gate.mjs",
     "package:smoke": "node scripts/package-smoke.mjs",
@@ -104,5 +105,9 @@
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "fsevents": false
   }
 }

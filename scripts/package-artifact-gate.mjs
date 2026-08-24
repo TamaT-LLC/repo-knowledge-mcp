@@ -23,6 +23,7 @@ import {
   STABLE_ROOT_API,
   STABLE_ROOT_RUNTIME_EXPORTS,
 } from "./public-api-inventory.mjs";
+import { parseSingleNpmPackResult } from "./npm-pack-result.mjs";
 
 export const PACKAGE_ARTIFACT_REPORT_KIND =
   "repo_knowledge_npm_package_artifact_gate";
@@ -159,15 +160,7 @@ export async function createPackageArtifact(options = {}) {
 }
 
 export function parsePackResult(stdout) {
-  let value;
-  try {
-    value = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error("npm pack did not emit machine-readable JSON", {
-      cause: error,
-    });
-  }
-  const result = Array.isArray(value) ? value[0] : undefined;
+  const result = parseSingleNpmPackResult(stdout);
   if (
     result === undefined ||
     typeof result.filename !== "string" ||
