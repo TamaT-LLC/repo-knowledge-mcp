@@ -92,7 +92,8 @@ LLM への外部送信は二つの独立経路があります。
 
 - Provider Adapter は `llm.mode` に `anthropic`、`openai`、または `xai` を設定し、実効 `allowCloudTransmission: true` にする必要があります。
   server はログイン済みの Claude Code、Codex、または Grok CLI を headless mode で起動し、そのサブスクリプション session を使います。
-  子 process の環境変数は実行・locale・provider subscription 認証に必要な allowlist に限定し、Provider API key、GitHub token、cloud credential、その他の任意の親 process 環境変数を引き継ぎません。
+  子 process の環境変数は実行・locale・proxy / custom CA・provider subscription 認証に必要な allowlist に限定し、Provider API key、GitHub token、cloud credential、その他の任意の親 process 環境変数を引き継ぎません。
+  network bootstrap 用には `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` と lowercase 版、`SSL_CERT_FILE`、`SSL_CERT_DIR`、`NODE_EXTRA_CA_CERTS` だけを許可します。proxy URL に credential を埋め込む場合、その値も provider CLI process へ渡るため、OS permission と process trust boundary の内側で管理してください。
   Codex は user config と rule の読み込みを止め、shell、browser、computer、plugin 等の tool feature と web search を無効化した read-only mode で実行します。
 - host-assisted は `hostAssistedDistillation.enabled: true` と `allowReviewContentTransmission: true` の両方が必要です。
   server 自身が provider API を呼ぶのでなく、normalized review content を MCP client へ返し、client が利用する model に渡します。

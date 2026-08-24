@@ -44,6 +44,19 @@ const COMMON_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES = new Set([
   "XDG_DATA_HOME",
   "XDG_STATE_HOME",
 ]);
+const NETWORK_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES = new Set([
+  "ALL_PROXY",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NODE_EXTRA_CA_CERTS",
+  "NO_PROXY",
+  "SSL_CERT_DIR",
+  "SSL_CERT_FILE",
+  "all_proxy",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+]);
 const PROVIDER_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES: Readonly<
   Record<EnabledLlmProviderMode, ReadonlySet<string>>
 > = {
@@ -393,6 +406,7 @@ function isAllowedSubscriptionEnvironmentVariable(
     SAFE_ENVIRONMENT_VARIABLE_NAME.test(name) &&
     !UNSAFE_OBJECT_PROPERTY_NAMES.has(name) &&
     (COMMON_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES.has(name) ||
+      NETWORK_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES.has(name) ||
       (provider !== undefined &&
         PROVIDER_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES[provider].has(name)))
   );

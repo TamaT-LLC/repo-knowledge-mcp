@@ -44,7 +44,9 @@ describe("OpenAiProviderAdapter", () => {
         GH_TOKEN: "must-not-be-forwarded",
         GITHUB_TOKEN: "must-not-be-forwarded",
         HOME: "/home/test",
+        HTTPS_PROXY: "http://proxy.internal:8080",
         LANG: "ja_JP.UTF-8",
+        NODE_EXTRA_CA_CERTS: "/etc/company/ca.pem",
         OPENAI_API_KEY: "must-not-be-forwarded",
         PATH: "/usr/bin:/bin",
       },
@@ -99,7 +101,9 @@ describe("OpenAiProviderAdapter", () => {
     expect(captured!.environment).toEqual({
       CODEX_HOME: "/home/test/.codex-custom",
       HOME: "/home/test",
+      HTTPS_PROXY: "http://proxy.internal:8080",
       LANG: "ja_JP.UTF-8",
+      NODE_EXTRA_CA_CERTS: "/etc/company/ca.pem",
       PATH: "/usr/bin:/bin",
     });
     expect(capturedSchema).toEqual(DISTILLATION_OUTPUT_JSON_SCHEMA);
@@ -296,9 +300,14 @@ describe("subscriptionOnlyEnvironment", () => {
           GITHUB_TOKEN: "e",
           GROK_HOME: "/home/test/.grok",
           HOME: "/home/test",
+          HTTP_PROXY: "http://proxy.internal:8080",
+          HTTPS_PROXY: "http://proxy.internal:8080",
           LANG: "ja_JP.UTF-8",
+          NODE_EXTRA_CA_CERTS: "/etc/company/ca.pem",
+          NO_PROXY: "localhost,127.0.0.1",
           OPENAI_API_KEY: "f",
           PATH: "/bin",
+          SSL_CERT_FILE: "/etc/company/ca.pem",
           SSH_AUTH_SOCK: "/tmp/agent.sock",
           XAI_API_KEY: "g",
         },
@@ -308,8 +317,13 @@ describe("subscriptionOnlyEnvironment", () => {
     ).toEqual({
       CODEX_HOME: "/home/test/.codex",
       HOME: "/home/test",
+      HTTP_PROXY: "http://proxy.internal:8080",
+      HTTPS_PROXY: "http://proxy.internal:8080",
       LANG: "ja_JP.UTF-8",
+      NODE_EXTRA_CA_CERTS: "/etc/company/ca.pem",
+      NO_PROXY: "localhost,127.0.0.1",
       PATH: "/bin",
+      SSL_CERT_FILE: "/etc/company/ca.pem",
     });
   });
 
