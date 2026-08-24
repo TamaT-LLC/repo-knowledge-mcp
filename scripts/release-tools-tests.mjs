@@ -10,6 +10,7 @@ import {
   EXPECTED_PACKAGE_NAME,
   assertEquivalentManifests,
   findSecretPattern,
+  parsePackResult as parsePackageArtifactPackResult,
   parseRootDeclaration,
   validatePackagePath,
   validatePublicApiManifest,
@@ -28,7 +29,9 @@ import {
   BOOTSTRAP_VERSION,
   buildBootstrapPackage,
   createBootstrapManifest,
+  parseBootstrapPackResult,
 } from "./build-bootstrap-package.mjs";
+import { validateInstallScriptApprovals } from "./install-scripts-gate.mjs";
 import {
   parsePublishedVersion,
   validateRegistrySmokeRequest,
@@ -198,6 +201,90 @@ test("bootstrap manifest is an inert scoped name reservation", () => {
   assert.throws(() => createBootstrapManifest("lookalike-package"));
 });
 
+test("npm pack metadata supports npm 11 and npm 12 envelopes", () => {
+  const files = [{ mode: 420, path: "package.json", size: 100 }];
+  const metadata = {
+    filename: "tamat-llc-repo-knowledge-mcp-0.0.0-bootstrap.0.tgz",
+    files,
+    integrity: "sha512-example",
+    name: EXPECTED_PACKAGE_NAME,
+    shasum: "abc123",
+    size: 100,
+    unpackedSize: 100,
+    version: BOOTSTRAP_VERSION,
+  };
+  const envelopes = [
+    JSON.stringify([{ ...metadata, entryCount: files.length }]),
+    JSON.stringify({ [EXPECTED_PACKAGE_NAME]: metadata }),
+  ];
+
+  for (const envelope of envelopes) {
+    assert.deepEqual(parsePackageArtifactPackResult(envelope), {
+      filename: metadata.filename,
+      files,
+      integrity: metadata.integrity,
+      name: metadata.name,
+      shasum: metadata.shasum,
+      version: metadata.version,
+    });
+    assert.equal(parseBootstrapPackResult(envelope).entryCount, files.length);
+  }
+
+  for (const envelope of [
+    "[]",
+    "{}",
+    JSON.stringify({ first: metadata, second: metadata }),
+  ]) {
+    assert.throws(
+      () => parsePackageArtifactPackResult(envelope),
+      /invalid result envelope/u,
+    );
+    assert.throws(
+      () => parseBootstrapPackResult(envelope),
+      /invalid result envelope/u,
+    );
+  }
+});
+
+test("install-script decisions cover every locked lifecycle dependency", async () => {
+  const [packageDocument, lockDocument] = await Promise.all([
+    readFile(new URL("../package.json", import.meta.url), "utf8").then(
+      JSON.parse,
+    ),
+    readFile(new URL("../package-lock.json", import.meta.url), "utf8").then(
+      JSON.parse,
+    ),
+  ]);
+  assert.deepEqual(
+    validateInstallScriptApprovals(packageDocument, lockDocument),
+    {
+      approved: ["better-sqlite3@13.0.3"],
+      denied: ["fsevents"],
+    },
+  );
+
+  const fixtureLock = {
+    packages: {
+      "node_modules/native-addon": {
+        hasInstallScript: true,
+        version: "1.2.3",
+      },
+    },
+  };
+  assert.throws(
+    () => validateInstallScriptApprovals({ allowScripts: {} }, fixtureLock),
+    /missing decision for native-addon@1\.2\.3/u,
+  );
+  assert.throws(
+    () =>
+      validateInstallScriptApprovals(
+        { allowScripts: { "native-addon": true } },
+        fixtureLock,
+      ),
+    /stale or unpinned approval native-addon/u,
+  );
+});
+
 test("bootstrap builder emits one reviewed tarball and inventory", async () => {
   const root = await mkdtemp(join(tmpdir(), "rkm-bootstrap-package-"));
   const output = join(root, "npm-bootstrap");
@@ -238,6 +325,42 @@ test("release workflow publishes stable packages with OIDC only", async () => {
   assert.match(workflow, /--provenance/u);
   assert.doesNotMatch(workflow, /secrets\.(?:NPM|NODE_AUTH_TOKEN)/u);
   assert.doesNotMatch(workflow, /bootstrap-auth-gate/u);
+});
+
+test("CI and release workflows use one npm 12 version and gate install scripts", async () => {
+  const workflows = await Promise.all(
+    ["ci.yml", "registry-smoke.yml", "release.yml"].map(async (name) => ({
+      name,
+      source: await readFile(
+        new URL(`../.github/workflows/${name}`, import.meta.url),
+        "utf8",
+      ),
+    })),
+  );
+  const versions = workflows.map(({ source }) => {
+    const match =
+      /(?:CI|REGISTRY_SMOKE|RELEASE)_NPM_VERSION:\s*(\d+\.\d+\.\d+)/u.exec(
+        source,
+      );
+    assert.ok(match);
+    return match[1];
+  });
+  assert.equal(new Set(versions).size, 1);
+  assert.ok(compareVersions(versions[0], "12.0.0") >= 0);
+
+  for (const { name, source } of workflows.filter(
+    ({ name }) => name !== "registry-smoke.yml",
+  )) {
+    let cursor = 0;
+    for (const rebuild of source.matchAll(/npm rebuild/gu)) {
+      assert.match(
+        source.slice(cursor, rebuild.index),
+        /npm run install-scripts:check/u,
+        `${name} must verify install-script decisions before each rebuild`,
+      );
+      cursor = rebuild.index + rebuild[0].length;
+    }
+  }
 });
 
 test("dry-run and packed manifests must describe the same artifact", () => {

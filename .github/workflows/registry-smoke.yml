@@ -15,6 +15,9 @@ concurrency:
   group: registry-smoke-${{ github.ref }}-${{ inputs.version }}
   cancel-in-progress: false
 
+env:
+  REGISTRY_SMOKE_NPM_VERSION: 12.0.2
+
 jobs:
   registry-smoke:
     name: registry smoke (Node ${{ matrix.node-version }})
@@ -30,7 +33,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
           registry-url: https://registry.npmjs.org
       - name: Install release npm version
-        run: npm install --global npm@11.19.0
+        run: npm install --global "npm@${REGISTRY_SMOKE_NPM_VERSION}"
       - name: Smoke exact version from npm registry
         env:
           REGISTRY_SMOKE_VERSION: ${{ inputs.version }}

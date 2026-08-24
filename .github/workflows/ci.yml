@@ -13,6 +13,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CI_NPM_VERSION: 12.0.2
+
 jobs:
   checks:
     name: checks (Node ${{ matrix.node-version }})
@@ -27,8 +30,12 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+      - name: Install reviewed npm version
+        run: npm install --global "npm@${CI_NPM_VERSION}"
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
+      - name: Verify dependency install-script decisions
+        run: npm run install-scripts:check
       - name: Audit dependency graph and registry signatures
         run: |
           npm audit --audit-level=high

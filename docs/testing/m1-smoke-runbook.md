@@ -16,6 +16,7 @@
 
 ```console
 npm ci --ignore-scripts
+npm run install-scripts:check
 npm audit --audit-level=high
 npm audit signatures
 npm rebuild
