@@ -4,6 +4,7 @@ import {
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,6 +29,12 @@ import {
   type KnowledgeEvidence,
   type LlmSubscriptionInspectorLike,
 } from "../src/index.js";
+import { inspectCanonicalState } from "../src/doctor/checks-canonical.js";
+import {
+  PROJECTION_MISMATCH_CHECKS,
+  createProjectionConsistencyContext,
+} from "../src/doctor/checks-projection.js";
+import { DoctorReportBuilder } from "../src/doctor/report-builder.js";
 
 const REPOSITORY = "owner/repository";
 const REPOSITORY_ID = "R_repository";
@@ -61,7 +68,208 @@ describe("RepoKnowledgeDoctor", () => {
     expect(check(result, "github.graphql").status).toBe("pass");
     expect(check(result, "canonical.files").status).toBe("pass");
     expect(check(result, "sqlite.projection").status).toBe("pass");
+    expect(sqliteDiagnosticContract(result)).toEqual([
+      {
+        id: "sqlite.journal",
+        message:
+          "SQLite is private, WAL-backed, fully checkpointed, and passes quick_check.",
+        status: "pass",
+      },
+      {
+        id: "sqlite.projection",
+        message:
+          "Projection checkpoint, canonical digest, records, and derived counts are current.",
+        status: "pass",
+      },
+    ]);
     expect(await canonicalBytes(fixture.storageRoot)).toEqual(before);
+  });
+
+  it("preserves diagnostics when the projection file is missing", async () => {
+    const fixture = await createFixture();
+    await rm(join(fixture.repositoryRoot, "index.sqlite"), { force: true });
+
+    const result = await fixture.doctor().run({ repo: REPOSITORY });
+
+    expect(sqliteDiagnosticContract(result)).toEqual([
+      {
+        id: "sqlite.journal",
+        message: "SQLite projection does not exist.",
+        status: "fail",
+      },
+      {
+        id: "sqlite.projection",
+        message:
+          "Projection metadata could not be checked without index.sqlite.",
+        status: "warn",
+      },
+    ]);
+  });
+
+  it("fails closed when the projection file cannot be read", async () => {
+    const fixture = await createFixture();
+    const projectionPath = join(fixture.repositoryRoot, "index.sqlite");
+    await rm(projectionPath, { force: true });
+    await mkdir(projectionPath, { mode: 0o600 });
+
+    const result = await fixture.doctor().run({ repo: REPOSITORY });
+
+    expect(sqliteDiagnosticContract(result)).toEqual([
+      {
+        id: "sqlite.journal",
+        message: "index.sqlite must be a mode-600 regular file.",
+        status: "fail",
+      },
+      {
+        id: "sqlite.journal",
+        message: "SQLite projection could not be read without mutation.",
+        status: "fail",
+      },
+      {
+        id: "sqlite.projection",
+        message: "Projection metadata could not be read.",
+        status: "warn",
+      },
+    ]);
+  });
+
+  it("does not follow a projection symlink", async () => {
+    const fixture = await createFixture();
+    const target = await createFixture();
+    const projectionPath = join(fixture.repositoryRoot, "index.sqlite");
+    await rm(projectionPath, { force: true });
+    await symlink(join(target.repositoryRoot, "index.sqlite"), projectionPath);
+
+    const result = await fixture.doctor().run({ repo: REPOSITORY });
+
+    expect(sqliteDiagnosticContract(result)).toEqual([
+      {
+        id: "sqlite.journal",
+        message: "index.sqlite must be a mode-600 regular file.",
+        status: "fail",
+      },
+      {
+        id: "sqlite.journal",
+        message: "SQLite projection could not be read without mutation.",
+        status: "fail",
+      },
+      {
+        id: "sqlite.projection",
+        message: "Projection metadata could not be read.",
+        status: "warn",
+      },
+    ]);
+    expect(
+      result.checks.find(
+        (item) =>
+          item.message ===
+          "SQLite projection could not be read without mutation.",
+      )?.details,
+    ).toEqual({ error: "ELOOP" });
+  });
+
+  it("fails closed when the projection file is corrupt", async () => {
+    const fixture = await createFixture();
+    const projectionPath = join(fixture.repositoryRoot, "index.sqlite");
+    await rm(projectionPath, { force: true });
+    await writeFile(projectionPath, "not a sqlite database", { mode: 0o600 });
+
+    const result = await fixture.doctor().run({ repo: REPOSITORY });
+
+    expect(sqliteDiagnosticContract(result)).toEqual([
+      {
+        id: "sqlite.projection",
+        message: "SQLite projection schema or metadata could not be inspected.",
+        status: "fail",
+      },
+    ]);
+  });
+
+  it("runs projection consistency checks through isolated seams", async () => {
+    const fixture = await createFixture();
+    const report = new DoctorReportBuilder();
+    const canonical = await inspectCanonicalState(
+      report,
+      fixture.repositoryRoot,
+      REPOSITORY_ID,
+      REPOSITORY,
+    );
+    expect(canonical).not.toBeNull();
+    if (canonical === null)
+      throw new Error("fixture canonical state is invalid");
+
+    const database = new Database(join(fixture.repositoryRoot, "index.sqlite"));
+    try {
+      const context = createProjectionConsistencyContext(
+        database,
+        canonical,
+        REPOSITORY_ID,
+      );
+      expect(Object.isFrozen(context)).toBe(true);
+      expect(Object.isFrozen(context.meta)).toBe(true);
+      expect(PROJECTION_MISMATCH_CHECKS.map((item) => item.id)).toEqual([
+        "schema_meta",
+        "repository_identity",
+        "derived_counts",
+        "knowledge_consistency",
+      ]);
+      expect(
+        PROJECTION_MISMATCH_CHECKS.map((item) => ({
+          id: item.id,
+          mismatches: item.inspect(context),
+        })),
+      ).toEqual(
+        PROJECTION_MISMATCH_CHECKS.map((item) => ({
+          id: item.id,
+          mismatches: [],
+        })),
+      );
+
+      expect(
+        PROJECTION_MISMATCH_CHECKS[0].inspect({
+          ...context,
+          meta: Object.freeze({ ...context.meta, index_dirty: "true" }),
+        }),
+      ).toEqual([{ actual: "true", expected: "false", field: "index_dirty" }]);
+      expect(
+        PROJECTION_MISMATCH_CHECKS[1].inspect({
+          ...context,
+          meta: Object.freeze({
+            ...context.meta,
+            canonical_digest: "sha256:stale",
+          }),
+        }),
+      ).toContainEqual({
+        actual: "sha256:stale",
+        expected: canonical.capture.canonicalDigest,
+        field: "canonical_digest",
+      });
+
+      database.exec("BEGIN");
+      database
+        .prepare("DELETE FROM knowledge WHERE repo_id = ?")
+        .run(REPOSITORY_ID);
+      expect(PROJECTION_MISMATCH_CHECKS[2].inspect(context)).toContainEqual({
+        actual: 0,
+        expected: 1,
+        table: "knowledge",
+      });
+      database.exec("ROLLBACK");
+
+      database.exec("BEGIN");
+      database
+        .prepare(
+          "UPDATE knowledge SET evidence_count = evidence_count + 1 WHERE repo_id = ?",
+        )
+        .run(REPOSITORY_ID);
+      expect(PROJECTION_MISMATCH_CHECKS[3].inspect(context)).toEqual([
+        expect.objectContaining({ table: "knowledge counts" }),
+      ]);
+      database.exec("ROLLBACK");
+    } finally {
+      if (database.inTransaction) database.exec("ROLLBACK");
+      database.close();
+    }
   });
 
   it.each([
@@ -385,7 +593,7 @@ describe("RepoKnowledgeDoctor", () => {
     }
   });
 
-  it("reports missing and stale projection checkpoints", async () => {
+  it("reports a missing projection checkpoint", async () => {
     const missing = await createFixture();
     setProjectionCheckpoint(missing.repositoryRoot, null);
 
@@ -402,7 +610,9 @@ describe("RepoKnowledgeDoctor", () => {
         ]),
       },
     });
+  });
 
+  it("reports a stale projection checkpoint", async () => {
     const stale = await createFixture();
     const document = await stale.store.readKnowledge(
       relative(stale.repositoryRoot, stale.knowledgePath),
@@ -606,6 +816,16 @@ function check(report: DoctorReport, id: string): DoctorCheck {
     throw new Error(`expected one ${id} check, received ${matches.length}`);
   }
   return matches[0]!;
+}
+
+function sqliteDiagnosticContract(
+  report: DoctorReport,
+): Array<Pick<DoctorCheck, "id" | "message" | "status">> {
+  return report.checks
+    .filter(
+      (item) => item.id === "sqlite.journal" || item.id === "sqlite.projection",
+    )
+    .map(({ id, message, status }) => ({ id, message, status }));
 }
 
 function orphanEvidence(knowledgeId: string): KnowledgeEvidence {
