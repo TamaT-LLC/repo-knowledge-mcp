@@ -48,106 +48,102 @@ afterEach(async () => {
 });
 
 describe("sync CLI and MCP E2E over a real CLI process and stdio client", () => {
-  it(
-    "syncs the same window from CLI and MCP with one canonical state and schema",
-    { timeout: E2E_TIMEOUT_MS },
-    async () => {
-      const environment = await createSyncEnvironment();
+  it("syncs the same window from CLI and MCP with one canonical state and schema", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const environment = await createSyncEnvironment();
 
-      // 1. Real CLI process performs the initial sync through the fake gh.
-      const first = await runCliSync(environment);
-      expect(first.exitCode).toBe(0);
-      expect(first.stderr).toBe("");
-      const firstSummary = SyncRepoResultSchema.parse(JSON.parse(first.stdout));
-      expect(firstSummary).toMatchObject({
-        discovered: 2,
-        failed: 0,
-        failures: [],
-        ingested: 2,
-        jobs_created: 2,
-        unchanged: 0,
-      });
-      expect(firstSummary.next_cursor).toMatchObject({
-        last_pr_number: 2,
-        last_updated_at: isoAt(2),
-        repo_id: REPO_ID,
-      });
+    // 1. Real CLI process performs the initial sync through the fake gh.
+    const first = await runCliSync(environment);
+    expect(first.exitCode).toBe(0);
+    expect(first.stderr).toBe("");
+    const firstSummary = SyncRepoResultSchema.parse(JSON.parse(first.stdout));
+    expect(firstSummary).toMatchObject({
+      discovered: 2,
+      failed: 0,
+      failures: [],
+      ingested: 2,
+      jobs_created: 2,
+      unchanged: 0,
+    });
+    expect(firstSummary.next_cursor).toMatchObject({
+      last_pr_number: 2,
+      last_updated_at: isoAt(2),
+      repo_id: REPO_ID,
+    });
 
-      const digestAfterCli = await readCanonicalDigest(environment);
-      const checkpointAfterCli = await readCheckpoint(environment);
-      expect(checkpointAfterCli).toMatchObject({
-        cursor: { last_pr_number: 2, repo_id: REPO_ID },
-      });
+    const digestAfterCli = await readCanonicalDigest(environment);
+    const checkpointAfterCli = await readCheckpoint(environment);
+    expect(checkpointAfterCli).toMatchObject({
+      cursor: { last_pr_number: 2, repo_id: REPO_ID },
+    });
 
-      // 2. A cron-style re-run resumes from the checkpoint and finds nothing.
-      const resumed = await runCliSync(environment);
-      expect(resumed.exitCode).toBe(0);
-      expect(SyncRepoResultSchema.parse(JSON.parse(resumed.stdout))).toEqual({
-        discovered: 0,
-        failed: 0,
-        failures: [],
-        ingested: 0,
-        jobs_created: 0,
-        next_cursor: firstSummary.next_cursor,
-        unchanged: 0,
-      });
+    // 2. A cron-style re-run resumes from the checkpoint and finds nothing.
+    const resumed = await runCliSync(environment);
+    expect(resumed.exitCode).toBe(0);
+    expect(SyncRepoResultSchema.parse(JSON.parse(resumed.stdout))).toEqual({
+      discovered: 0,
+      failed: 0,
+      failures: [],
+      ingested: 0,
+      jobs_created: 0,
+      next_cursor: firstSummary.next_cursor,
+      unchanged: 0,
+    });
 
-      // 3. The MCP stdio server replays the same window through sync_repo.
-      const replies = await runMcpSyncRepo(environment, {
-        repo: REPOSITORY,
-        since: isoAt(0),
-      });
-      const syncReply = replies.find((reply) => reply.id === 2);
-      expect(syncReply).toBeDefined();
-      expect(syncReply).not.toHaveProperty("error");
-      const result = syncReply!.result as {
-        readonly isError?: boolean;
-        readonly structuredContent?: unknown;
-      };
-      expect(result.isError).not.toBe(true);
-      const structured = SyncRepoOutputSchema.parse(result.structuredContent);
-      expect(structured.ok).toBe(true);
-      // Identical summary schema and identical resume point across surfaces.
-      expect(structured.result).toEqual({
-        discovered: 2,
-        failed: 0,
-        failures: [],
-        ingested: 0,
-        jobs_created: 0,
-        next_cursor: firstSummary.next_cursor,
-        unchanged: 2,
-      });
+    // 3. The MCP stdio server replays the same window through sync_repo.
+    const replies = await runMcpSyncRepo(environment, {
+      repo: REPOSITORY,
+      since: isoAt(0),
+    });
+    const syncReply = replies.find((reply) => reply.id === 2);
+    expect(syncReply).toBeDefined();
+    expect(syncReply).not.toHaveProperty("error");
+    const result = syncReply!.result as {
+      readonly isError?: boolean;
+      readonly structuredContent?: unknown;
+    };
+    expect(result.isError).not.toBe(true);
+    const structured = SyncRepoOutputSchema.parse(result.structuredContent);
+    expect(structured.ok).toBe(true);
+    // Identical summary schema and identical resume point across surfaces.
+    expect(structured.result).toEqual({
+      discovered: 2,
+      failed: 0,
+      failures: [],
+      ingested: 0,
+      jobs_created: 0,
+      next_cursor: firstSummary.next_cursor,
+      unchanged: 2,
+    });
 
-      // 4. Duplicate syncing the same window left canonical state untouched.
-      await expect(readCanonicalDigest(environment)).resolves.toBe(
-        digestAfterCli,
-      );
-      await expect(readCheckpoint(environment)).resolves.toEqual(
-        checkpointAfterCli,
-      );
-    },
-  );
+    // 4. Duplicate syncing the same window left canonical state untouched.
+    await expect(readCanonicalDigest(environment)).resolves.toBe(
+      digestAfterCli,
+    );
+    await expect(readCheckpoint(environment)).resolves.toEqual(
+      checkpointAfterCli,
+    );
+  });
 
-  it(
-    "fails closed with an operator diagnostic when --since reaches the checkpoint",
-    { timeout: E2E_TIMEOUT_MS },
-    async () => {
-      const environment = await createSyncEnvironment();
-      const first = await runCliSync(environment);
-      expect(first.exitCode).toBe(0);
-      const digestAfterFirst = await readCanonicalDigest(environment);
+  it("fails closed with an operator diagnostic when --since reaches the checkpoint", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const environment = await createSyncEnvironment();
+    const first = await runCliSync(environment);
+    expect(first.exitCode).toBe(0);
+    const digestAfterFirst = await readCanonicalDigest(environment);
 
-      const rejected = await runCliSync(environment, ["--since", isoAt(2)]);
+    const rejected = await runCliSync(environment, ["--since", isoAt(2)]);
 
-      expect(rejected.exitCode).toBe(1);
-      expect(rejected.stdout).toBe("");
-      expect(rejected.stderr).toContain("SYNC_SINCE_BEYOND_CHECKPOINT");
-      expect(rejected.stderr).toContain("Run without --since");
-      await expect(readCanonicalDigest(environment)).resolves.toBe(
-        digestAfterFirst,
-      );
-    },
-  );
+    expect(rejected.exitCode).toBe(1);
+    expect(rejected.stdout).toBe("");
+    expect(rejected.stderr).toContain("SYNC_SINCE_BEYOND_CHECKPOINT");
+    expect(rejected.stderr).toContain("Run without --since");
+    await expect(readCanonicalDigest(environment)).resolves.toBe(
+      digestAfterFirst,
+    );
+  });
 });
 
 async function createSyncEnvironment(): Promise<SyncEnvironment> {

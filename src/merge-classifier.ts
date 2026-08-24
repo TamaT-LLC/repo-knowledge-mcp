@@ -126,7 +126,9 @@ export interface ProviderMergeRelationClassifierOptions {
 }
 
 /** Provider-backed tri-state classifier; the provider wait holds no repo lock. */
-export class ProviderMergeRelationClassifier implements MergeRelationClassifier {
+export class ProviderMergeRelationClassifier
+  implements MergeRelationClassifier
+{
   private readonly adapter: LlmProviderAdapter;
   private readonly config: RepoKnowledgeConfig;
   private readonly repositoryName: string;

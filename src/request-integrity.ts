@@ -56,7 +56,8 @@ export interface FinalizeRequestHashPayload {
 }
 
 export type RequestHashPayload =
-  ExtractRequestHashPayload | FinalizeRequestHashPayload;
+  | ExtractRequestHashPayload
+  | FinalizeRequestHashPayload;
 
 /**
  * Builds the complete JCS input for a phase request. submission_id and the
@@ -215,7 +216,8 @@ export interface ReplaySubmissionRegistration {
 }
 
 export type SubmissionRegistration =
-  AcceptedSubmissionRegistration | ReplaySubmissionRegistration;
+  | AcceptedSubmissionRegistration
+  | ReplaySubmissionRegistration;
 
 interface StoredSubmission {
   readonly originalSubmissionId: string;

@@ -79,7 +79,8 @@ export interface DistillJobLease extends DistillJobLeaseCredentials {
   readonly job: DistillJob;
 }
 
-export interface RenewDistillJobLeaseRequest extends DistillJobLeaseCredentials {
+export interface RenewDistillJobLeaseRequest
+  extends DistillJobLeaseCredentials {
   readonly lease_duration_ms?: number;
 }
 

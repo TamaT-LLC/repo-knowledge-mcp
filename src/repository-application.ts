@@ -51,7 +51,8 @@ import {
 import { XaiProviderAdapter } from "./xai-provider.js";
 
 export interface RepositoryApplicationOperations
-  extends RepositoryMutationPipelineOperations, CliRepositoryOperations {}
+  extends RepositoryMutationPipelineOperations,
+    CliRepositoryOperations {}
 
 export interface RepositoryApplicationFactoryOptions {
   readonly adapter?: LlmProviderAdapter;

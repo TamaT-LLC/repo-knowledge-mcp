@@ -136,7 +136,8 @@ export interface ProviderDistillationServiceOptions {
 }
 
 export type ProviderDistillationServiceErrorCode =
-  "DISTILLATION_CONTEXT_MISMATCH" | "PROVIDER_MISMATCH";
+  | "DISTILLATION_CONTEXT_MISMATCH"
+  | "PROVIDER_MISMATCH";
 
 export class ProviderDistillationServiceError extends Error {
   constructor(
@@ -447,12 +448,8 @@ export function parseDistillationOutput(
       invalidEvidence,
     );
   }
-  const invalidExampleEvidence = parsed.data.candidates.filter(
-    (candidate) =>
-      candidate.code_example !== undefined &&
-      candidate.code_example.evidence_comment_ids.some(
-        (id) => !allowed.has(id),
-      ),
+  const invalidExampleEvidence = parsed.data.candidates.filter((candidate) =>
+    candidate.code_example?.evidence_comment_ids.some((id) => !allowed.has(id)),
   ).length;
   if (invalidExampleEvidence > 0) {
     throw new DistillationOutputValidationError(

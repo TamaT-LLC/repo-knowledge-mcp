@@ -37,15 +37,20 @@ export const RAW_THREAD_RECORD_TYPE = "ThreadObservation";
 export const RAW_COMMENT_RECORD_TYPE = "CommentObservation";
 
 export type CommentExclusionReason =
-  "ci-bot-boilerplate" | "empty-body" | "emoji-only";
+  | "ci-bot-boilerplate"
+  | "empty-body"
+  | "emoji-only";
 
 export type RawOnlyReason =
-  "external-contributor" | "unknown-actor" | "unknown-bot";
+  | "external-contributor"
+  | "unknown-actor"
+  | "unknown-bot";
 
 export type ThreadDistillationDisposition = "distill" | "filtered" | "raw-only";
 
 export type GitHubSnapshotNormalizationErrorCode =
-  "DUPLICATE_OBSERVATION_ID" | "SNAPSHOT_INCONSISTENT";
+  | "DUPLICATE_OBSERVATION_ID"
+  | "SNAPSHOT_INCONSISTENT";
 
 export class GitHubSnapshotNormalizationError extends Error {
   constructor(
@@ -678,7 +683,7 @@ const CI_BOT_LOGIN =
   /^(?:circleci|codecov|coveralls|github-actions|netlify|sonarcloud|vercel)(?:\[bot\])?$/iu;
 const CI_BOILERPLATE =
   /(?:build|check|ci|coverage|deploy(?:ment)?|preview|workflow)[\s\S]{0,200}(?:complete|failed|passed|ready|status|succeed)/iu;
-const KEYCAP_SEQUENCE = new RegExp("(?:#|\\*|[0-9])(?:\\uFE0F)?\\u20E3", "gu");
+const KEYCAP_SEQUENCE = /(?:#|\*|[0-9])(?:\uFE0F)?\u20E3/gu;
 const EMOJI_SEQUENCE_CODE_POINTS =
   /(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|\u200D|\uFE0E|\uFE0F|\s)/gu;
 

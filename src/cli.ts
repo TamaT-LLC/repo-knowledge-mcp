@@ -431,7 +431,7 @@ export function parseRepoKnowledgeCliArguments(
 async function executeCliCommand(
   command: ParsedCliCommand,
   options: RunRepoKnowledgeCliOptions,
-): Promise<number | void> {
+): Promise<number | undefined> {
   switch (command.kind) {
     case "help":
       options.io.writeStdout(REPO_KNOWLEDGE_CLI_HELP);
@@ -583,7 +583,11 @@ async function executeAdminCommand(
     ParsedCliCommand,
     {
       readonly kind:
-        "add-active" | "approve" | "approve-revision" | "edit" | "reject";
+        | "add-active"
+        | "approve"
+        | "approve-revision"
+        | "edit"
+        | "reject";
     }
   >,
   options: RunRepoKnowledgeCliOptions,

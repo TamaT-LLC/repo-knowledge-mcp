@@ -37,7 +37,9 @@ export type QualityGateRunFailureCode =
   | "THRESHOLDS_INVALID";
 
 export type QualityGateRunStatus =
-  "integrity_failure" | "metric_failure" | "pass";
+  | "integrity_failure"
+  | "metric_failure"
+  | "pass";
 
 export interface QualityGateRunFailure {
   readonly code: QualityGateRunFailureCode;

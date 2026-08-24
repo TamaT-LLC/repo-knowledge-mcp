@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { type GhRunnerLike } from "./gh-runner.js";
+import type { GhCommandResult, GhRunnerLike } from "./gh-runner.js";
 
 export const MAX_GRAPHQL_PAGE_SIZE = 100;
 export const MAX_GRAPHQL_CONNECTION_PAGES = 10_000;
@@ -61,7 +61,7 @@ export async function executeGhGraphql<T>(
   request: ExecuteGhGraphqlRequest<T>,
 ): Promise<T> {
   const { operation } = request;
-  let result;
+  let result: GhCommandResult;
   try {
     result = await request.ghRunner.run(
       graphqlArgs(

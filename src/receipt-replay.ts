@@ -25,18 +25,21 @@ export interface MergeDecisionRequiredStableResponse {
 }
 
 export type ExtractStableResponse =
-  MergeDecisionRequiredStableResponse | SkippedStableResponse;
+  | MergeDecisionRequiredStableResponse
+  | SkippedStableResponse;
 
 export type { PossibleMatchBinding } from "./possible-match.js";
 
-export interface MergeDecisionRequiredRuntimeResponse extends MergeDecisionRequiredStableResponse {
+export interface MergeDecisionRequiredRuntimeResponse
+  extends MergeDecisionRequiredStableResponse {
   readonly finalize_token: string;
   readonly match_set_digest: string;
   readonly possible_matches: readonly PossibleMatchSet<PossibleKnowledgeMatch>[];
 }
 
 export type ExtractRuntimeResponse =
-  MergeDecisionRequiredRuntimeResponse | SkippedStableResponse;
+  | MergeDecisionRequiredRuntimeResponse
+  | SkippedStableResponse;
 
 interface ReceiptBase {
   readonly jobId: string;
@@ -133,10 +136,13 @@ export interface FinalizeReplayResult {
 }
 
 export type ReceiptReplayResult =
-  ExtractReplayResult | FinalizeReplayResult | ReceiptMissResult;
+  | ExtractReplayResult
+  | FinalizeReplayResult
+  | ReceiptMissResult;
 
 export type ReceiptReplayErrorCode =
-  "JOB_ALREADY_FINALIZED" | "RESUME_REQUIRED";
+  | "JOB_ALREADY_FINALIZED"
+  | "RESUME_REQUIRED";
 
 export class ReceiptReplayError extends Error {
   constructor(

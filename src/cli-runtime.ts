@@ -77,7 +77,8 @@ export interface CreateDefaultCliRuntimeOptions {
   readonly transport?: Transport;
 }
 
-export interface RunDefaultRepoKnowledgeCliOptions extends CreateDefaultCliRuntimeOptions {
+export interface RunDefaultRepoKnowledgeCliOptions
+  extends CreateDefaultCliRuntimeOptions {
   readonly argv?: readonly string[];
   readonly io?: RepoKnowledgeCliIo;
 }
@@ -331,7 +332,8 @@ function createTerminalQuestionQueue(): TerminalQuestionQueue {
   };
 }
 
-interface CreateGuidedSetupServiceOptions extends CreateDefaultCliRuntimeOptions {
+interface CreateGuidedSetupServiceOptions
+  extends CreateDefaultCliRuntimeOptions {
   readonly ghRunner: GhRunnerLike;
   readonly storageRoot: string;
 }

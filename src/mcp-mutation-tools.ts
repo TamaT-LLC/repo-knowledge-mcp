@@ -693,7 +693,8 @@ export interface KnowledgeMutationOperations {
   ): Promise<ModelPlaneUpdateKnowledgeResult>;
 }
 
-export interface KnowledgeMutationServiceResolutionInput extends RepositoryResolutionInput {
+export interface KnowledgeMutationServiceResolutionInput
+  extends RepositoryResolutionInput {
   readonly startupRepo?: string;
   readonly startupWorkspace?: string;
 }
@@ -730,7 +731,9 @@ export type CanonicalKnowledgeMutationServiceResolverOptions = Omit<
 };
 
 /** Resolves and caches repo-bound mutation services, preserving finalize handles. */
-export class CanonicalKnowledgeMutationServiceResolver implements KnowledgeMutationServiceResolver {
+export class CanonicalKnowledgeMutationServiceResolver
+  implements KnowledgeMutationServiceResolver
+{
   private readonly operations = new Map<
     string,
     Promise<KnowledgeMutationOperations>

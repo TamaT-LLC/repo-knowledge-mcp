@@ -255,7 +255,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-const SERVER_SOURCE = String.raw`
+const SERVER_SOURCE = `
 import { serveRepoKnowledgeStdio } from "./dist/index.js";
 
 const repo = "owner/repository";

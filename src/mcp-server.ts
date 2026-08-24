@@ -348,7 +348,8 @@ export interface KnowledgeReadOperations {
   ): Promise<SearchKnowledgeResult>;
 }
 
-export interface KnowledgeReadServiceResolutionInput extends RepositoryResolutionInput {
+export interface KnowledgeReadServiceResolutionInput
+  extends RepositoryResolutionInput {
   readonly startupRepo?: string;
   readonly startupWorkspace?: string;
 }
@@ -365,7 +366,9 @@ export type CanonicalKnowledgeReadServiceResolverOptions = Omit<
 >;
 
 /** Connects MCP repository selection to the canonical active-only read service. */
-export class CanonicalKnowledgeReadServiceResolver implements KnowledgeReadServiceResolver {
+export class CanonicalKnowledgeReadServiceResolver
+  implements KnowledgeReadServiceResolver
+{
   private readonly options: CanonicalKnowledgeReadServiceResolverOptions;
 
   constructor(options: CanonicalKnowledgeReadServiceResolverOptions) {

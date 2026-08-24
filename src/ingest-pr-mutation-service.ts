@@ -31,7 +31,8 @@ export interface IngestPrMutationServiceOptions {
 }
 
 export type IngestPrMutationErrorCode =
-  "PROVIDER_PIPELINE_MISSING" | "PROVIDER_SUMMARY_INVALID";
+  | "PROVIDER_PIPELINE_MISSING"
+  | "PROVIDER_SUMMARY_INVALID";
 
 export class IngestPrMutationError extends Error {
   constructor(

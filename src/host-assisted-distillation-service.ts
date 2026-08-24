@@ -123,7 +123,8 @@ export interface HostAssistedFinalizeJob extends PreparedJobBase {
 }
 
 export type HostAssistedPreparedJob =
-  HostAssistedExtractJob | HostAssistedFinalizeJob;
+  | HostAssistedExtractJob
+  | HostAssistedFinalizeJob;
 
 export type HostAssistedBlockedJobReason =
   | "distillation_context_changed"

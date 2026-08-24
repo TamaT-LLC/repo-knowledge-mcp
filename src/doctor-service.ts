@@ -1,3 +1,4 @@
+import type { Dirent, Stats } from "node:fs";
 import { lstat, readFile, readdir, statfs } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -212,7 +213,7 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
   }
 
   private async inspectStorage(report: DoctorReportBuilder): Promise<boolean> {
-    let metadata;
+    let metadata: Stats;
     try {
       metadata = await lstat(this.storageRoot);
     } catch (error) {
@@ -1060,7 +1061,7 @@ async function inspectTransactions(
   repository: string,
 ): Promise<void> {
   const path = join(repositoryRoot, "transactions");
-  let entries;
+  let entries: Dirent[];
   try {
     entries = await readdir(path, { withFileTypes: true });
   } catch (error) {
@@ -1235,7 +1236,7 @@ async function inspectCanonicalFilePermissions(
   ]);
   const invalid: Array<{ mode: string; path: string }> = [];
   for (const path of [...paths].sort(compareCodeUnits)) {
-    let metadata;
+    let metadata: Stats;
     try {
       metadata = await lstat(join(repositoryRoot, path));
     } catch (error) {
@@ -1465,7 +1466,7 @@ async function inspectSqliteProjection(
   repository: string,
 ): Promise<void> {
   const path = join(repositoryRoot, "index.sqlite");
-  let metadata;
+  let metadata: Stats;
   try {
     metadata = await lstat(path);
   } catch {
