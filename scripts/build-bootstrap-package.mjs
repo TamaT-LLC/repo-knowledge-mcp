@@ -124,15 +124,10 @@ function bootstrapReadme() {
 }
 
 function parseArguments(argv) {
-  if (
-    argv.length !== 2 ||
-    argv[0] !== "--output" ||
-    argv[1].length === 0 ||
-    argv[1].startsWith("--")
-  ) {
-    throw new Error("usage: build-bootstrap-package.mjs --output <directory>");
+  if (argv.length !== 0) {
+    throw new Error("build-bootstrap-package.mjs does not accept arguments");
   }
-  return { output: argv[1] };
+  return { output: join(repositoryRoot, "npm-bootstrap") };
 }
 
 function runNpm(args) {

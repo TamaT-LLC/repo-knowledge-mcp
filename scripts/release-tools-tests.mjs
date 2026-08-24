@@ -115,7 +115,7 @@ test("bootstrap manifest is an inert scoped name reservation", () => {
 
 test("bootstrap builder emits one reviewed tarball and inventory", async () => {
   const root = await mkdtemp(join(tmpdir(), "rkm-bootstrap-package-"));
-  const output = join(root, "output");
+  const output = join(root, "npm-bootstrap");
   try {
     const inventory = await buildBootstrapPackage({ output });
     assert.equal(inventory.schema_version, BOOTSTRAP_INVENTORY_SCHEMA);
