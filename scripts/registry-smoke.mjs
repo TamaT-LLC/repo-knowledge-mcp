@@ -56,10 +56,12 @@ async function runRegistrySmoke(input) {
       );
     }
     const packageSpec = `${request.name}@${request.version}`;
+    // npm exec treats the checked-out package as already installed when its
+    // name matches packageSpec, but the checkout does not expose its own bins.
     const npx = await run(
       "npx",
       ["--yes", `--package=${packageSpec}`, "--", "repo-knowledge", "--help"],
-      { cwd: repositoryRoot, env: environment },
+      { cwd: temporaryRoot, env: environment },
     );
     if (
       npx.stderr !== "" ||
