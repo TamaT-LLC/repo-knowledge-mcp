@@ -27,7 +27,7 @@ import {
   serializeKnowledgeDocument,
   type CanonicalJsonlRecord,
   type DistillJobCoordinatorOptions,
-  type DomainExtractCandidate,
+  type ExtractCandidate,
   type HostAssistedFinalizeJob,
   type HostAssistedMergeCandidateSearch,
   type RepoKnowledgeConfig,
@@ -853,7 +853,7 @@ async function appendChangedSource(
 async function appendExtractReceipt(
   root: string,
   jobId: string,
-  candidates: readonly DomainExtractCandidate[],
+  candidates: readonly ExtractCandidate[],
   timestamp: number,
 ): Promise<void> {
   const committedAt = new Date(timestamp).toISOString();
@@ -886,7 +886,7 @@ async function appendExtractReceipt(
   });
 }
 
-function extractCandidate(commentId: string): DomainExtractCandidate {
+function extractCandidate(commentId: string): ExtractCandidate {
   return {
     candidate: {
       category: "test",

@@ -19,7 +19,7 @@ import {
   type CanonicalJsonlRecord,
   type CommentObservation,
   type DistillationProvenance,
-  type DomainExtractCandidate,
+  type ExtractCandidate,
   type KnowledgeEvidence,
   type KnowledgeStatus,
   type MergeDecision,
@@ -990,8 +990,8 @@ function canonicalRecord<T>(
 function candidate(
   candidateId: string,
   rule: string,
-  overrides: Partial<DomainExtractCandidate["candidate"]> = {},
-): DomainExtractCandidate {
+  overrides: Partial<ExtractCandidate["candidate"]> = {},
+): ExtractCandidate {
   return {
     candidate: {
       category: "test",
@@ -1009,7 +1009,7 @@ function candidate(
 
 async function mergeSearch(
   store: CanonicalTransactionStore,
-  candidates: readonly DomainExtractCandidate[],
+  candidates: readonly ExtractCandidate[],
 ) {
   return new MergeCandidateSearchService({
     repoId: REPO_ID,

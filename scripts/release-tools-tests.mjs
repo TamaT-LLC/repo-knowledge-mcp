@@ -70,6 +70,10 @@ test("package artifact paths use an explicit release allowlist", () => {
   ]) {
     assert.throws(() => validatePackagePath(path));
   }
+
+  for (const path of ["dist/stdio-bin.d.ts", "dist/stdio-bin.js"]) {
+    assert.throws(() => validatePackagePath(path), /obsolete entry/u);
+  }
 });
 
 test("package artifact scanning recognizes credential material", () => {

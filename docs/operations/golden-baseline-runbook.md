@@ -220,13 +220,22 @@ quality gate の通過は
 
 corpus とその期待ラベル・recorded prediction は
 `scripts/generate-m2-baseline-corpus.mjs` から決定的に生成される。
+入力は同スクリプト内の固定 spec・定数と lockfile で固定した Biome formatter
+だけで、時計・乱数・環境変数・network には依存しない。出力先は次の
+2 ファイルに固定されている。
+
+- `test/fixtures/golden/m2-anonymized-corpus.json`
+- `test/fixtures/golden/m2-recorded-predictions.json`
 
 ```console
-$ node scripts/generate-m2-baseline-corpus.mjs
+$ npm run golden:corpus:generate
+$ npm run golden:corpus:check
 $ npm run golden:baseline:replay
 $ npm run format
+$ npm run golden:corpus:check
 $ npm run golden
 ```
 
 corpus を変更したら `corpus_id` を日付付きで進め、thresholds の `baseline` 節と
-`thresholds_version` も併せて更新する（手順 4）。
+`thresholds_version` も併せて更新する（手順 4）。`npm run check` も生成済みの
+2 ファイルが generator と byte-for-byte で一致することを検証する。

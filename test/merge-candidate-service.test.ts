@@ -18,7 +18,7 @@ import {
   serializeKnowledgeDocument,
   validateMergeDecisions,
   type CanonicalJsonlRecord,
-  type DomainExtractCandidate,
+  type ExtractCandidate,
   type KnowledgeCategory,
   type KnowledgeEvidence,
   type KnowledgeStatus,
@@ -559,8 +559,8 @@ function canonicalRecord<T>(
 function candidate(
   candidateId: string,
   rule: string,
-  overrides: Partial<DomainExtractCandidate["candidate"]> = {},
-): DomainExtractCandidate {
+  overrides: Partial<ExtractCandidate["candidate"]> = {},
+): ExtractCandidate {
   return {
     candidate: {
       category: "test",

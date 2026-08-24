@@ -1,7 +1,9 @@
-import type { SkippedStableResponse } from "./evidence-policy.js";
 import {
   ExtractCandidateSchema,
-  type ExtractCandidate as DomainExtractCandidate,
+  type ExtractCandidate,
+  type ExtractStableResponse,
+  type MergeDecisionRequiredStableResponse,
+  type SkippedStableResponse,
 } from "./domain-schemas.js";
 import {
   computeMatchSetDigest,
@@ -16,19 +18,6 @@ import {
   type ExtractRequest,
   type PhaseRequest,
 } from "./request-integrity.js";
-
-export type ExtractCandidate = DomainExtractCandidate;
-
-export interface MergeDecisionRequiredStableResponse {
-  readonly candidates: readonly ExtractCandidate[];
-  readonly state: "merge_decision_required";
-}
-
-export type ExtractStableResponse =
-  | MergeDecisionRequiredStableResponse
-  | SkippedStableResponse;
-
-export type { PossibleMatchBinding } from "./possible-match.js";
 
 export interface MergeDecisionRequiredRuntimeResponse
   extends MergeDecisionRequiredStableResponse {
