@@ -1,5 +1,5 @@
-import type { Stats } from "node:fs";
-import { lstat, readFile } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
+import { lstat, open, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 
 import Database from "better-sqlite3";
@@ -113,56 +113,22 @@ export async function inspectProjectionFile(
   context: ProjectionDiagnosticContext,
   results: ProjectionDiagnosticResultBuilder,
 ): Promise<ProjectionFileInspection | null> {
-  let metadata: Stats;
-  try {
-    metadata = await lstat(context.path);
-  } catch {
-    results.add({
-      id: "sqlite.journal",
-      message: "SQLite projection does not exist.",
-      path: context.path,
-      remedy: `Run repo-knowledge reindex ${context.repository}.`,
-      status: "fail",
-    });
-    results.add({
-      id: "sqlite.projection",
-      message: "Projection metadata could not be checked without index.sqlite.",
-      path: context.path,
-      status: "warn",
-    });
-    return null;
-  }
-  const permission = metadata.mode & 0o777;
-  if (!metadata.isFile() || metadata.isSymbolicLink() || permission !== 0o600) {
-    results.add({
-      details: { mode: octal(permission) },
-      id: "sqlite.journal",
-      message: "index.sqlite must be a mode-600 regular file.",
-      path: context.path,
-      remedy: `Run chmod 600 ${context.path}, then reindex if integrity checks fail.`,
-      status: "fail",
-    });
-  }
-
+  const handle = await openProjectionFileHandle(context, results);
+  if (handle === null) return null;
+  let permission = 0;
   let databaseBytes: Buffer;
   try {
-    databaseBytes = await readFile(context.path);
+    permission = inspectProjectionFileMode(
+      context,
+      await handle.stat(),
+      results,
+    );
+    databaseBytes = await handle.readFile();
   } catch (error) {
-    results.add({
-      details: { error: errorCode(error) },
-      id: "sqlite.journal",
-      message: "SQLite projection could not be read without mutation.",
-      path: context.path,
-      remedy: `Restore access to index.sqlite, then run repo-knowledge reindex ${context.repository}.`,
-      status: "fail",
-    });
-    results.add({
-      id: "sqlite.projection",
-      message: "Projection metadata could not be read.",
-      path: context.path,
-      status: "warn",
-    });
+    addUnreadableProjectionChecks(context, error, results);
     return null;
+  } finally {
+    await handle.close();
   }
   const sqliteHeader = databaseBytes
     .subarray(0, 16)
@@ -186,6 +152,85 @@ export async function inspectProjectionFile(
     sqliteHeader,
     walHeader,
     walInspectionError,
+  });
+}
+
+async function openProjectionFileHandle(
+  context: ProjectionDiagnosticContext,
+  results: ProjectionDiagnosticResultBuilder,
+): Promise<FileHandle | null> {
+  try {
+    return await open(context.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (error) {
+    let metadata: Stats;
+    try {
+      metadata = await lstat(context.path);
+    } catch {
+      addMissingProjectionChecks(context, results);
+      return null;
+    }
+    inspectProjectionFileMode(context, metadata, results);
+    addUnreadableProjectionChecks(context, error, results);
+    return null;
+  }
+}
+
+function inspectProjectionFileMode(
+  context: ProjectionDiagnosticContext,
+  metadata: Stats,
+  results: ProjectionDiagnosticResultBuilder,
+): number {
+  const permission = metadata.mode & 0o777;
+  if (!metadata.isFile() || metadata.isSymbolicLink() || permission !== 0o600) {
+    results.add({
+      details: { mode: octal(permission) },
+      id: "sqlite.journal",
+      message: "index.sqlite must be a mode-600 regular file.",
+      path: context.path,
+      remedy: `Run chmod 600 ${context.path}, then reindex if integrity checks fail.`,
+      status: "fail",
+    });
+  }
+  return permission;
+}
+
+function addMissingProjectionChecks(
+  context: ProjectionDiagnosticContext,
+  results: ProjectionDiagnosticResultBuilder,
+): void {
+  results.add({
+    id: "sqlite.journal",
+    message: "SQLite projection does not exist.",
+    path: context.path,
+    remedy: `Run repo-knowledge reindex ${context.repository}.`,
+    status: "fail",
+  });
+  results.add({
+    id: "sqlite.projection",
+    message: "Projection metadata could not be checked without index.sqlite.",
+    path: context.path,
+    status: "warn",
+  });
+}
+
+function addUnreadableProjectionChecks(
+  context: ProjectionDiagnosticContext,
+  error: unknown,
+  results: ProjectionDiagnosticResultBuilder,
+): void {
+  results.add({
+    details: { error: errorCode(error) },
+    id: "sqlite.journal",
+    message: "SQLite projection could not be read without mutation.",
+    path: context.path,
+    remedy: `Restore access to index.sqlite, then run repo-knowledge reindex ${context.repository}.`,
+    status: "fail",
+  });
+  results.add({
+    id: "sqlite.projection",
+    message: "Projection metadata could not be read.",
+    path: context.path,
+    status: "warn",
   });
 }
 

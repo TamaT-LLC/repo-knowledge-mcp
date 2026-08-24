@@ -4,6 +4,7 @@ import {
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -130,6 +131,41 @@ describe("RepoKnowledgeDoctor", () => {
         status: "warn",
       },
     ]);
+  });
+
+  it("does not follow a projection symlink", async () => {
+    const fixture = await createFixture();
+    const target = await createFixture();
+    const projectionPath = join(fixture.repositoryRoot, "index.sqlite");
+    await rm(projectionPath, { force: true });
+    await symlink(join(target.repositoryRoot, "index.sqlite"), projectionPath);
+
+    const result = await fixture.doctor().run({ repo: REPOSITORY });
+
+    expect(sqliteDiagnosticContract(result)).toEqual([
+      {
+        id: "sqlite.journal",
+        message: "index.sqlite must be a mode-600 regular file.",
+        status: "fail",
+      },
+      {
+        id: "sqlite.journal",
+        message: "SQLite projection could not be read without mutation.",
+        status: "fail",
+      },
+      {
+        id: "sqlite.projection",
+        message: "Projection metadata could not be read.",
+        status: "warn",
+      },
+    ]);
+    expect(
+      result.checks.find(
+        (item) =>
+          item.message ===
+          "SQLite projection could not be read without mutation.",
+      )?.details,
+    ).toEqual({ error: "ELOOP" });
   });
 
   it("fails closed when the projection file is corrupt", async () => {
