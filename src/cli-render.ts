@@ -100,7 +100,7 @@ function terminalList(values: readonly string[]): string {
     : values.map((value) => safeTerminalText(value)).join(", ");
 }
 
-export function safeTerminalText(value: string): string {
+function safeTerminalText(value: string): string {
   return safeTerminalValue(value).slice(1, -1);
 }
 

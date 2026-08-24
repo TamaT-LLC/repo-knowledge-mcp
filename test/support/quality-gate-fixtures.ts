@@ -24,7 +24,7 @@ const GOLDEN_FIXTURE_DIRECTORY = join(
   "golden",
 );
 
-export const QUALITY_GATE_FIXTURE_PATHS = {
+const QUALITY_GATE_FIXTURE_PATHS = {
   artifact: join(GOLDEN_FIXTURE_DIRECTORY, "m2-provider-baseline.json"),
   corpus: join(GOLDEN_FIXTURE_DIRECTORY, "m2-anonymized-corpus.json"),
   prompt: join(repositoryRoot, "prompts", "distill.md"),

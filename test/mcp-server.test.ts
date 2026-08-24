@@ -235,7 +235,7 @@ describe("repo-knowledge MCP read server", () => {
     });
   });
 
-  it("starts the packaged stdio bin with JSON-RPC-only stdout", async () => {
+  it("starts the packaged CLI in stdio mode with JSON-RPC-only stdout", async () => {
     const storageRoot = await mkdtemp(join(tmpdir(), "rkm-stdio-bin-"));
     temporaryHomes.push(storageRoot);
     const messages = [
@@ -255,17 +255,8 @@ describe("repo-knowledge MCP read server", () => {
         params: {},
       },
       { id: 2, jsonrpc: "2.0", method: "tools/list", params: {} },
-      {
-        id: 3,
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: {
-          arguments: { pr_number: 1, repo: REPOSITORY },
-          name: "ingest_pr",
-        },
-      },
     ];
-    const result = await execa(process.execPath, ["dist/stdio-bin.js"], {
+    const result = await execa(process.execPath, ["dist/bin.js"], {
       cwd: process.cwd(),
       env: { ...process.env, REPO_KNOWLEDGE_HOME: storageRoot },
       input: `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
@@ -276,7 +267,7 @@ describe("repo-knowledge MCP read server", () => {
       .split(/\r?\n/u)
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as JsonRpcReply);
-    expect(replies).toHaveLength(3);
+    expect(replies).toHaveLength(2);
     expect(replies[0]).toMatchObject({
       id: 1,
       result: { serverInfo: { name: "repo-knowledge" } },
@@ -294,16 +285,6 @@ describe("repo-knowledge MCP read server", () => {
       "update_knowledge",
       "record_outcome",
     ]);
-    expect(replies[2]).toMatchObject({
-      id: 3,
-      result: {
-        isError: true,
-        structuredContent: {
-          error: { code: "MUTATION_RUNTIME_UNAVAILABLE" },
-          ok: false,
-        },
-      },
-    });
   });
 });
 

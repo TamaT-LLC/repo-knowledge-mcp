@@ -146,6 +146,26 @@ describe("duplicate_noise policy", () => {
 });
 
 describe("evidence identity", () => {
+  it("accepts the canonical superseded status without treating it as active", () => {
+    const evidence: EvidenceRecord[] = [
+      {
+        id: "evidence-superseded",
+        knowledgeId: "knowledge-old",
+        status: "superseded",
+      },
+    ];
+
+    const result = applySkipReasonPolicy({ evidence, skipReason: "typo" });
+
+    expect(result.evidence).toEqual(evidence);
+    expect(result.stableResponse).toEqual({
+      skip_reason: "typo",
+      staled_knowledge_ids: [],
+      state: "skipped",
+      withdrawn_evidence_ids: [],
+    });
+  });
+
   it("rejects duplicate evidence ids before planning mutations", () => {
     expect(() =>
       applySkipReasonPolicy({

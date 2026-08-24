@@ -2,7 +2,12 @@
  * Deterministically regenerates the M2 anonymized quality-gate corpus and the
  * recorded provider predictions used for offline baseline replay:
  *
- *   node scripts/generate-m2-baseline-corpus.mjs
+ *   npm run golden:corpus:generate
+ *   npm run golden:corpus:check
+ *
+ * Inputs are the fixed specs and constants embedded in this file plus the
+ * lockfile-pinned Biome formatter. No network, environment variable, clock,
+ * or random source contributes to the output.
  *
  * Outputs (stable byte-for-byte across runs):
  *   - test/fixtures/golden/m2-anonymized-corpus.json
@@ -16,7 +21,8 @@
 
 /* global process, URL */
 
-import { writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const CORPUS_ID = "m2-anonymized-corpus-2026-08-07";
@@ -948,18 +954,86 @@ const recorded = {
 };
 
 const fixtureDirectory = new URL("../test/fixtures/golden/", import.meta.url);
-await writeFile(
-  fileURLToPath(new URL("m2-anonymized-corpus.json", fixtureDirectory)),
-  `${JSON.stringify(corpus, null, 2)}\n`,
-  "utf8",
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+const biomeExecutable = fileURLToPath(
+  new URL("../node_modules/@biomejs/biome/bin/biome", import.meta.url),
 );
-await writeFile(
-  fileURLToPath(new URL("m2-recorded-predictions.json", fixtureDirectory)),
-  `${JSON.stringify(recorded, null, 2)}\n`,
-  "utf8",
-);
-process.stdout.write(
-  `generated ${String(threads.length)} threads and ${String(
-    SEARCHES.length,
-  )} searches for ${CORPUS_ID}\n`,
-);
+const corpusUrl = new URL("m2-anonymized-corpus.json", fixtureDirectory);
+const recordedUrl = new URL("m2-recorded-predictions.json", fixtureDirectory);
+const outputs = [
+  {
+    content: formatJson(corpus, corpusUrl),
+    name: "test/fixtures/golden/m2-anonymized-corpus.json",
+    url: corpusUrl,
+  },
+  {
+    content: formatJson(recorded, recordedUrl),
+    name: "test/fixtures/golden/m2-recorded-predictions.json",
+    url: recordedUrl,
+  },
+];
+
+const mode = parseArguments(process.argv.slice(2));
+if (mode === "check") {
+  const staleOutputs = [];
+  for (const output of outputs) {
+    let actual;
+    try {
+      actual = await readFile(output.url, "utf8");
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error;
+    }
+    if (actual !== output.content) staleOutputs.push(output.name);
+  }
+  if (staleOutputs.length > 0) {
+    throw new Error(
+      `generated corpus fixtures are stale: ${staleOutputs.join(", ")}; run npm run golden:corpus:generate`,
+    );
+  }
+  process.stdout.write(
+    `verified ${String(outputs.length)} generated fixtures for ${CORPUS_ID}\n`,
+  );
+} else {
+  await Promise.all(
+    outputs.map((output) =>
+      writeFile(fileURLToPath(output.url), output.content, "utf8"),
+    ),
+  );
+  process.stdout.write(
+    `generated ${String(threads.length)} threads and ${String(
+      SEARCHES.length,
+    )} searches for ${CORPUS_ID}\n`,
+  );
+}
+
+function parseArguments(argv) {
+  if (argv.length === 0) return "generate";
+  if (argv.length === 1 && argv[0] === "--check") return "check";
+  throw new Error(`usage: ${process.argv[1]} [--check]`);
+}
+
+function isMissingFileError(error) {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
+}
+
+function formatJson(value, outputUrl) {
+  return execFileSync(
+    process.execPath,
+    [
+      biomeExecutable,
+      "format",
+      `--stdin-file-path=${fileURLToPath(outputUrl)}`,
+    ],
+    {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      input: `${JSON.stringify(value, null, 2)}\n`,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+}

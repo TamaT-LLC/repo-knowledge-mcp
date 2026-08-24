@@ -39,10 +39,13 @@ const requiredPackagePaths = [
   "dist/experimental.js",
   "dist/index.d.ts",
   "dist/index.js",
-  "dist/stdio-bin.js",
   "package.json",
   "prompts/distill.md",
 ];
+const obsoletePackagePaths = new Set([
+  "dist/stdio-bin.d.ts",
+  "dist/stdio-bin.js",
+]);
 const allowedRootPaths = new Set([
   "LICENSE",
   "LICENSE.md",
@@ -289,6 +292,10 @@ export function validateRootRuntimeExports(exports) {
 
 export function validatePackagePath(path) {
   assert(path.length > 0, "packed artifact contains an empty path");
+  assert(
+    !obsoletePackagePaths.has(path),
+    `packed artifact contains obsolete entry ${path}`,
+  );
   assert(!isAbsolute(path), `packed artifact contains absolute path ${path}`);
   assert(!path.includes("\\"), `packed artifact path is not POSIX: ${path}`);
   const segments = path.split("/");
