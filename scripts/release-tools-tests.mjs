@@ -42,6 +42,8 @@ test("package artifact paths use an explicit release allowlist", () => {
     "prompts/distill.md",
     "dist/bin.js",
     "dist/domain-schemas.d.ts",
+    "dist/doctor/checks-canonical.js",
+    "dist/doctor/checks-canonical.d.ts",
   ]) {
     assert.doesNotThrow(() => validatePackagePath(path));
   }
@@ -51,6 +53,7 @@ test("package artifact paths use an explicit release allowlist", () => {
     ".repo-knowledge/config.json",
     "dist/fixture.json",
     "dist/private.pem",
+    "dist/doctor/nested/checks-canonical.js",
     "fixtures/review.json",
     "../package.json",
     "/tmp/package.json",
