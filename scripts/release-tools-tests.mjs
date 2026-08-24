@@ -159,11 +159,11 @@ test("package smoke installs the exact locked TypeScript compiler", async () => 
   const packageLock = JSON.parse(
     await readFile(new URL("../package-lock.json", import.meta.url), "utf8"),
   );
-  assert.equal(parseLockedTypeScriptVersion(packageLock), "6.0.3");
+  assert.equal(parseLockedTypeScriptVersion(packageLock), "7.0.2");
   assert.throws(
     () =>
       parseLockedTypeScriptVersion({
-        packages: { "node_modules/typescript": { version: "^6.0.3" } },
+        packages: { "node_modules/typescript": { version: "^7.0.2" } },
       }),
     /exact TypeScript compiler version/u,
   );
