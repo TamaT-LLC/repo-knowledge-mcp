@@ -150,7 +150,9 @@ MCP plane は status を active または rejected へ変更しない。
 
 ### M3-FR-008 npm 配布
 
-公開 package は、Node.js 22 と 24 の対応環境で `npx -y repo-knowledge-mcp@<version>` から起動できる。
+公開 package はnpm organization `tamat-llc`が所有し、package名を`@tamat-llc/repo-knowledge-mcp`とする。
+
+公開 package は、Node.js 22 と 24 の対応環境で `npx -y @tamat-llc/repo-knowledge-mcp@<version>` から起動できる。
 
 公開 package だけを使って guided setup、stdio MCP server、既存 CLI command を実行できる。
 
@@ -159,6 +161,10 @@ release workflow は version、Git tag、commit、main への到達性、clean w
 公開 tarball は明示 allowlist に一致し、local knowledge、review content、fixture、database、credential を含まないことを dry-run と実 artifact の双方で検査する。
 
 通常公開は GitHub Actions OIDC による npm trusted publishing と provenance を使い、長期 npm credential を repository secret に保存しない。
+
+未作成packageの初回name reservationでは、実行コード、lifecycle script、dependencyを含まない`0.0.0-bootstrap.0`だけを2FA付きorganization memberから対話的に公開する。
+
+Stable packageは初回の`0.3.0`からOIDCで公開し、GitHub Actionsへtraditional npm credentialを渡さない。
 
 provenance を生成できない private repository からの公開は拒否する。
 

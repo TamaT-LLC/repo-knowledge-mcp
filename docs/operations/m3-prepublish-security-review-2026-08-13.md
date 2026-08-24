@@ -92,9 +92,9 @@ README、smoke runbook、release report も同じ順序に統一し、ローカ�
 GitHub Actions は full commit SHA で pin し、release publish job は npm environment と OIDC の `id-token: write` に限定する。
 npm environment は tag `v*` だけを許可し、TakehiroT または Fuelda の reviewer approval を必要とし、self review を禁止する。
 repository secret に長期 npm token を置かない構成とする。
-未作成packageの`v0.3.0`だけは、`npm` environmentへ一時登録した短期`NPM_BOOTSTRAP_TOKEN`を許可する。
-workflowはtokenの`npm whoami`をreview済み`NPM_PACKAGE_OWNER`と照合し、別tagでtokenを検出した場合はpublish前に失敗する。
-公開直後にtrusted publisherを`release.yml`へ固定し、npm側のtoken失効とGitHub secret削除が完了するまでM3 releaseを完了にしない。
+2026-08-24にdepgraph-cliの公開方式へ揃え、`@tamat-llc/repo-knowledge-mcp`の初回name reservationだけを2FA付きorganization memberから対話的に実行する設計へ変更した。
+Bootstrap tarballは`package.json`、`README.md`、`LICENSE`だけを含み、実行コード、lifecycle script、dependencyを持たない。
+Stable `v0.3.0`を含むrelease workflowはtraditional credentialを拒否し、`release.yml`へ固定したtrusted publisherからOIDCで公開する。
 
 ## 残余リスク
 
@@ -145,4 +145,4 @@ Renovate Appを含むGitHub Appには、どちらのrulesetにもbypassを設定
 5. `npm run check`、`npm run golden`、`npm run quality:gate`、`npm run package:smoke` が成功する。
 6. pilot-002の14日運用gateと修正後限定再評価のranking gateを組み合わせたM2判定がgoで、review済みreportとIssue #118 closeがそろう。
 7. release gate が version、commit、tag、license、repository visibility、registry availability を fail-closed で確認する。
-8. 初回 publish 後に npm trusted publisher を設定し、bootstrap tokenをnpmとGitHubの両方から除去して、provenance と exact-version registry smoke を確認する。
+8. inert bootstrap packageの公開後にnpm trusted publisherとtoken禁止設定を確認し、stable packageのprovenanceとexact-version registry smokeを確認する。

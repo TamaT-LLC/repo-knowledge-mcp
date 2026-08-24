@@ -1,5 +1,5 @@
 {
-  "name": "repo-knowledge-mcp",
+  "name": "@tamat-llc/repo-knowledge-mcp",
   "version": "0.3.0",
   "description": "Local-first MCP server that turns pull-request review knowledge into reusable repository rules",
   "license": "MIT",
@@ -48,6 +48,7 @@
   },
   "publishConfig": {
     "access": "public",
+    "provenance": true,
     "registry": "https://registry.npmjs.org/"
   },
   "bugs": {
@@ -65,6 +66,7 @@
     "zod": "^4.4.3"
   },
   "scripts": {
+    "bootstrap:pack": "node scripts/build-bootstrap-package.mjs --output npm-bootstrap",
     "build": "tsc -p tsconfig.build.json",
     "check": "npm run format:check && npm run docs:check && npm run lint && npm run typecheck && npm run test:release-tools && npm test",
     "docs:check": "node check-markdown-links.mjs",

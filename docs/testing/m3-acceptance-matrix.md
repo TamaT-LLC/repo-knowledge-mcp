@@ -28,7 +28,7 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 | M3-FR-005 安全な自動 active 化 | [trusted-human policy matrix](../../test/trusted-human-auto-activation-policy.test.ts)、[submit/finalize service test](../../test/submit-finalize-service.test.ts)、[trusted-human auto activation runbook](../operations/trusted-human-auto-activation-runbook.md) | automated + operational eligibility |
 | M3-FR-006 Review inbox | [review inbox service test](../../test/review-inbox-service.test.ts) | automated |
 | M3-FR-007 Batch review | [review CLI PTY E2E](../../test/review-cli-pty-e2e.test.ts)、[admin plane service test](../../test/admin-plane-service.test.ts) | automated real-PTY E2E |
-| M3-FR-008 npm 配布 | [artifact gate](../../scripts/package-artifact-gate.mjs)、[package smoke](../../scripts/package-smoke.mjs)、[release gate](../../scripts/release-gate.mjs) の version・commit・visibility・license fail-closed 検査、[release workflow](../../.github/workflows/release.yml) の初回owner照合・exact `v0.3.0`制約・trusted publisher固定、[registry smoke](../../scripts/registry-smoke.mjs)、[npm release runbook](../operations/npm-release-runbook.md) | automated + Release CI |
+| M3-FR-008 npm 配布 | [bootstrap package builder](../../scripts/build-bootstrap-package.mjs) のinert package closure、[artifact gate](../../scripts/package-artifact-gate.mjs)、[package smoke](../../scripts/package-smoke.mjs)、[release gate](../../scripts/release-gate.mjs) のversion、commit、visibility、license、scoped package名のfail-closed検査、[release workflow](../../.github/workflows/release.yml) のtraditional credential拒否とOIDC publish、[registry smoke](../../scripts/registry-smoke.mjs)、[npm release runbook](../operations/npm-release-runbook.md) | automated + Release CI + operational bootstrap |
 
 ## 非機能要件
 
@@ -70,7 +70,7 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 次の項目は source test だけでは完了にできない。
 
 1. [pilot-002最終report](../operations/m2-cron-pilot-report-m2-cron-pilot-002.md)の14日運用gateと、[修正後限定再評価report](../operations/m2-post-fix-revalidation-report-m2-post-fix-revalidation-001.md)のranking gateをreviewし、組み合わせたM2判定を`go`としてIssue `#118`をcloseする。
-2. npm package owner、license、GitHub repositoryのpublic visibilityを確定する。初回公開はreview済みownerと短期bootstrap tokenを使い、公開直後にnpm trusted publisherを固定してtokenをnpmとGitHubの両方から除去する。
+2. npm organization、license、GitHub repositoryのpublic visibilityを確定する。初回公開は2FA付きorganization memberからinert bootstrap packageだけを公開し、npm trusted publisherを固定する。Stable packageは初回からOIDCで公開し、GitHub environmentへtraditional tokenを登録しない。
 3. `package.json` の version、`v<version>` tag、GitHub release、npm registry の exact version を一致させる。
 4. Release CI の Node.js 22 / 24 `verify` と `registry-smoke` を成功させる。
 5. [M3 release report template](../operations/m3-release-report-template.md) を実測値で埋め、reviewer の判定を残す。

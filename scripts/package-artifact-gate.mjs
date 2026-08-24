@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 export const PACKAGE_ARTIFACT_REPORT_KIND =
   "repo_knowledge_npm_package_artifact_gate";
 export const PACKAGE_ARTIFACT_REPORT_SCHEMA_VERSION = 1;
-export const EXPECTED_PACKAGE_NAME = "repo-knowledge-mcp";
+export const EXPECTED_PACKAGE_NAME = "@tamat-llc/repo-knowledge-mcp";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const requiredPackagePaths = [

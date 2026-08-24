@@ -15,7 +15,7 @@ body:
     attributes:
       label: Versionまたはcommit
       description: 使用したnpm versionまたはcommit SHAを記載してください。
-      placeholder: repo-knowledge-mcp@0.3.0 または 0123456
+      placeholder: "@tamat-llc/repo-knowledge-mcp@0.3.0 または 0123456"
     validations:
       required: true
 

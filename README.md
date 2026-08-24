@@ -3,7 +3,7 @@
 > **公開状況**
 >
 > `v0.3.0` は公開準備中です。
-> npm registry への初回公開と公開 package の検証は未完了なので、現時点の `npx` と global install は `E404` になります。
+> `@tamat-llc/repo-knowledge-mcp` のnpm registryへの初回公開と公開packageの検証は未完了なので、現時点の`npx`とglobal installは`E404`になります。
 
 **repo-knowledge-mcp** は、Pull Request のレビューから得た知見を個人用ローカルストアへ保存し、Codex、Claude Code、Cursor から再利用できる rule に変換する stdio MCP server です。
 人間と複数の AI reviewer が残した指摘を GitHub から取得し、根拠を追跡できる Markdown として管理します。
@@ -89,19 +89,19 @@ private repository を対象にする場合は、その repository を読める 
 
 ```console
 cd /absolute/path/to/repository
-npx -y repo-knowledge-mcp@0.3.0 setup
+npx -y @tamat-llc/repo-knowledge-mcp@0.3.0 setup
 ```
 
 workspace の外から実行する場合は repository 名を指定します。
 
 ```console
-npx -y repo-knowledge-mcp@0.3.0 setup owner/repository
+npx -y @tamat-llc/repo-knowledge-mcp@0.3.0 setup owner/repository
 ```
 
 継続して CLI を使う場合は global install も選べます。
 
 ```console
-npm install --global repo-knowledge-mcp@0.3.0
+npm install --global @tamat-llc/repo-knowledge-mcp@0.3.0
 repo-knowledge --help
 ```
 
@@ -118,7 +118,7 @@ guided setup は repository の解決、private storage の作成、外部送信
 ### 3. installation を診断する
 
 ```console
-npx -y repo-knowledge-mcp@0.3.0 doctor owner/repository
+npx -y @tamat-llc/repo-knowledge-mcp@0.3.0 doctor owner/repository
 ```
 
 `doctor` は runtime、GitHub 認証、config、storage、canonical data、検索用 projection を変更せずに検査します。
@@ -128,14 +128,14 @@ npx -y repo-knowledge-mcp@0.3.0 doctor owner/repository
 Codex を使う場合は次の command で登録します。
 
 ```console
-codex mcp add repo-knowledge -- npx -y repo-knowledge-mcp@0.3.0
+codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.3.0
 codex mcp list
 ```
 
 続いて、agent が変更前に `get_rules` を呼ぶための一文を出力します。
 
 ```console
-npx -y repo-knowledge-mcp@0.3.0 export owner/repository --bootstrap
+npx -y @tamat-llc/repo-knowledge-mcp@0.3.0 export owner/repository --bootstrap
 ```
 
 出力された一文を `AGENTS.md`、`CLAUDE.md`、または `.cursor/rules` 配下の rule に追加してください。
@@ -214,7 +214,7 @@ rule の detail、コード例、paginated evidence を確認する場合は `ge
 ### Codex
 
 ```console
-codex mcp add repo-knowledge -- npx -y repo-knowledge-mcp@0.3.0
+codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.3.0
 codex mcp get repo-knowledge
 ```
 
@@ -223,7 +223,7 @@ codex mcp get repo-knowledge
 ```console
 codex mcp add repo-knowledge \
   --env REPO_KNOWLEDGE_HOME=/absolute/private/path \
-  -- npx -y repo-knowledge-mcp@0.3.0
+  -- npx -y @tamat-llc/repo-knowledge-mcp@0.3.0
 ```
 
 設定方法は [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) を参照してください。
@@ -231,14 +231,14 @@ codex mcp add repo-knowledge \
 ### Claude Code
 
 ```console
-claude mcp add repo-knowledge -- npx -y repo-knowledge-mcp@0.3.0
+claude mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.3.0
 claude mcp get repo-knowledge
 ```
 
 ```console
 claude mcp add repo-knowledge \
   --env REPO_KNOWLEDGE_HOME=/absolute/private/path \
-  -- npx -y repo-knowledge-mcp@0.3.0
+  -- npx -y @tamat-llc/repo-knowledge-mcp@0.3.0
 ```
 
 設定方法は [Claude Code MCP documentation](https://docs.anthropic.com/en/docs/claude-code/mcp) を参照してください。
@@ -252,7 +252,7 @@ project 単位では `.cursor/mcp.json`、全 project 共通では `~/.cursor/mc
   "mcpServers": {
     "repo-knowledge": {
       "command": "npx",
-      "args": ["-y", "repo-knowledge-mcp@0.3.0"],
+      "args": ["-y", "@tamat-llc/repo-knowledge-mcp@0.3.0"],
       "env": {
         "REPO_KNOWLEDGE_HOME": "/absolute/private/path"
       }
@@ -370,7 +370,7 @@ MCP 登録、global package、ローカルデータは別々に管理されま�
 ```console
 codex mcp remove repo-knowledge
 claude mcp remove repo-knowledge
-npm uninstall --global repo-knowledge-mcp
+npm uninstall --global @tamat-llc/repo-knowledge-mcp
 ```
 
 package を uninstall してもローカルデータは残ります。
