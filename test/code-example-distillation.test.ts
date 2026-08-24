@@ -575,6 +575,7 @@ describe("M2 code example fixtures", () => {
     // including the interpolation text, so it fails closed.
     expect(
       evaluateCodeExampleGrounding(
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: This fixture intentionally contains a template placeholder.
         example("const mod = await import(`@scope/${channel}/loader`);"),
         [
           {
@@ -585,6 +586,7 @@ describe("M2 code example fixtures", () => {
       ),
     ).toEqual({
       grounded: false,
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: This expected token intentionally contains the fixture placeholder.
       ungrounded_tokens: ["@scope/${channel}/loader"],
     });
 

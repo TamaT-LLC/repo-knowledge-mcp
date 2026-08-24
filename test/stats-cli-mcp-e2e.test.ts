@@ -59,129 +59,125 @@ afterEach(async () => {
 });
 
 describe("stats CLI and MCP E2E over a real CLI process and stdio client", () => {
-  it(
-    "returns one identical versioned aggregation from CLI and MCP without touching canonical data",
-    { timeout: E2E_TIMEOUT_MS },
-    async () => {
-      const environment = await createStatsEnvironment();
+  it("returns one identical versioned aggregation from CLI and MCP without touching canonical data", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const environment = await createStatsEnvironment();
 
-      // 1. An empty just-resolved repository is a normal zero-stats success.
-      const empty = await runCliStats(environment, []);
-      expect(empty.exitCode).toBe(0);
-      expect(empty.stderr).toBe("");
-      const emptyStats = StatsOutputSchema.parse(JSON.parse(empty.stdout));
-      expect(emptyStats).toMatchObject({
-        evidence: { total: 0 },
-        jobs: { total: 0 },
-        knowledge: { total: 0 },
-        outcomes: { total: 0 },
-        repo: REPOSITORY,
-        stats_schema_version: 1,
-        sync: { last_checkpoint: null },
-        window: { bucket: "total", since: null, timezone: "UTC", until: null },
-      });
+    // 1. An empty just-resolved repository is a normal zero-stats success.
+    const empty = await runCliStats(environment, []);
+    expect(empty.exitCode).toBe(0);
+    expect(empty.stderr).toBe("");
+    const emptyStats = StatsOutputSchema.parse(JSON.parse(empty.stdout));
+    expect(emptyStats).toMatchObject({
+      evidence: { total: 0 },
+      jobs: { total: 0 },
+      knowledge: { total: 0 },
+      outcomes: { total: 0 },
+      repo: REPOSITORY,
+      stats_schema_version: 1,
+      sync: { last_checkpoint: null },
+      window: { bucket: "total", since: null, timezone: "UTC", until: null },
+    });
 
-      // 2. Fixed canonical fixture written directly into the resolved store.
-      const repositoryDir = await repositoryDirectory(environment);
-      await writeFixedFixture(repositoryDir);
-      const digestBefore = await readCanonicalDigest(repositoryDir);
+    // 2. Fixed canonical fixture written directly into the resolved store.
+    const repositoryDir = await repositoryDirectory(environment);
+    await writeFixedFixture(repositoryDir);
+    const digestBefore = await readCanonicalDigest(repositoryDir);
 
-      // 3. The CLI prints exactly one machine-readable JSON document.
-      const cli = await runCliStats(environment, [
-        "--bucket",
-        WINDOW.bucket,
-        "--since",
-        WINDOW.since,
-        "--until",
-        WINDOW.until,
-      ]);
-      expect(cli.exitCode).toBe(0);
-      expect(cli.stderr).toBe("");
-      expect(cli.stdout.trim().split("\n")).toHaveLength(1);
-      const cliStats = StatsOutputSchema.parse(JSON.parse(cli.stdout));
-      expect(cliStats).toMatchObject({
-        evidence: { total: 3 },
-        knowledge: { total: 2 },
-        outcomes: { total: 2 },
-        stats_schema_version: 1,
-        sync: { last_checkpoint: { last_pr_number: 41 } },
-        window: { ...WINDOW, timezone: "UTC" },
-      });
-      expect(cliStats.buckets?.map((bucket) => bucket.day)).toEqual([
-        "2026-08-01",
-        "2026-08-02",
-      ]);
+    // 3. The CLI prints exactly one machine-readable JSON document.
+    const cli = await runCliStats(environment, [
+      "--bucket",
+      WINDOW.bucket,
+      "--since",
+      WINDOW.since,
+      "--until",
+      WINDOW.until,
+    ]);
+    expect(cli.exitCode).toBe(0);
+    expect(cli.stderr).toBe("");
+    expect(cli.stdout.trim().split("\n")).toHaveLength(1);
+    const cliStats = StatsOutputSchema.parse(JSON.parse(cli.stdout));
+    expect(cliStats).toMatchObject({
+      evidence: { total: 3 },
+      knowledge: { total: 2 },
+      outcomes: { total: 2 },
+      stats_schema_version: 1,
+      sync: { last_checkpoint: { last_pr_number: 41 } },
+      window: { ...WINDOW, timezone: "UTC" },
+    });
+    expect(cliStats.buckets?.map((bucket) => bucket.day)).toEqual([
+      "2026-08-01",
+      "2026-08-02",
+    ]);
 
-      // 4. The real stdio client lists and calls the same read-only tool.
-      const replies = await runMcpStats(environment, {
-        repo: REPOSITORY,
-        ...WINDOW,
-      });
-      const listReply = replies.find((reply) => reply.id === 2);
-      const toolNames = readToolNames(listReply);
-      expect(toolNames).toContain("stats");
-      const statsTool = readTools(listReply).find(
-        (tool) => asRecord(tool).name === "stats",
-      );
-      expect(asRecord(asRecord(statsTool).annotations)).toEqual({
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-        readOnlyHint: true,
-      });
-      const callReply = replies.find((reply) => reply.id === 3);
-      expect(callReply).toBeDefined();
-      expect(callReply).not.toHaveProperty("error");
-      const result = callReply!.result as {
-        readonly isError?: boolean;
-        readonly structuredContent?: unknown;
-      };
-      expect(result.isError).not.toBe(true);
-      const mcpStats = StatsOutputSchema.parse(result.structuredContent);
+    // 4. The real stdio client lists and calls the same read-only tool.
+    const replies = await runMcpStats(environment, {
+      repo: REPOSITORY,
+      ...WINDOW,
+    });
+    const listReply = replies.find((reply) => reply.id === 2);
+    const toolNames = readToolNames(listReply);
+    expect(toolNames).toContain("stats");
+    const statsTool = readTools(listReply).find(
+      (tool) => asRecord(tool).name === "stats",
+    );
+    expect(asRecord(asRecord(statsTool).annotations)).toEqual({
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+      readOnlyHint: true,
+    });
+    const callReply = replies.find((reply) => reply.id === 3);
+    expect(callReply).toBeDefined();
+    expect(callReply).not.toHaveProperty("error");
+    const result = callReply!.result as {
+      readonly isError?: boolean;
+      readonly structuredContent?: unknown;
+    };
+    expect(result.isError).not.toBe(true);
+    const mcpStats = StatsOutputSchema.parse(result.structuredContent);
 
-      // Identical schema version and identical aggregates across surfaces.
-      expect(mcpStats).toEqual(cliStats);
+    // Identical schema version and identical aggregates across surfaces.
+    expect(mcpStats).toEqual(cliStats);
 
-      // 5. Both read paths left the canonical state byte-identical.
-      await expect(readCanonicalDigest(repositoryDir)).resolves.toBe(
-        digestBefore,
-      );
+    // 5. Both read paths left the canonical state byte-identical.
+    await expect(readCanonicalDigest(repositoryDir)).resolves.toBe(
+      digestBefore,
+    );
 
-      // 6. A window with no observations is normal zero stats, while
-      //    point-in-time sections keep reporting the current state.
-      const outside = await runCliStats(environment, [
-        "--since",
-        "2020-01-01T00:00:00.000Z",
-        "--until",
-        "2021-01-01T00:00:00.000Z",
-      ]);
-      expect(outside.exitCode).toBe(0);
-      const outsideStats = StatsOutputSchema.parse(JSON.parse(outside.stdout));
-      expect(outsideStats.evidence.total).toBe(0);
-      expect(outsideStats.outcomes.total).toBe(0);
-      expect(outsideStats.knowledge.total).toBe(2);
-      expect(outsideStats.jobs.total).toBe(2);
-    },
-  );
+    // 6. A window with no observations is normal zero stats, while
+    //    point-in-time sections keep reporting the current state.
+    const outside = await runCliStats(environment, [
+      "--since",
+      "2020-01-01T00:00:00.000Z",
+      "--until",
+      "2021-01-01T00:00:00.000Z",
+    ]);
+    expect(outside.exitCode).toBe(0);
+    const outsideStats = StatsOutputSchema.parse(JSON.parse(outside.stdout));
+    expect(outsideStats.evidence.total).toBe(0);
+    expect(outsideStats.outcomes.total).toBe(0);
+    expect(outsideStats.knowledge.total).toBe(2);
+    expect(outsideStats.jobs.total).toBe(2);
+  });
 
-  it(
-    "rejects an invalid window as a usage error without partial output",
-    { timeout: E2E_TIMEOUT_MS },
-    async () => {
-      const environment = await createStatsEnvironment();
+  it("rejects an invalid window as a usage error without partial output", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const environment = await createStatsEnvironment();
 
-      const rejected = await runCliStats(environment, [
-        "--bucket",
-        "day",
-        "--since",
-        WINDOW.since,
-      ]);
+    const rejected = await runCliStats(environment, [
+      "--bucket",
+      "day",
+      "--since",
+      WINDOW.since,
+    ]);
 
-      expect(rejected.exitCode).toBe(2);
-      expect(rejected.stdout).toBe("");
-      expect(rejected.stderr).toContain("STATS_WINDOW_REQUIRED");
-    },
-  );
+    expect(rejected.exitCode).toBe(2);
+    expect(rejected.stdout).toBe("");
+    expect(rejected.stderr).toContain("STATS_WINDOW_REQUIRED");
+  });
 });
 
 async function createStatsEnvironment(): Promise<StatsEnvironment> {

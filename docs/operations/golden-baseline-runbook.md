@@ -55,7 +55,7 @@ $ node dist/golden-baseline-cli.js \
 
 - `measured_at` は recorded prediction の `recorded_at` を用いるため、
   出力は何度実行しても同一 byte になる（リポジトリへコミットする際は
-  `npm run format` で prettier 整形を適用する。整形は表記のみで内容は不変）
+  `npm run format` で Biome 整形を適用する。整形は表記のみで内容は不変）
 - corpus と recorded prediction の `corpus_id` が一致しない場合は
   `BASELINE_CORPUS_MISMATCH` で失敗する
 

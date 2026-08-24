@@ -197,7 +197,8 @@ export class KnowledgeReadService {
 
   private readonly repository: KnowledgeReadRepository;
   private readonly syncCheckpoints:
-    KnowledgeReadSyncCheckpointReader | undefined;
+    | KnowledgeReadSyncCheckpointReader
+    | undefined;
 
   constructor(options: KnowledgeReadServiceOptions) {
     this.repo = RepositoryNameSchema.parse(options.repo);

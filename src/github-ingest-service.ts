@@ -94,7 +94,8 @@ export interface GitHubIngestServiceOptions {
 }
 
 export type GitHubIngestErrorCode =
-  "REPOSITORY_SNAPSHOT_MISMATCH" | "STALE_SNAPSHOT";
+  | "REPOSITORY_SNAPSHOT_MISMATCH"
+  | "STALE_SNAPSHOT";
 
 export class GitHubIngestError extends Error {
   constructor(

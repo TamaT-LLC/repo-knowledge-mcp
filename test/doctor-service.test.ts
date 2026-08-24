@@ -553,7 +553,10 @@ class FakeGhRunner implements GhRunnerLike {
 
   constructor(
     private readonly mode:
-      "graphql" | "healthy" | "missing" | "unauthenticated" = "healthy",
+      | "graphql"
+      | "healthy"
+      | "missing"
+      | "unauthenticated" = "healthy",
   ) {}
 
   async run(args: readonly string[]): Promise<GhCommandResult> {

@@ -97,7 +97,8 @@ export interface CanonicalFinalizeSourceBinding {
   readonly thread_id: string;
 }
 
-export interface CanonicalFinalizeRequest extends CanonicalFinalizeSourceBinding {
+export interface CanonicalFinalizeRequest
+  extends CanonicalFinalizeSourceBinding {
   readonly candidates: readonly ExtractCandidate[];
   readonly decisions: readonly unknown[];
   readonly expected_match_set_digest: string;
@@ -105,7 +106,8 @@ export interface CanonicalFinalizeRequest extends CanonicalFinalizeSourceBinding
   readonly provenance: DistillationProvenance;
 }
 
-export interface CanonicalSkipFinalizeRequest extends CanonicalFinalizeSourceBinding {
+export interface CanonicalSkipFinalizeRequest
+  extends CanonicalFinalizeSourceBinding {
   readonly duplicate_knowledge_id?: string;
   readonly lease: DistillJobLeaseCredentials;
   readonly skip_reason: SkipReason;

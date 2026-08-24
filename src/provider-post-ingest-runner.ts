@@ -38,7 +38,8 @@ export interface CanonicalProviderPostIngestRunnerOptions {
 }
 
 export type ProviderPostIngestErrorCode =
-  "INGEST_REPOSITORY_MISMATCH" | "INGEST_SNAPSHOT_UNAVAILABLE";
+  | "INGEST_REPOSITORY_MISMATCH"
+  | "INGEST_SNAPSHOT_UNAVAILABLE";
 
 export class ProviderPostIngestError extends Error {
   constructor(
@@ -52,7 +53,9 @@ export class ProviderPostIngestError extends Error {
 }
 
 /** Drains current pending jobs for the ingested snapshot through the provider pipeline. */
-export class CanonicalProviderPostIngestRunner implements ProviderPostIngestRunner {
+export class CanonicalProviderPostIngestRunner
+  implements ProviderPostIngestRunner
+{
   private readonly pipeline: Pick<ProviderDistillationPipeline, "run">;
   private readonly repository: ProviderPostIngestRepository;
   private readonly repositoryContext: unknown;

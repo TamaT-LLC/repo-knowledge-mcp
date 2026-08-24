@@ -267,7 +267,8 @@ export class SubmitDistillationService {
   private readonly canonicalFinalizer: CanonicalFinalizeService;
   private readonly candidateLimit: number | undefined;
   private readonly distillationContext:
-    ValidatedSubmitDistillationContext | undefined;
+    | ValidatedSubmitDistillationContext
+    | undefined;
   private readonly evidenceEventPath: string;
   private readonly jobEventPath: string;
   private readonly nextCandidateId: (timestamp: number) => string;

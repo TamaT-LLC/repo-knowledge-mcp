@@ -55,7 +55,9 @@ export interface SyncSinceBoundary {
 }
 
 export type SyncBoundary =
-  SyncCursorBoundary | SyncFullBoundary | SyncSinceBoundary;
+  | SyncCursorBoundary
+  | SyncFullBoundary
+  | SyncSinceBoundary;
 
 export interface ResolveSyncBoundaryRequest {
   readonly cursor?: unknown;
@@ -71,7 +73,7 @@ export function parseSyncCursor(value: unknown): SyncCursor {
   if (
     isRecord(value) &&
     "version" in value &&
-    value["version"] !== SYNC_CURSOR_VERSION
+    value.version !== SYNC_CURSOR_VERSION
   ) {
     throw new SyncCursorError(
       "SYNC_CURSOR_VERSION_UNSUPPORTED",

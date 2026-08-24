@@ -9,7 +9,9 @@ const DEFAULT_GIT_TIMEOUT_MS = 5_000;
 const DEFAULT_GIT_MAX_BUFFER_BYTES = 64 * 1024;
 
 export type GitRemoteErrorCode =
-  "GIT_EXECUTION_FAILED" | "GIT_REMOTE_INVALID" | "GIT_REMOTE_UNAVAILABLE";
+  | "GIT_EXECUTION_FAILED"
+  | "GIT_REMOTE_INVALID"
+  | "GIT_REMOTE_UNAVAILABLE";
 
 export class GitRemoteError extends Error {
   constructor(

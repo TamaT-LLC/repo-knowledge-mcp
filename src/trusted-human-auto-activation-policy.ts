@@ -44,7 +44,9 @@ export interface TrustedHumanAutoActivationPolicyOptions {
  * complete current thread are available. Every missing or stale prerequisite
  * keeps the candidate proposed; this policy never mutates existing knowledge.
  */
-export class TrustedHumanAutoActivationPolicy implements TrustedHumanAutoActivationPolicyLike {
+export class TrustedHumanAutoActivationPolicy
+  implements TrustedHumanAutoActivationPolicyLike
+{
   private readonly config: RepoKnowledgeConfig;
   private readonly currentTrustPolicyDigest: string;
 

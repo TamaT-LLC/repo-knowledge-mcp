@@ -76,7 +76,8 @@ import {
 } from "./review-inbox-service.js";
 
 export type CliMaintenanceErrorCode =
-  "CLI_PROVIDER_PIPELINE_MISSING" | "CLI_REDISTILL_SOURCE_INVALID";
+  | "CLI_PROVIDER_PIPELINE_MISSING"
+  | "CLI_REDISTILL_SOURCE_INVALID";
 
 export class CliMaintenanceError extends Error {
   constructor(
@@ -112,10 +113,9 @@ export interface CanonicalCliRepositoryServiceOptions {
  * services, and `stats` is provided by the repository application graph
  * through the shared read-only StatsReadService.
  */
-export class CanonicalCliRepositoryService implements Omit<
-  CliRepositoryOperations,
-  "stats"
-> {
+export class CanonicalCliRepositoryService
+  implements Omit<CliRepositoryOperations, "stats">
+{
   readonly admin: AdminPlaneService;
 
   private readonly config: RepoKnowledgeConfig;
@@ -514,7 +514,9 @@ export type CanonicalCliRepositoryOperationsResolverOptions = Omit<
 };
 
 /** Resolves CLI repository selection through the same stable registry path. */
-export class CanonicalCliRepositoryOperationsResolver implements CliRepositoryOperationsResolver {
+export class CanonicalCliRepositoryOperationsResolver
+  implements CliRepositoryOperationsResolver
+{
   private readonly operationsFactory: CliRepositoryOperationsFactory;
   private readonly resolverOptions: Omit<
     RepositoryResolverOptions,

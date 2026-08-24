@@ -427,7 +427,11 @@ describe("GitHubPullRequestSnapshotClient", () => {
 });
 
 type FixtureOperation =
-  "comments" | "initial" | "reviews" | "threads" | "validation";
+  | "comments"
+  | "initial"
+  | "reviews"
+  | "threads"
+  | "validation";
 
 type FixtureVariable = number | string | readonly string[];
 
@@ -514,10 +518,7 @@ function envelope(data: unknown): unknown {
 }
 
 function initialData(
-  options: {
-    readonly reviews?: unknown;
-    readonly threads?: unknown;
-  } = {},
+  options: { readonly reviews?: unknown; readonly threads?: unknown } = {},
 ): unknown {
   return {
     repository: {

@@ -1,4 +1,4 @@
-import { chmodSync } from "node:fs";
+import { chmodSync, type Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -1225,7 +1225,7 @@ async function captureKnowledge(
   repositoryRoot: string,
 ): Promise<CapturedKnowledge[]> {
   const directory = join(repositoryRoot, "knowledge");
-  let entries;
+  let entries: Dirent[];
   try {
     entries = await readdir(directory, { withFileTypes: true });
   } catch (error) {

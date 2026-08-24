@@ -26,7 +26,8 @@ export const SyncCheckpointSchema = z
 export type SyncCheckpoint = z.infer<typeof SyncCheckpointSchema>;
 
 export type SyncCheckpointErrorCode =
-  "SYNC_CHECKPOINT_INVALID" | "SYNC_CHECKPOINT_VERSION_UNSUPPORTED";
+  | "SYNC_CHECKPOINT_INVALID"
+  | "SYNC_CHECKPOINT_VERSION_UNSUPPORTED";
 
 export class SyncCheckpointError extends Error {
   constructor(
@@ -79,7 +80,7 @@ export class SyncCheckpointStore {
     if (
       isRecord(value) &&
       "schema_version" in value &&
-      value["schema_version"] !== SYNC_CHECKPOINT_SCHEMA_VERSION
+      value.schema_version !== SYNC_CHECKPOINT_SCHEMA_VERSION
     ) {
       throw new SyncCheckpointError(
         "SYNC_CHECKPOINT_VERSION_UNSUPPORTED",

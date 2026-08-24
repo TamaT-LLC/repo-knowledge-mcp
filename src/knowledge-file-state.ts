@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 
@@ -117,7 +118,7 @@ async function readAllKnowledgeMarkdownBytes(
 ): Promise<RawKnowledgeFile[]> {
   const absoluteRoot = resolve(repositoryRoot);
   const knowledgeDirectory = join(absoluteRoot, "knowledge");
-  let entries;
+  let entries: Dirent[];
 
   try {
     entries = await readdir(knowledgeDirectory, { withFileTypes: true });

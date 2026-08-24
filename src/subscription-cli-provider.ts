@@ -369,7 +369,9 @@ export interface CliLlmSubscriptionInspectorOptions {
 }
 
 /** Checks CLI presence and subscription login without running a model prompt. */
-export class CliLlmSubscriptionInspector implements LlmSubscriptionInspectorLike {
+export class CliLlmSubscriptionInspector
+  implements LlmSubscriptionInspectorLike
+{
   private readonly environment: Readonly<Record<string, string | undefined>>;
   private readonly executor: BufferedCommandExecutor;
   private readonly timeoutMs: number;

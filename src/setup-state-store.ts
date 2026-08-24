@@ -35,7 +35,9 @@ export const SetupStateSchema = z
 export type SetupState = z.infer<typeof SetupStateSchema>;
 
 export type SetupStateStoreErrorCode =
-  "SETUP_STATE_INVALID" | "SETUP_STATE_IO_ERROR" | "SETUP_STATE_PATH_UNSAFE";
+  | "SETUP_STATE_INVALID"
+  | "SETUP_STATE_IO_ERROR"
+  | "SETUP_STATE_PATH_UNSAFE";
 
 export class SetupStateStoreError extends Error {
   constructor(

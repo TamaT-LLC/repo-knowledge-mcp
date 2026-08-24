@@ -33,7 +33,8 @@ export const MIN_MERGE_CANDIDATE_LIMIT = 5;
 export const MAX_MERGE_CANDIDATE_LIMIT = 10;
 
 export type MergeCandidateSearchErrorCode =
-  "CANDIDATE_SET_INVALID" | "MERGE_SEARCH_INVALID";
+  | "CANDIDATE_SET_INVALID"
+  | "MERGE_SEARCH_INVALID";
 
 export class MergeCandidateSearchError extends Error {
   constructor(

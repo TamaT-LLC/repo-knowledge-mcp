@@ -39,7 +39,8 @@ export interface KnowledgeSearchResult {
 }
 
 export type KnowledgeSearchErrorCode =
-  "SEARCH_LIMIT_INVALID" | "SEARCH_QUERY_INVALID";
+  | "SEARCH_LIMIT_INVALID"
+  | "SEARCH_QUERY_INVALID";
 
 export class KnowledgeSearchError extends Error {
   constructor(

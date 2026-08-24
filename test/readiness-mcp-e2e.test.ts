@@ -40,71 +40,69 @@ afterEach(async () => {
 });
 
 describe("repository readiness MCP E2E", () => {
-  it(
-    "distinguishes setup, learning, normal mismatch, and synchronized empty states",
-    { timeout: 120_000 },
-    async () => {
-      const environment = await createEnvironment();
+  it("distinguishes setup, learning, normal mismatch, and synchronized empty states", {
+    timeout: 120_000,
+  }, async () => {
+    const environment = await createEnvironment();
 
-      const initial = await getRules(environment);
-      expect(initial.output).toMatchObject({
-        matched_count: 0,
-        readiness: {
-          next_action: expect.stringContaining(
-            `repo-knowledge setup ${REPOSITORY}`,
-          ),
-          state: "setup_required",
-        },
-        rules: [],
-      });
-      expect(initial.summary).toContain("Readiness: **setup_required**");
-
-      await writeJobs(environment.repositoryRoot, [pendingJob()]);
-      const learning = await getRules(environment);
-      expect(learning.output.readiness).toMatchObject({
+    const initial = await getRules(environment);
+    expect(initial.output).toMatchObject({
+      matched_count: 0,
+      readiness: {
         next_action: expect.stringContaining(
-          `repo-knowledge distill ${REPOSITORY}`,
+          `repo-knowledge setup ${REPOSITORY}`,
         ),
-        state: "learning",
-      });
-      expect(learning.output.readiness.next_action).toContain("llm.mode");
-      expect(learning.output.readiness.next_action).toContain(
-        "hostAssistedDistillation.enabled",
-      );
+        state: "setup_required",
+      },
+      rules: [],
+    });
+    expect(initial.summary).toContain("Readiness: **setup_required**");
 
-      await writeKnowledge(environment.repositoryRoot, "active");
-      const mismatch = await getRules(environment);
-      expect(mismatch.output).toMatchObject({
-        matched_count: 0,
-        readiness: { state: "ready" },
-        rules: [],
-      });
+    await writeJobs(environment.repositoryRoot, [pendingJob()]);
+    const learning = await getRules(environment);
+    expect(learning.output.readiness).toMatchObject({
+      next_action: expect.stringContaining(
+        `repo-knowledge distill ${REPOSITORY}`,
+      ),
+      state: "learning",
+    });
+    expect(learning.output.readiness.next_action).toContain("llm.mode");
+    expect(learning.output.readiness.next_action).toContain(
+      "hostAssistedDistillation.enabled",
+    );
 
-      await writeJobs(environment.repositoryRoot, []);
-      await writeKnowledge(environment.repositoryRoot, "rejected");
-      await new SyncCheckpointStore(environment.repositoryRoot).write({
-        cursor: {
-          last_pr_number: 7,
-          last_updated_at: NOW,
-          repo_id: REPO_ID,
-          version: 1,
-        },
-        schema_version: 1,
-        updated_at: NOW,
-      });
-      const empty = await getRules(environment);
-      expect(empty.output).toMatchObject({
-        matched_count: 0,
-        readiness: {
-          next_action: expect.stringContaining(
-            `repo-knowledge sync ${REPOSITORY}`,
-          ),
-          state: "empty",
-        },
-        rules: [],
-      });
-    },
-  );
+    await writeKnowledge(environment.repositoryRoot, "active");
+    const mismatch = await getRules(environment);
+    expect(mismatch.output).toMatchObject({
+      matched_count: 0,
+      readiness: { state: "ready" },
+      rules: [],
+    });
+
+    await writeJobs(environment.repositoryRoot, []);
+    await writeKnowledge(environment.repositoryRoot, "rejected");
+    await new SyncCheckpointStore(environment.repositoryRoot).write({
+      cursor: {
+        last_pr_number: 7,
+        last_updated_at: NOW,
+        repo_id: REPO_ID,
+        version: 1,
+      },
+      schema_version: 1,
+      updated_at: NOW,
+    });
+    const empty = await getRules(environment);
+    expect(empty.output).toMatchObject({
+      matched_count: 0,
+      readiness: {
+        next_action: expect.stringContaining(
+          `repo-knowledge sync ${REPOSITORY}`,
+        ),
+        state: "empty",
+      },
+      rules: [],
+    });
+  });
 });
 
 async function createEnvironment(): Promise<ReadinessEnvironment> {

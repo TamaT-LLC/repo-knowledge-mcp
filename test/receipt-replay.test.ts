@@ -42,7 +42,10 @@ describe("acceptance test 55", () => {
     let tokenSequence = 0;
     const engine = new ReceiptReplayEngine({
       loadJob: () => activeJob(),
-      nextTokenId: () => `replay-token-${(tokenSequence += 1)}`,
+      nextTokenId: () => {
+        tokenSequence += 1;
+        return `replay-token-${tokenSequence}`;
+      },
       now: () => NOW,
       receiptStore,
       searchPossibleMatches: () => currentMatches,
