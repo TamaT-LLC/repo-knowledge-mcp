@@ -12,6 +12,9 @@
   "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
   "automerge": false,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "platformAutomerge": true,
   "dependencyDashboardAutoclose": true,
   "labels": ["dependencies"],
   "vulnerabilityAlerts": {
@@ -22,6 +25,18 @@
     "addLabels": ["security"]
   },
   "packageRules": [
+    {
+      "description": "Automerge non-major updates after required checks pass",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest",
+        "lockFileMaintenance"
+      ],
+      "automerge": true
+    },
     {
       "description": "Group non-major development dependency updates",
       "matchDepTypes": ["devDependencies"],
