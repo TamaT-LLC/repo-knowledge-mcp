@@ -1,7 +1,7 @@
 # Dependency update runbook
 
-Renovateは依存packageとGitHub Actionsの更新Pull Requestを作成し、non-major更新を必須check通過後に自動mergeする。
-Major updateとvulnerability fixはmaintainerの承認と手動mergeを必要とする。
+Renovateは依存packageとGitHub Actionsの更新Pull Requestを作成し、安定版のnon-major更新を必須check通過後に自動mergeする。
+Pre-1.0、major、vulnerability fixの更新はmaintainerの承認と手動mergeを必要とする。
 
 ## 1. 責務の分離
 
@@ -34,11 +34,13 @@ GitHub Actionsのminor update、patch update、digest updateも一つのPull Req
 GitHub Actionsはcommit SHAに固定し、version commentを更新時の追跡情報として維持する。
 Release workflowで使用するnpm CLIのversionもRenovateのcustom managerで更新する。
 
-Renovateは`minor`、`patch`、`pin`、`pinDigest`、`digest`の更新をGitHub native auto-mergeへ登録し、squash mergeする。
-`lockFileMaintenance`もauto-merge対象だが、lockfile maintenance自体は現在無効である。
+Renovateはcurrent versionが1.0.0以上の`minor`と`patch`をGitHub native auto-mergeへ登録する。
+`pin`、`pinDigest`、`digest`も登録し、対象Pull Requestをsquash mergeする。
+Pre-1.0 packageのminor updateとpatch updateはauto-mergeせず、owner reviewを必要とする。
+Lockfile maintenanceは無効であり、auto-merge対象にも含めない。
 Auto-mergeはNode.js 22と24のCI、ActionsとJavaScript向けCodeQL、review threadの解決後に実行される。
 
-Major updateとvulnerability fixは自動mergeしない。
+Pre-1.0、major、vulnerability fixの更新は自動mergeしない。
 これらの更新はowner reviewと必須checkを通過してから手動でmergeする。
 
 ## 3. Appの権限境界
@@ -74,7 +76,7 @@ Renovate Appは更新branchとPull Requestを経由し、Code Owner reviewだけ
 
 `TakehiroT`のbypassは`Require code owner review`だけに適用され、`Protect main`の必須CIとCodeQLを迂回できない。
 Renovate Appのbypassも`Require code owner review`だけに適用する。
-このため、通常の更新Pull Requestはowner reviewを待たず、`Protect main`の条件を満たした後に自動mergeできる。
+このため、auto-merge対象の更新Pull Requestはowner reviewを待たず、`Protect main`の条件を満たした後にmergeできる。
 
 Renovate設定には`postUpgradeTasks`、任意command、private registry credentialを追加しない。
 追加が必要になった場合は、権限と外部送信を別のsecurity reviewで確認する。
@@ -94,8 +96,8 @@ Appの権限と保存情報は[Renovate security and permissions](https://docs.r
 9. 前二項の条件を満たさない場合は有効化を中止し、GitHubのsecurity settingsまたはApp permissionを修復する。
 10. TamaT-LLCのRenovate App設定で`repo-knowledge-mcp`だけを選択する。
 11. RenovateのDependency Dashboardが作成され、configuration warningがないことを確認する。
-12. 最初のnon-major更新でauto-mergeが有効になり、必須checkとreview threadの解決を待つことを確認する。
-13. Major updateとvulnerability fixがauto-merge対象外であることを確認する。
+12. 最初の安定版non-major更新でauto-mergeが有効になり、必須checkとreview threadの解決を待つことを確認する。
+13. Pre-1.0、major、vulnerability fixの更新がauto-merge対象外であることを確認する。
 14. Renovateのvulnerability alert連携を確認してから、Dependabot security updatesを無効化する。
 
 GitHub dependency graphとDependabot alertsは、Dependabot security updatesを無効化した後も維持する。

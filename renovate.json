@@ -26,15 +26,14 @@
   },
   "packageRules": [
     {
-      "description": "Automerge non-major updates after required checks pass",
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "pin",
-        "pinDigest",
-        "digest",
-        "lockFileMaintenance"
-      ],
+      "description": "Automerge stable non-major updates after required checks pass",
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true
+    },
+    {
+      "description": "Automerge pinning and digest updates after required checks pass",
+      "matchUpdateTypes": ["pin", "pinDigest", "digest"],
       "automerge": true
     },
     {
