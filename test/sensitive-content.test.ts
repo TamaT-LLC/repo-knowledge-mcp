@@ -57,13 +57,19 @@ describe("sensitive-content scanner", () => {
 
     expect(rejection).toMatchObject({
       code: SENSITIVE_CONTENT_DETECTED,
-      findings: [{ kind: "email_address", path: "$.*" }],
+      findings: [
+        { kind: "github_token", path: "$.*" },
+        { kind: "email_address", path: "$.*" },
+      ],
     });
     const mapped = mapMutationError(rejection);
     expect(mapped).toMatchObject({
       code: SENSITIVE_CONTENT_DETECTED,
       details: {
-        findings: [{ kind: "email_address", path: "$.*" }],
+        findings: [
+          { kind: "github_token", path: "$.*" },
+          { kind: "email_address", path: "$.*" },
+        ],
       },
       next_action: expect.stringContaining("Remove or redact"),
       retryable: false,

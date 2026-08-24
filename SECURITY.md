@@ -107,6 +107,7 @@ Provider Adapter では review body、diff hunk、actor、path、repository cont
 host-assisted では `prepare_distillation` が返す comment、actor、path、任意の diff hunk、candidate、possible match を検査します。
 
 scanner は provider key、GitHub / Slack token、AWS / Google key、private key、authorization header、secret の代入、メールアドレスを検出します。
+送信 payload の文字列値だけでなく、JSON に含まれるプロパティ名も検査対象です。
 検出時は fail-closed で送信を止め、`SENSITIVE_CONTENT_DETECTED` を返します。
 scanner は検出値を error、log、telemetry、拒否結果の canonical record へ複製しません。
 安全な finding には field path と kind だけが含まれます。

@@ -102,9 +102,14 @@ function scanSensitiveContent(
     );
   }
   if (typeof value === "object" && value !== null) {
-    return Object.entries(value).flatMap(([key, entry]) =>
-      scanSensitiveContent(entry, fieldPath(path, key)),
-    );
+    return Object.entries(value).flatMap(([key, entry]) => {
+      const keyKinds = matchingKinds(key);
+      const entryPath = fieldPath(path, key, keyKinds);
+      return [
+        ...keyKinds.map((kind) => ({ kind, path: entryPath })),
+        ...scanSensitiveContent(entry, entryPath),
+      ];
+    });
   }
   return [];
 }
@@ -151,9 +156,11 @@ function matchingKinds(value: string): SensitiveContentKind[] {
   );
 }
 
-function fieldPath(parent: string, key: string): string {
+function fieldPath(
+  parent: string,
+  key: string,
+  keyKinds: readonly SensitiveContentKind[],
+): string {
   const safeKey = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/u.test(key);
-  return safeKey && matchingKinds(key).length === 0
-    ? `${parent}.${key}`
-    : `${parent}.*`;
+  return safeKey && keyKinds.length === 0 ? `${parent}.${key}` : `${parent}.*`;
 }
