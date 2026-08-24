@@ -49,6 +49,9 @@ const LEASE_EXPIRY_POLL_INTERVAL_MS = 25;
  * depend on the run finishing within a wall-clock budget.
  */
 const STALLED_HEARTBEAT_TIMEOUT_MS = 30_000;
+// These tests use real filesystem locks; hosted runners can delay an
+// independent writer beyond one second when the full suite is contended.
+const LOCK_RELEASE_TIMEOUT_MS = 3_000;
 const PROMPT_SOURCE = `---
 prompt_version: distill-test-v1
 ---
@@ -797,7 +800,7 @@ describe("ProviderDistillationService", () => {
       new Promise<never>((_, reject) => {
         setTimeout(
           () => reject(new Error("repo writer lock remained held")),
-          1_000,
+          LOCK_RELEASE_TIMEOUT_MS,
         );
       }),
     ]);
