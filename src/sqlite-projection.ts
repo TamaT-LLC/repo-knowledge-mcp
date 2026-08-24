@@ -85,6 +85,28 @@ interface CanonicalCapture {
   readonly records: readonly CapturedRecord[];
 }
 
+interface PreparedKnowledgeProjection {
+  readonly searchDetail: string;
+  readonly searchRule: string;
+  readonly value: ProjectedKnowledge;
+}
+
+interface ProjectionRebuildContext {
+  readonly capture: CanonicalCapture;
+  readonly checkpointTransactionId: string | null;
+  readonly database: Database.Database;
+  readonly domain: DomainProjectionSnapshot;
+  readonly indexedAt: string;
+  readonly knowledge: readonly PreparedKnowledgeProjection[];
+}
+
+interface ExistingProjectionMetadata {
+  readonly canonicalDigest: string | null;
+  readonly checkpointTransactionId: string | null;
+  readonly schemaVersion: string | null;
+  readonly tableExists: boolean;
+}
+
 interface ProjectionMetaRow {
   readonly value: string;
 }
@@ -182,9 +204,10 @@ export class SqliteCanonicalProjection {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
     try {
+      const existingMetadata = readExistingProjectionMetadata(database);
       const checkpoint =
         checkpointTransactionId === undefined
-          ? getProjectionMeta(database, "last_committed_transaction_id")
+          ? existingMetadata.checkpointTransactionId
           : checkpointTransactionId;
       rebuildDatabase(database, capture, checkpoint);
       return readSnapshot(database);
@@ -259,7 +282,6 @@ export class SqliteCanonicalProjection {
     database.pragma("synchronous = FULL");
     database.pragma("busy_timeout = 5000");
     database.pragma("foreign_keys = ON");
-    createSchema(database);
     return database;
   }
 }
@@ -284,31 +306,21 @@ function ensureCaptureProjected(
   database: Database.Database,
   capture: CanonicalCapture,
 ): void {
+  const metadata = readExistingProjectionMetadata(database);
   if (
-    getProjectionMeta(database, "canonical_digest") ===
-      capture.canonicalDigest &&
-    getProjectionMeta(database, "schema_version") === PROJECTION_SCHEMA_VERSION
+    metadata.canonicalDigest === capture.canonicalDigest &&
+    metadata.schemaVersion === PROJECTION_SCHEMA_VERSION
   ) {
     return;
   }
-  rebuildDatabase(
-    database,
-    capture,
-    getProjectionMeta(database, "last_committed_transaction_id"),
-  );
+  rebuildDatabase(database, capture, metadata.checkpointTransactionId);
 }
 
 /** Derived tables from an older schema cannot be migrated in place; drop them. */
 function dropOutdatedSchema(database: Database.Database): void {
-  const metaTable = database
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projection_meta'",
-    )
-    .get() as unknown as { name: string } | undefined;
-  if (metaTable === undefined) return;
-  if (
-    getProjectionMeta(database, "schema_version") === PROJECTION_SCHEMA_VERSION
-  ) {
+  const metadata = readExistingProjectionMetadata(database);
+  if (!metadata.tableExists) return;
+  if (metadata.schemaVersion === PROJECTION_SCHEMA_VERSION) {
     return;
   }
   for (const table of PROJECTION_TABLES) {
@@ -316,7 +328,7 @@ function dropOutdatedSchema(database: Database.Database): void {
   }
 }
 
-function createSchema(database: Database.Database): void {
+function prepareProjectionSchema(database: Database.Database): void {
   dropOutdatedSchema(database);
   database.exec(`
     CREATE TABLE IF NOT EXISTS projection_meta (
@@ -540,98 +552,47 @@ function rebuildDatabase(
     capture.records.map((entry) => entry.record),
     capture.knowledge.map((entry) => entry.document),
   );
-  const insertRecord = database.prepare(`
-    INSERT INTO canonical_records (
-      target_path, line_number, record_id, record_type, transaction_id,
-      recorded_at, line_sha256, record_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const insertKnowledge = database.prepare(`
-    INSERT INTO knowledge_documents (
-      path, knowledge_id, repo_id, revision, status, byte_sha256,
-      frontmatter_json, body
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const insertKnowledgeState = database.prepare(`
-    INSERT INTO knowledge_file_state (
-      path, knowledge_id, byte_sha256, size, mtime_ns, indexed_at
-    ) VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  const setMeta = database.prepare(`
-    INSERT INTO projection_meta (key, value) VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `);
+  const knowledge = Object.freeze(
+    domain.knowledge.map((value) =>
+      Object.freeze({
+        searchDetail: foldSearchText(value.detail),
+        searchRule: foldSearchText(value.rule),
+        value,
+      }),
+    ),
+  );
+  const context: ProjectionRebuildContext = Object.freeze({
+    capture,
+    checkpointTransactionId,
+    database,
+    domain,
+    indexedAt: new Date().toISOString(),
+    knowledge,
+  });
 
   database.exec("BEGIN IMMEDIATE");
   try {
-    database.exec(
-      "DELETE FROM canonical_records; DELETE FROM knowledge_documents; DELETE FROM knowledge_file_state;",
+    prepareProjectionSchema(database);
+    replaceExistingProjection(database);
+    writeProjectionEntities(context);
+    writeKnowledgeSearchIndex(context.database, context.knowledge);
+    finalizeProjectionMetadata(
+      context.database,
+      context.capture.canonicalDigest,
+      context.checkpointTransactionId,
     );
-
-    for (const entry of capture.records) {
-      insertRecord.run(
-        entry.targetPath,
-        entry.lineNumber,
-        entry.record.record_id,
-        entry.record.record_type,
-        entry.record.transaction_id,
-        entry.record.recorded_at,
-        entry.lineSha256,
-        JSON.stringify(entry.record),
-      );
-    }
-
-    const indexedAt = new Date().toISOString();
-    for (const entry of capture.knowledge) {
-      const { document } = entry;
-      const status =
-        typeof document.frontmatter.status === "string"
-          ? document.frontmatter.status
-          : null;
-      insertKnowledge.run(
-        document.path,
-        document.frontmatter.id,
-        document.frontmatter.repo_id,
-        document.revision,
-        status,
-        document.etag,
-        JSON.stringify(document.frontmatter),
-        document.body,
-      );
-      insertKnowledgeState.run(
-        document.path,
-        document.frontmatter.id,
-        document.etag,
-        entry.size,
-        entry.mtimeNs,
-        indexedAt,
-      );
-    }
-
-    replaceDomainProjection(database, domain);
-
-    setMeta.run("schema_version", PROJECTION_SCHEMA_VERSION);
-    setMeta.run("canonical_digest", capture.canonicalDigest);
-    setMeta.run("index_dirty", "false");
-    if (checkpointTransactionId === null) {
-      database
-        .prepare("DELETE FROM projection_meta WHERE key = ?")
-        .run("last_committed_transaction_id");
-    } else {
-      setMeta.run("last_committed_transaction_id", checkpointTransactionId);
-    }
     database.exec("COMMIT");
   } catch (error) {
-    database.exec("ROLLBACK");
+    if (database.inTransaction) database.exec("ROLLBACK");
     throw error;
   }
 }
 
-function replaceDomainProjection(
-  database: Database.Database,
-  domain: DomainProjectionSnapshot,
-): void {
+function replaceExistingProjection(database: Database.Database): void {
   database.exec(`
+    DELETE FROM canonical_records;
+    DELETE FROM knowledge_documents;
+    DELETE FROM knowledge_file_state;
     DELETE FROM knowledge_fts;
     DELETE FROM pull_requests;
     DELETE FROM pull_request_snapshots;
@@ -645,16 +606,116 @@ function replaceDomainProjection(
     DELETE FROM submission_receipts;
     DELETE FROM outcomes;
   `);
+}
 
-  const insertPullRequest = database.prepare(`
+function writeProjectionEntities(context: ProjectionRebuildContext): void {
+  writeCanonicalRecords(context.database, context.capture.records);
+  writeKnowledgeDocuments(
+    context.database,
+    context.capture.knowledge,
+    context.indexedAt,
+  );
+  replaceDomainProjection(context.database, context.domain, context.knowledge);
+}
+
+function writeCanonicalRecords(
+  database: Database.Database,
+  records: readonly CapturedRecord[],
+): void {
+  const insert = database.prepare(`
+    INSERT INTO canonical_records (
+      target_path, line_number, record_id, record_type, transaction_id,
+      recorded_at, line_sha256, record_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const entry of records) {
+    insert.run(
+      entry.targetPath,
+      entry.lineNumber,
+      entry.record.record_id,
+      entry.record.record_type,
+      entry.record.transaction_id,
+      entry.record.recorded_at,
+      entry.lineSha256,
+      JSON.stringify(entry.record),
+    );
+  }
+}
+
+function writeKnowledgeDocuments(
+  database: Database.Database,
+  knowledge: readonly CapturedKnowledge[],
+  indexedAt: string,
+): void {
+  const insertDocument = database.prepare(`
+    INSERT INTO knowledge_documents (
+      path, knowledge_id, repo_id, revision, status, byte_sha256,
+      frontmatter_json, body
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertFileState = database.prepare(`
+    INSERT INTO knowledge_file_state (
+      path, knowledge_id, byte_sha256, size, mtime_ns, indexed_at
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  for (const entry of knowledge) {
+    const { document } = entry;
+    const status =
+      typeof document.frontmatter.status === "string"
+        ? document.frontmatter.status
+        : null;
+    insertDocument.run(
+      document.path,
+      document.frontmatter.id,
+      document.frontmatter.repo_id,
+      document.revision,
+      status,
+      document.etag,
+      JSON.stringify(document.frontmatter),
+      document.body,
+    );
+    insertFileState.run(
+      document.path,
+      document.frontmatter.id,
+      document.etag,
+      entry.size,
+      entry.mtimeNs,
+      indexedAt,
+    );
+  }
+}
+
+function replaceDomainProjection(
+  database: Database.Database,
+  domain: DomainProjectionSnapshot,
+  knowledge: readonly PreparedKnowledgeProjection[],
+): void {
+  writePullRequests(database, domain.pullRequests);
+  writePullRequestSnapshots(database, domain.pullRequestSnapshots);
+  writeReviewThreads(database, domain.threads);
+  writeReviewComments(database, domain.comments);
+  writeThreadRemovals(database, domain.threadRemovals);
+  writeDistillJobs(database, domain.distillJobs);
+  writeProjectedKnowledge(database, knowledge);
+  writeEvidence(database, domain.evidence);
+  writeRevisionProposals(database, domain.revisionProposals);
+  writeSubmissionReceipts(database, domain.submissionReceipts);
+  writeOutcomes(database, domain.outcomes);
+}
+
+function writePullRequests(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["pullRequests"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO pull_requests (
       repo_id, pr_number, pull_request_id, name_with_owner, title, merged_at,
       base_ref_oid, head_ref_oid, snapshot_id, observation_id, observed_at,
       payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.pullRequests) {
-    insertPullRequest.run(
+  for (const value of values) {
+    insert.run(
       value.repo_id,
       value.pr_number,
       value.pull_request_id,
@@ -669,15 +730,20 @@ function replaceDomainProjection(
       JSON.stringify(value),
     );
   }
+}
 
-  const insertSnapshot = database.prepare(`
+function writePullRequestSnapshots(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["pullRequestSnapshots"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO pull_request_snapshots (
       snapshot_id, repo_id, pr_number, thread_ids_json,
       review_summary_ids_json, observed_at, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.pullRequestSnapshots) {
-    insertSnapshot.run(
+  for (const value of values) {
+    insert.run(
       value.snapshot_id,
       value.repo_id,
       value.pr_number,
@@ -687,16 +753,21 @@ function replaceDomainProjection(
       JSON.stringify(value),
     );
   }
+}
 
-  const insertThread = database.prepare(`
+function writeReviewThreads(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["threads"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO review_threads (
       repo_id, thread_id, snapshot_id, pr_number, path, comment_ids_json,
       content_fingerprint, state_fingerprint, is_resolved, is_outdated,
       observation_id, observed_at, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.threads) {
-    insertThread.run(
+  for (const value of values) {
+    insert.run(
       value.repo_id,
       value.thread_id,
       value.snapshot_id,
@@ -712,16 +783,21 @@ function replaceDomainProjection(
       JSON.stringify(value),
     );
   }
+}
 
-  const insertComment = database.prepare(`
+function writeReviewComments(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["comments"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO review_comments (
       comment_id, thread_id, snapshot_id, body, diff_hunk, url,
       author_login, author_association, actor_kind, provider, trust,
       created_at, updated_at, observation_id, observed_at, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.comments) {
-    insertComment.run(
+  for (const value of values) {
+    insert.run(
       value.comment_id,
       value.thread_id,
       value.snapshot_id,
@@ -740,15 +816,20 @@ function replaceDomainProjection(
       JSON.stringify(value),
     );
   }
+}
 
-  const insertThreadRemoval = database.prepare(`
+function writeThreadRemovals(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["threadRemovals"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO thread_removals (
       repo_id, thread_id, pr_number, previous_snapshot_id, snapshot_id,
       observation_id, observed_at, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.threadRemovals) {
-    insertThreadRemoval.run(
+  for (const value of values) {
+    insert.run(
       value.repo_id,
       value.thread_id,
       value.pr_number,
@@ -759,16 +840,21 @@ function replaceDomainProjection(
       JSON.stringify(value),
     );
   }
+}
 
-  const insertJob = database.prepare(`
+function writeDistillJobs(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["distillJobs"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO distill_jobs (
       job_id, repo_id, thread_id, distillation_key, state, attempts,
       lease_generation, lease_token_hash, lease_expires_at, skip_reason,
       last_error, next_retry_at, updated_at, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.distillJobs) {
-    insertJob.run(
+  for (const value of values) {
+    insert.run(
       value.job_id,
       value.repo_id,
       value.thread_id,
@@ -785,8 +871,13 @@ function replaceDomainProjection(
       JSON.stringify(value),
     );
   }
+}
 
-  const insertKnowledge = database.prepare(`
+function writeProjectedKnowledge(
+  database: Database.Database,
+  values: readonly PreparedKnowledgeProjection[],
+): void {
+  const insert = database.prepare(`
     INSERT INTO knowledge (
       id, path, repo_id, rule, detail, search_rule, search_detail, category,
       scope_json, severity, status, evidence_count, violation_count,
@@ -794,16 +885,8 @@ function replaceDomainProjection(
       revision, etag, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const deleteKnowledgeFts = database.prepare(
-    "DELETE FROM knowledge_fts WHERE knowledge_id = ?",
-  );
-  const insertKnowledgeFts = database.prepare(
-    "INSERT INTO knowledge_fts (knowledge_id, rule, detail) VALUES (?, ?, ?)",
-  );
-  for (const value of domain.knowledge) {
-    const searchRule = foldSearchText(value.rule);
-    const searchDetail = foldSearchText(value.detail);
-    insertKnowledge.run(
+  for (const { searchDetail, searchRule, value } of values) {
+    insert.run(
       value.id,
       value.path,
       value.repoId,
@@ -826,11 +909,14 @@ function replaceDomainProjection(
       value.createdAt,
       value.updatedAt,
     );
-    deleteKnowledgeFts.run(value.id);
-    insertKnowledgeFts.run(value.id, searchRule, searchDetail);
   }
+}
 
-  const insertEvidence = database.prepare(`
+function writeEvidence(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["evidence"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO evidence (
       evidence_id, knowledge_id, repo_id, occurrence_key, thread_id,
       pr_number, status, eligible_for_count, content_fingerprint,
@@ -839,8 +925,8 @@ function replaceDomainProjection(
       payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.evidence) {
-    insertEvidence.run(
+  for (const value of values) {
+    insert.run(
       value.evidence_id,
       value.knowledge_id,
       value.repo_id,
@@ -863,15 +949,20 @@ function replaceDomainProjection(
       JSON.stringify(value),
     );
   }
+}
 
-  const insertProposal = database.prepare(`
+function writeRevisionProposals(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["revisionProposals"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO revision_proposals (
       proposal_id, knowledge_id, repo_id, status, patch_json,
       evidence_ids_json, created_at, updated_at, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.revisionProposals) {
-    insertProposal.run(
+  for (const value of values) {
+    insert.run(
       value.proposal_id,
       value.knowledge_id,
       value.repo_id,
@@ -883,15 +974,20 @@ function replaceDomainProjection(
       JSON.stringify(value),
     );
   }
+}
 
-  const insertReceipt = database.prepare(`
+function writeSubmissionReceipts(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["submissionReceipts"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO submission_receipts (
       receipt_id, submission_id, job_id, phase, request_sha256,
       stable_response_json, committed_at, payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.submissionReceipts) {
-    insertReceipt.run(
+  for (const value of values) {
+    insert.run(
       value.receipt_id,
       value.submission_id,
       value.job_id,
@@ -902,15 +998,20 @@ function replaceDomainProjection(
       JSON.stringify(value),
     );
   }
+}
 
-  const insertOutcome = database.prepare(`
+function writeOutcomes(
+  database: Database.Database,
+  values: DomainProjectionSnapshot["outcomes"],
+): void {
+  const insert = database.prepare(`
     INSERT INTO outcomes (
       record_id, knowledge_id, repo_id, outcome, at, context_json, note,
       payload_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const value of domain.outcomes) {
-    insertOutcome.run(
+  for (const value of values) {
+    insert.run(
       value.recordId,
       value.knowledge_id,
       value.repo_id,
@@ -920,6 +1021,39 @@ function replaceDomainProjection(
       value.note ?? null,
       JSON.stringify(value),
     );
+  }
+}
+
+function writeKnowledgeSearchIndex(
+  database: Database.Database,
+  values: readonly PreparedKnowledgeProjection[],
+): void {
+  const insert = database.prepare(
+    "INSERT INTO knowledge_fts (knowledge_id, rule, detail) VALUES (?, ?, ?)",
+  );
+  for (const { searchDetail, searchRule, value } of values) {
+    insert.run(value.id, searchRule, searchDetail);
+  }
+}
+
+function finalizeProjectionMetadata(
+  database: Database.Database,
+  canonicalDigest: string,
+  checkpointTransactionId: string | null,
+): void {
+  const setMeta = database.prepare(`
+    INSERT INTO projection_meta (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `);
+  setMeta.run("schema_version", PROJECTION_SCHEMA_VERSION);
+  setMeta.run("canonical_digest", canonicalDigest);
+  setMeta.run("index_dirty", "false");
+  if (checkpointTransactionId === null) {
+    database
+      .prepare("DELETE FROM projection_meta WHERE key = ?")
+      .run("last_committed_transaction_id");
+  } else {
+    setMeta.run("last_committed_transaction_id", checkpointTransactionId);
   }
 }
 
@@ -1180,6 +1314,42 @@ function getProjectionMeta(
     .prepare("SELECT value FROM projection_meta WHERE key = ?")
     .get(key) as unknown as ProjectionMetaRow | undefined;
   return row?.value ?? null;
+}
+
+function readExistingProjectionMetadata(
+  database: Database.Database,
+): ExistingProjectionMetadata {
+  const metaTable = database
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projection_meta'",
+    )
+    .get() as unknown as { name: string } | undefined;
+  if (metaTable === undefined) {
+    return {
+      canonicalDigest: null,
+      checkpointTransactionId: null,
+      schemaVersion: null,
+      tableExists: false,
+    };
+  }
+  const rows = database
+    .prepare(
+      `SELECT key, value FROM projection_meta
+       WHERE key IN (
+         'canonical_digest',
+         'last_committed_transaction_id',
+         'schema_version'
+       )`,
+    )
+    .all() as Array<{ key: string; value: string }>;
+  const values = new Map(rows.map((row) => [row.key, row.value]));
+  return {
+    canonicalDigest: values.get("canonical_digest") ?? null,
+    checkpointTransactionId:
+      values.get("last_committed_transaction_id") ?? null,
+    schemaVersion: values.get("schema_version") ?? null,
+    tableExists: true,
+  };
 }
 
 async function captureCanonicalState(
