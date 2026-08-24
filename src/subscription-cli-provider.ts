@@ -23,23 +23,68 @@ export const DEFAULT_SUBSCRIPTION_CLI_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 export const DEFAULT_SUBSCRIPTION_CLI_TIMEOUT_MS = 120_000;
 export const DEFAULT_SUBSCRIPTION_AUTH_TIMEOUT_MS = 15_000;
 
-const PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES = [
-  "ANTHROPIC_API_KEY",
-  "ANTHROPIC_AUTH_TOKEN",
-  "ANTHROPIC_BASE_URL",
-  "ANTHROPIC_CUSTOM_HEADERS",
-  "CLAUDE_CODE_USE_BEDROCK",
-  "CLAUDE_CODE_USE_FOUNDRY",
-  "CLAUDE_CODE_USE_VERTEX",
-  "GROK_CODE_XAI_API_KEY",
-  "OPENAI_API_KEY",
-  "OPENAI_BASE_URL",
-  "XAI_API_KEY",
-] as const;
-
-const PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLE_NAMES = new Set<string>(
-  PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLES,
-);
+const COMMON_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES = new Set([
+  "HOME",
+  "LANG",
+  "LANGUAGE",
+  "LC_ALL",
+  "LC_COLLATE",
+  "LC_CTYPE",
+  "LC_MESSAGES",
+  "LC_MONETARY",
+  "LC_NUMERIC",
+  "LC_TIME",
+  "NO_COLOR",
+  "PATH",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+]);
+const NETWORK_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES = new Set([
+  "ALL_PROXY",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NODE_EXTRA_CA_CERTS",
+  "NO_PROXY",
+  "SSL_CERT_DIR",
+  "SSL_CERT_FILE",
+  "all_proxy",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+]);
+const PROVIDER_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES: Readonly<
+  Record<EnabledLlmProviderMode, ReadonlySet<string>>
+> = {
+  anthropic: new Set(["CLAUDE_CONFIG_DIR"]),
+  openai: new Set(["CODEX_HOME"]),
+  xai: new Set([
+    "GROK_AUTH_PATH",
+    "GROK_CLAUDE_AGENTS_ENABLED",
+    "GROK_CLAUDE_HOOKS_ENABLED",
+    "GROK_CLAUDE_MCPS_ENABLED",
+    "GROK_CLAUDE_RULES_ENABLED",
+    "GROK_CLAUDE_SKILLS_ENABLED",
+    "GROK_CODEX_AGENTS_ENABLED",
+    "GROK_CODEX_HOOKS_ENABLED",
+    "GROK_CODEX_MCPS_ENABLED",
+    "GROK_CODEX_RULES_ENABLED",
+    "GROK_CODEX_SKILLS_ENABLED",
+    "GROK_CURSOR_AGENTS_ENABLED",
+    "GROK_CURSOR_HOOKS_ENABLED",
+    "GROK_CURSOR_MCPS_ENABLED",
+    "GROK_CURSOR_RULES_ENABLED",
+    "GROK_CURSOR_SKILLS_ENABLED",
+    "GROK_DISABLE_API_KEY_AUTH",
+    "GROK_DISABLE_AUTOUPDATER",
+    "GROK_HOME",
+    "GROK_MANAGED_MCPS_ENABLED",
+  ]),
+};
 const UNSAFE_OBJECT_PROPERTY_NAMES = new Set([
   "__proto__",
   "constructor",
@@ -174,7 +219,11 @@ export class SubscriptionCliProviderAdapter implements LlmProviderAdapter {
     let invocation: SubscriptionCliInvocation;
     try {
       invocation = await this.definition.createInvocation({
-        environment: subscriptionOnlyEnvironment(this.environment),
+        environment: subscriptionOnlyEnvironment(
+          this.environment,
+          {},
+          this.provider,
+        ),
         model,
         request,
         temporaryDirectory,
@@ -196,6 +245,7 @@ export class SubscriptionCliProviderAdapter implements LlmProviderAdapter {
         environment: subscriptionOnlyEnvironment(
           this.environment,
           invocation.environment,
+          this.provider,
         ),
         executable: this.executable,
         ...(invocation.input === undefined ? {} : { input: invocation.input }),
@@ -324,16 +374,20 @@ export async function writePrivateSubscriptionFile(
 export function subscriptionOnlyEnvironment(
   base: Readonly<Record<string, string | undefined>>,
   additions: Readonly<Record<string, string | undefined>> = {},
+  provider?: EnabledLlmProviderMode,
 ): Readonly<Record<string, string | undefined>> {
   const environment = new Map<string, string>();
   for (const [name, value] of Object.entries(base)) {
-    if (isAllowedSubscriptionEnvironmentVariable(name) && value !== undefined) {
+    if (
+      isAllowedSubscriptionEnvironmentVariable(name, provider) &&
+      value !== undefined
+    ) {
       environment.set(name, value);
     }
   }
   for (const [name, value] of Object.entries(additions)) {
     if (
-      !isAllowedSubscriptionEnvironmentVariable(name) ||
+      !isAllowedSubscriptionEnvironmentVariable(name, provider) ||
       value === undefined
     ) {
       environment.delete(name);
@@ -344,11 +398,17 @@ export function subscriptionOnlyEnvironment(
   return Object.fromEntries(environment);
 }
 
-function isAllowedSubscriptionEnvironmentVariable(name: string): boolean {
+function isAllowedSubscriptionEnvironmentVariable(
+  name: string,
+  provider: EnabledLlmProviderMode | undefined,
+): boolean {
   return (
     SAFE_ENVIRONMENT_VARIABLE_NAME.test(name) &&
     !UNSAFE_OBJECT_PROPERTY_NAMES.has(name) &&
-    !PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLE_NAMES.has(name.toUpperCase())
+    (COMMON_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES.has(name) ||
+      NETWORK_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES.has(name) ||
+      (provider !== undefined &&
+        PROVIDER_SUBSCRIPTION_ENVIRONMENT_VARIABLE_NAMES[provider].has(name)))
   );
 }
 
@@ -397,6 +457,7 @@ export class CliLlmSubscriptionInspector
         environment: subscriptionOnlyEnvironment(
           this.environment,
           check.environment,
+          mode,
         ),
         executable: definition.cliExecutable,
         maxBuffer: 1024 * 1024,

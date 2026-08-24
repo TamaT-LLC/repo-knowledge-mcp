@@ -39,8 +39,16 @@ describe("OpenAiProviderAdapter", () => {
     const adapter = new OpenAiProviderAdapter({
       defaultModel: "gpt-test",
       environment: {
+        AWS_ACCESS_KEY_ID: "must-not-be-forwarded",
+        CODEX_HOME: "/home/test/.codex-custom",
+        GH_TOKEN: "must-not-be-forwarded",
+        GITHUB_TOKEN: "must-not-be-forwarded",
+        HOME: "/home/test",
+        HTTPS_PROXY: "http://proxy.internal:8080",
+        LANG: "ja_JP.UTF-8",
+        NODE_EXTRA_CA_CERTS: "/etc/company/ca.pem",
         OPENAI_API_KEY: "must-not-be-forwarded",
-        PATH: process.env.PATH,
+        PATH: "/usr/bin:/bin",
       },
       executor,
     });
@@ -59,14 +67,45 @@ describe("OpenAiProviderAdapter", () => {
         "exec",
         "--ephemeral",
         "--ignore-user-config",
+        "--ignore-rules",
+        "--strict-config",
         "--sandbox",
         "read-only",
         "--model",
         "gpt-test",
       ]),
     );
+    expect(argumentValues(captured!.args, "--disable")).toEqual([
+      "apps",
+      "browser_use",
+      "browser_use_external",
+      "browser_use_full_cdp_access",
+      "code_mode_host",
+      "computer_use",
+      "hooks",
+      "image_generation",
+      "multi_agent",
+      "plugins",
+      "shell_tool",
+      "skill_search",
+      "unified_exec",
+      "view_image",
+      "workspace_dependencies",
+    ]);
+    expect(argumentValues(captured!.args, "--config")).toEqual([
+      'approval_policy="never"',
+      'shell_environment_policy.inherit="none"',
+      'web_search="disabled"',
+    ]);
     expect(captured!.args).not.toContain("untrusted review data");
-    expect(captured!.environment).not.toHaveProperty("OPENAI_API_KEY");
+    expect(captured!.environment).toEqual({
+      CODEX_HOME: "/home/test/.codex-custom",
+      HOME: "/home/test",
+      HTTPS_PROXY: "http://proxy.internal:8080",
+      LANG: "ja_JP.UTF-8",
+      NODE_EXTRA_CA_CERTS: "/etc/company/ca.pem",
+      PATH: "/usr/bin:/bin",
+    });
     expect(capturedSchema).toEqual(DISTILLATION_OUTPUT_JSON_SCHEMA);
     expect(capturedInstructions).toBe("system prompt\n");
     expect(result).toEqual({
@@ -198,8 +237,12 @@ describe("CliLlmSubscriptionInspector", () => {
     const inspector = new CliLlmSubscriptionInspector({
       environment: {
         ANTHROPIC_API_KEY: "not-forwarded",
+        AWS_SECRET_ACCESS_KEY: "not-forwarded",
+        GH_TOKEN: "not-forwarded",
+        GITHUB_TOKEN: "not-forwarded",
+        HOME: "/home/test",
         OPENAI_API_KEY: "not-forwarded",
-        PATH: process.env.PATH,
+        PATH: "/usr/bin:/bin",
         XAI_API_KEY: "not-forwarded",
       },
       executor: async (request) => {
@@ -216,6 +259,9 @@ describe("CliLlmSubscriptionInspector", () => {
     expect(captured!.environment).not.toHaveProperty("ANTHROPIC_API_KEY");
     expect(captured!.environment).not.toHaveProperty("OPENAI_API_KEY");
     expect(captured!.environment).not.toHaveProperty("XAI_API_KEY");
+    expect(captured!.environment).not.toHaveProperty("AWS_SECRET_ACCESS_KEY");
+    expect(captured!.environment).not.toHaveProperty("GH_TOKEN");
+    expect(captured!.environment).not.toHaveProperty("GITHUB_TOKEN");
   });
 
   it("rejects API-key Codex login status", async () => {
@@ -242,22 +288,72 @@ describe("CliLlmSubscriptionInspector", () => {
 });
 
 describe("subscriptionOnlyEnvironment", () => {
-  it("strips direct and alternate provider credentials", () => {
+  it("allows only runtime, locale, and selected provider variables", () => {
     expect(
-      subscriptionOnlyEnvironment({
-        ANTHROPIC_API_KEY: "a",
-        ANTHROPIC_AUTH_TOKEN: "b",
-        CLAUDE_CODE_USE_BEDROCK: "1",
-        GROK_CODE_XAI_API_KEY: "c",
-        OPENAI_API_KEY: "d",
-        PATH: "/bin",
-        XAI_API_KEY: "e",
-      }),
-    ).toEqual({ PATH: "/bin" });
+      subscriptionOnlyEnvironment(
+        {
+          ANTHROPIC_API_KEY: "a",
+          AWS_ACCESS_KEY_ID: "b",
+          CODEX_HOME: "/home/test/.codex",
+          CUSTOM_SECRET: "c",
+          GH_TOKEN: "d",
+          GITHUB_TOKEN: "e",
+          GROK_HOME: "/home/test/.grok",
+          HOME: "/home/test",
+          HTTP_PROXY: "http://proxy.internal:8080",
+          HTTPS_PROXY: "http://proxy.internal:8080",
+          LANG: "ja_JP.UTF-8",
+          NODE_EXTRA_CA_CERTS: "/etc/company/ca.pem",
+          NO_PROXY: "localhost,127.0.0.1",
+          OPENAI_API_KEY: "f",
+          PATH: "/bin",
+          SSL_CERT_FILE: "/etc/company/ca.pem",
+          SSH_AUTH_SOCK: "/tmp/agent.sock",
+          XAI_API_KEY: "g",
+        },
+        {},
+        "openai",
+      ),
+    ).toEqual({
+      CODEX_HOME: "/home/test/.codex",
+      HOME: "/home/test",
+      HTTP_PROXY: "http://proxy.internal:8080",
+      HTTPS_PROXY: "http://proxy.internal:8080",
+      LANG: "ja_JP.UTF-8",
+      NODE_EXTRA_CA_CERTS: "/etc/company/ca.pem",
+      NO_PROXY: "localhost,127.0.0.1",
+      PATH: "/bin",
+      SSL_CERT_FILE: "/etc/company/ca.pem",
+    });
+  });
+
+  it("keeps provider-specific variables isolated to that provider", () => {
+    const base = {
+      CLAUDE_CONFIG_DIR: "/home/test/.claude-custom",
+      CODEX_HOME: "/home/test/.codex-custom",
+      GROK_AUTH_PATH: "/home/test/.grok/auth.json",
+      GROK_HOME: "/home/test/.grok",
+      HOME: "/home/test",
+    };
+
+    expect(subscriptionOnlyEnvironment(base, {}, "anthropic")).toEqual({
+      CLAUDE_CONFIG_DIR: "/home/test/.claude-custom",
+      HOME: "/home/test",
+    });
+    expect(subscriptionOnlyEnvironment(base, {}, "openai")).toEqual({
+      CODEX_HOME: "/home/test/.codex-custom",
+      HOME: "/home/test",
+    });
+    expect(subscriptionOnlyEnvironment(base, {}, "xai")).toEqual({
+      GROK_AUTH_PATH: "/home/test/.grok/auth.json",
+      GROK_HOME: "/home/test/.grok",
+      HOME: "/home/test",
+    });
   });
 
   it("copies only safe names without dynamic object property writes", () => {
     const base = Object.assign(Object.create(null) as Record<string, string>, {
+      CODEX_HOME: "/home/test/.codex",
       PATH: "/bin",
       REMOVE_ME: "old",
       openai_api_key: "lowercase-secret",
@@ -268,12 +364,19 @@ describe("subscriptionOnlyEnvironment", () => {
     });
 
     expect(
-      subscriptionOnlyEnvironment(base, {
-        ADDED: "yes",
-        PATH: "/usr/bin",
-        REMOVE_ME: undefined,
-      }),
-    ).toEqual({ ADDED: "yes", PATH: "/usr/bin" });
+      subscriptionOnlyEnvironment(
+        base,
+        {
+          ADDED: "yes",
+          PATH: "/usr/bin",
+          REMOVE_ME: undefined,
+        },
+        "openai",
+      ),
+    ).toEqual({
+      CODEX_HOME: "/home/test/.codex",
+      PATH: "/usr/bin",
+    });
     expect(Object.prototype).not.toHaveProperty("polluted");
   });
 });
@@ -285,6 +388,14 @@ function argumentValue(args: readonly string[], name: string): string {
     throw new TypeError(`missing ${name}`);
   }
   return value;
+}
+
+function argumentValues(args: readonly string[], name: string): string[] {
+  return args.flatMap((argument, index) =>
+    argument === name && args[index + 1] !== undefined
+      ? [args[index + 1]!]
+      : [],
+  );
 }
 
 function succeeded(stdout: string): BufferedCommandResult {
