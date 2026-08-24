@@ -175,7 +175,9 @@ MCP の `ingest_pr` と `sync_repo` も同じ Provider Adapter を使います�
 MCP server 起動後に `llm` 設定を変えた場合は、client から server を再接続して config を読み直してください。
 
 Provider Adapter が送る data には、comment ID、本文、時刻、actor と trust の metadata、path、取得済み diff hunk、repository context、candidate、既存 rule の要約が含まれます。
-review content と diff に対する secret scanner はないため、secret が含まれる可能性がある repository では有効にしないでください。
+これらの field は provider CLI を起動する前に sensitive-content scanner で検査されます。
+検出時は `SENSITIVE_CONTENT_DETECTED` で処理を止め、provider process へ payload を渡しません。
+error には検出値を含めず、field path と kind だけを返します。
 
 ## host-assisted distillation を使う
 
@@ -205,6 +207,13 @@ Provider CLI は起動せず、`llm.mode` は `disabled` のままにします�
 `prepare_distillation` は既定で一度に一件だけを lease します。
 normalized comment、actor、path、output schema を host model へ渡します。
 diff hunk は `includeDiffHunk: true` の場合だけ送信します。
+extract 時の comment と diff、finalize 時の candidate と possible match は、MCP client へ返す前に Provider Adapter と同じ scanner で検査されます。
+
+sensitive content が見つかった job は `reason: sensitive_content_detected` として blocked になります。
+`sensitive_content_findings` に含まれるのは field path と kind だけです。
+実在する credential は失効または rotate し、送信元から削除または伏せ字にしてから再同期してください。
+false positive は元の文字列を書き換えるか、外部送信を無効のままにします。
+scanner の pattern を弱めて回避しないでください。
 
 ## trusted-human rule の自動 active 化
 

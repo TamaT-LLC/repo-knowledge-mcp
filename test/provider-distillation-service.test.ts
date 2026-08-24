@@ -26,6 +26,7 @@ import {
   type LlmProviderAdapter,
   type DistillJobCoordinatorOptions,
   type ProviderDistillationDiagnostic,
+  type ProviderDistillationRunRequest,
   type ProviderDistillationThread,
   type RepoKnowledgeConfig,
   type StructuredCompletionRequest,
@@ -507,6 +508,81 @@ describe("ProviderDistillationService", () => {
     ]);
     expect(JSON.stringify(diagnostics)).not.toContain("private review body");
   });
+
+  it.each([
+    {
+      comment: { body: "ghp_0123456789abcdefghij0123456789" },
+      expectedKind: "github_token",
+      expectedPath: "$.review_data.thread.comments[0].body",
+      label: "review body",
+      secret: "ghp_0123456789abcdefghij0123456789",
+    },
+    {
+      comment: {
+        body: "Use a stable comparator.",
+        diffHunk: "sk-ant-synthetic1234567890",
+      },
+      expectedKind: "provider_api_key",
+      expectedPath: "$.review_data.thread.comments[0].diff_hunk",
+      label: "diff hunk",
+      secret: "sk-ant-synthetic1234567890",
+    },
+    {
+      comment: { body: "Use a stable comparator." },
+      expectedKind: "aws_access_key_id",
+      expectedPath: "$.review_data.repository_context.aws_key",
+      label: "repository context",
+      repositoryContext: {
+        aws_key: "AKIAIOSFODNN7EXAMPLE",
+        language: "TypeScript",
+      },
+      secret: "AKIAIOSFODNN7EXAMPLE",
+    },
+  ])(
+    "rejects sensitive content in $label before leasing or calling the provider",
+    async (sample) => {
+      const repositoryRoot = await createRepository();
+      const configured = enabledConfig();
+      const repositoryContext = sample.repositoryContext ?? REPOSITORY_CONTEXT;
+      const thread = threadFor(
+        configured,
+        "thread-1",
+        sample.comment,
+        repositoryContext,
+      );
+      const coordinator = createCoordinator(repositoryRoot);
+      const created = await coordinator.createJob({
+        distillation_key: thread.distillationKey,
+        repo_id: REPO_ID,
+        thread_id: thread.threadId,
+      });
+      const adapter = new FakeProvider([]);
+      const diagnostics: ProviderDistillationDiagnostic[] = [];
+      let rejection: unknown;
+
+      try {
+        await service(repositoryRoot, configured, adapter, diagnostics).run(
+          runRequest(created.job.job_id, thread, repositoryContext),
+        );
+      } catch (error) {
+        rejection = error;
+      }
+
+      expect(rejection).toMatchObject({
+        code: "SENSITIVE_CONTENT_DETECTED",
+        findings: [{ kind: sample.expectedKind, path: sample.expectedPath }],
+      });
+      expect(String(rejection)).not.toContain(sample.secret);
+      expect(adapter.requests).toEqual([]);
+      expect(diagnostics).toEqual([]);
+      const snapshot = await new CanonicalTransactionStore(
+        repositoryRoot,
+      ).readSnapshot();
+      expect(snapshot.domain.distillJobs[0]).toMatchObject({
+        state: "pending",
+      });
+    },
+  );
 
   it("rejects a job keyed to the M1 output schema instead of treating it as an M2 result", async () => {
     const repositoryRoot = await createRepository();
@@ -1009,7 +1085,12 @@ function enabledConfig(): RepoKnowledgeConfig {
 function threadFor(
   configured: RepoKnowledgeConfig,
   threadId = "thread-1",
-  comment: { readonly body?: string; readonly id?: string } = {},
+  comment: {
+    readonly body?: string;
+    readonly diffHunk?: string;
+    readonly id?: string;
+  } = {},
+  repositoryContext: unknown = REPOSITORY_CONTEXT,
 ): ProviderDistillationThread {
   const prompt = parseDistillationPrompt(PROMPT_SOURCE);
   const normalizedActors = [
@@ -1026,6 +1107,7 @@ function threadFor(
     {
       body: comment.body ?? "private review body",
       createdAt: "2026-08-06T00:00:00.000Z",
+      ...(comment.diffHunk === undefined ? {} : { diffHunk: comment.diffHunk }),
       id: comment.id ?? "comment-1",
       updatedAt: "2026-08-06T00:00:00.000Z",
     },
@@ -1040,7 +1122,7 @@ function threadFor(
     normalizedActors,
     normalizedComments,
     path,
-    repositoryContext: REPOSITORY_CONTEXT,
+    repositoryContext,
     threadId,
   });
   const distillationKey = computeThreadDistillationKey({
@@ -1063,14 +1145,11 @@ function threadFor(
 function runRequest(
   jobId: string,
   thread: ProviderDistillationThread,
-): {
-  readonly job_id: string;
-  readonly repositoryContext: { readonly language: string };
-  readonly thread: ProviderDistillationThread;
-} {
+  repositoryContext: unknown = REPOSITORY_CONTEXT,
+): ProviderDistillationRunRequest {
   return {
     job_id: jobId,
-    repositoryContext: REPOSITORY_CONTEXT,
+    repositoryContext,
     thread,
   };
 }

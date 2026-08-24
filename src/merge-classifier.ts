@@ -24,6 +24,7 @@ import {
 } from "./possible-match.js";
 import { evaluateProviderTransmission } from "./provider-transmission.js";
 import type { RepositoryResolution } from "./repository-resolver.js";
+import { assertNoSensitiveContent } from "./sensitive-content.js";
 
 export const MERGE_CLASSIFIER_OUTPUT_SCHEMA_VERSION = "merge-decisions-v1";
 
@@ -287,6 +288,7 @@ export function buildMergeClassifierInput(request: {
   readonly candidates: readonly ExtractCandidate[];
   readonly possible_matches: readonly PossibleMatchSet<PossibleKnowledgeMatch>[];
 }): string {
+  assertNoSensitiveContent(request, "provider_merge_payload");
   const serialized = escapeTagCharacters(
     canonicalizeJson({
       candidates: request.candidates,

@@ -102,8 +102,25 @@ LLM への外部送信は二つの独立経路があります。
 Provider Adapter は review comment、actor metadata、path、取得済み diff context、repository context、candidate、possible knowledge match を送信し得ます。
 host-assisted は comment と actor metadata を返し、`includeDiffHunk: true` のときだけ diff hunk を含めます。
 
-通常経路に送信前 secret scanner はありません。
-credential を review、diff、config に貼らないでください。
+両経路は外部送信の直前に同じ sensitive-content scanner（機密情報検査）を実行します。
+Provider Adapter では review body、diff hunk、actor、path、repository context、candidate、possible match を検査します。
+host-assisted では `prepare_distillation` が返す comment、actor、path、任意の diff hunk、candidate、possible match を検査します。
+
+scanner は provider key、GitHub / Slack token、AWS / Google key、private key、authorization header、secret の代入、メールアドレスを検出します。
+送信 payload の文字列値だけでなく、JSON に含まれるプロパティ名も検査対象です。
+検出時は fail-closed で送信を止め、`SENSITIVE_CONTENT_DETECTED` を返します。
+scanner は検出値を error、log、telemetry、拒否結果の canonical record へ複製しません。
+安全な finding には field path と kind だけが含まれます。
+送信元の review と diff は、検査前の ingest で local canonical evidence に保存されている場合があります。
+
+実在する credential を検出した場合は、まず失効または rotate してください。
+その後、GitHub 上の review や diff などの送信元から値を削除または伏せ字にします。
+再同期が完了してから蒸留を再実行してください。
+false positive の場合は、検出された文字列を意味が変わらない表現へ書き換えます。
+scanner を回避せず、書き換えられない場合は外部送信を無効のままにしてください。
+
+scanner は既知形式の deny-list であり、すべての機密情報を検出する保証ではありません。
+credential を review、diff、config へ貼らない運用は引き続き必要です。
 機密 repository では provider と host-assisted の両方を無効のまま使用してください。
 
 ## Sync / outcome / provider 測定の data boundary（M2）

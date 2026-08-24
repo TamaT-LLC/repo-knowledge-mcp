@@ -179,6 +179,61 @@ describe("HostAssistedDistillationService", () => {
     );
   });
 
+  it.each([
+    {
+      body: "ghp_0123456789abcdefghij0123456789",
+      diffHunk: "@@ safe diff @@",
+      expectedKind: "github_token",
+      expectedPath: "$.comments[0].body",
+      label: "review body",
+      secret: "ghp_0123456789abcdefghij0123456789",
+    },
+    {
+      body: "Use a stable comparator.",
+      diffHunk: "-----BEGIN SYNTHETIC PRIVATE KEY-----",
+      expectedKind: "private_key_block",
+      expectedPath: "$.comments[0].diff_hunk",
+      label: "diff hunk",
+      secret: "-----BEGIN SYNTHETIC PRIVATE KEY-----",
+    },
+  ])(
+    "blocks sensitive $label content before leasing or returning it",
+    async (sample) => {
+      const root = await createRepository();
+      const config = enabledConfig({ includeDiffHunk: true });
+      await seedPendingJob(root, config, {
+        body: sample.body,
+        diffHunk: sample.diffHunk,
+      });
+
+      const result = await service(root, config, {
+        leaseTokens: ["must-not-be-issued"],
+        now: () => new Date(START + 1_000),
+      }).prepare();
+      const serialized = JSON.stringify(result);
+
+      expect(result).toMatchObject({
+        blocked_jobs: [
+          {
+            reason: "sensitive_content_detected",
+            sensitive_content_findings: [
+              { kind: sample.expectedKind, path: sample.expectedPath },
+            ],
+          },
+        ],
+        jobs: [],
+        state: "prepared",
+      });
+      expect(serialized).not.toContain(sample.secret);
+      expect(serialized).not.toContain("must-not-be-issued");
+      const snapshot = await new CanonicalTransactionStore(root).readSnapshot();
+      expect(snapshot.domain.distillJobs[0]).toMatchObject({
+        lease_generation: 0,
+        state: "pending",
+      });
+    },
+  );
+
   it("does not lease or expose a job whose review payload exceeds the cap", async () => {
     const root = await createRepository();
     const config = enabledConfig({
@@ -350,6 +405,131 @@ describe("HostAssistedDistillationService", () => {
     expect(
       await readFile(join(root, "events", "distillation.jsonl"), "utf8"),
     ).not.toContain("restart-finalize-token");
+  });
+
+  it("blocks a sensitive candidate before returning a finalize job", async () => {
+    const root = await createRepository();
+    const config = enabledConfig();
+    const fixture = await seedPendingJob(root, config, {
+      body: "Prefer deterministic ordering in repository services.",
+    });
+    let now = START + 1_000;
+    const coordinator = new DistillJobCoordinator(
+      new CanonicalTransactionStore(root),
+      coordinatorOptions({
+        leaseTokens: ["original-lease-token"],
+        now: () => new Date(now),
+      }),
+    );
+    const lease = await coordinator.acquireLease({
+      job_id: fixture.jobId,
+      repo_id: REPO_ID,
+    });
+    await coordinator.markAwaitingFinalize(lease!);
+    const secret = "candidate-owner@example.com";
+    const baseCandidate = extractCandidate(fixture.commentId);
+    await appendExtractReceipt(
+      root,
+      fixture.jobId,
+      [
+        {
+          ...baseCandidate,
+          candidate: { ...baseCandidate.candidate, rule: secret },
+        },
+      ],
+      now + 100,
+    );
+    now += 200;
+    const contexts = new RuntimeFinalizeContextStore({
+      nextToken: () => "must-not-be-issued",
+      now: () => new Date(now),
+    });
+
+    const result = await service(root, config, {
+      finalizeContexts: contexts,
+      leaseTokens: ["must-not-be-issued"],
+      now: () => new Date(now),
+    }).prepare();
+
+    expect(result).toMatchObject({
+      blocked_jobs: [
+        {
+          reason: "sensitive_content_detected",
+          sensitive_content_findings: [
+            {
+              kind: "email_address",
+              path: "$.candidates[0].candidate.rule",
+            },
+          ],
+        },
+      ],
+      jobs: [],
+      state: "prepared",
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(contexts.size).toBe(0);
+  });
+
+  it("blocks a sensitive possible match before issuing a finalize handle", async () => {
+    const root = await createRepository();
+    const config = enabledConfig();
+    const fixture = await seedPendingJob(root, config, {
+      body: "Prefer deterministic ordering in repository services.",
+    });
+    let now = START + 1_000;
+    const coordinator = new DistillJobCoordinator(
+      new CanonicalTransactionStore(root),
+      coordinatorOptions({
+        leaseTokens: ["original-lease-token"],
+        now: () => new Date(now),
+      }),
+    );
+    const lease = await coordinator.acquireLease({
+      job_id: fixture.jobId,
+      repo_id: REPO_ID,
+    });
+    await coordinator.markAwaitingFinalize(lease!);
+    await appendExtractReceipt(
+      root,
+      fixture.jobId,
+      [extractCandidate(fixture.commentId)],
+      now + 100,
+    );
+    const secret = "knowledge-owner@example.com";
+    await writeKnowledge(root, {
+      rule: `Prefer deterministic ordering in repository services. Contact ${secret}`,
+    });
+    now += 200;
+    const contexts = new RuntimeFinalizeContextStore({
+      nextToken: () => "must-not-be-issued",
+      now: () => new Date(now),
+    });
+
+    const result = await service(root, config, {
+      finalizeContexts: contexts,
+      leaseTokens: ["resumed-lease-token"],
+      now: () => new Date(now),
+    }).prepare();
+
+    expect(result).toMatchObject({
+      blocked_jobs: [
+        {
+          reason: "sensitive_content_detected",
+          sensitive_content_findings: [
+            {
+              kind: "email_address",
+              path: "$.possible_matches[0].possible_matches[0].rule",
+            },
+          ],
+        },
+      ],
+      jobs: [],
+      state: "prepared",
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(contexts.size).toBe(0);
+    const snapshot = await new CanonicalTransactionStore(root).readSnapshot();
+    expect(snapshot.domain.distillJobs[0]?.state).toBe("failed");
   });
 
   it("does not issue a finalize handle when ingest changes the source during match search", async () => {
@@ -721,7 +901,10 @@ function extractCandidate(commentId: string): DomainExtractCandidate {
   };
 }
 
-async function writeKnowledge(root: string): Promise<void> {
+async function writeKnowledge(
+  root: string,
+  options: { readonly rule?: string } = {},
+): Promise<void> {
   const relativePath = `knowledge/${KNOWLEDGE_ID}.md`;
   await mkdir(join(root, "knowledge"), { recursive: true });
   await writeFile(
@@ -734,7 +917,9 @@ async function writeKnowledge(root: string): Promise<void> {
         id: KNOWLEDGE_ID,
         repo_id: REPO_ID,
         revision: 1,
-        rule: "Prefer deterministic ordering in repository services.",
+        rule:
+          options.rule ??
+          "Prefer deterministic ordering in repository services.",
         schema_version: 1,
         scope: ["src/**"],
         severity: "should",

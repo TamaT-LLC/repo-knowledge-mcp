@@ -88,14 +88,23 @@ export {
   AnonymizedThreadCorpusSchema,
   MINIMUM_QUALITY_GATE_THREADS,
   SensitiveContentError,
-  findSensitiveContent,
   parseAnonymizedThreadCorpus,
   type AnonymizedCorpusSearch,
   type AnonymizedCorpusThread,
   type AnonymizedThreadCorpus,
+} from "./golden-corpus.js";
+export {
+  SENSITIVE_CONTENT_DETECTED,
+  SensitiveContentBoundarySchema,
+  SensitiveContentFindingSchema,
+  SensitiveContentKindSchema,
+  SensitiveContentTransmissionError,
+  assertNoSensitiveContent,
+  findSensitiveContent,
+  type SensitiveContentBoundary,
   type SensitiveContentFinding,
   type SensitiveContentKind,
-} from "./golden-corpus.js";
+} from "./sensitive-content.js";
 export {
   GoldenFixtureSchema,
   evaluateGoldenFixture,

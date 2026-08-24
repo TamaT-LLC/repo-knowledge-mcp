@@ -7,6 +7,7 @@ import {
   Sha256DigestSchema,
   type ReviewerIdentity,
 } from "./domain-schemas.js";
+import { assertNoSensitiveContent } from "./sensitive-content.js";
 
 export const DISTILLATION_OUTPUT_SCHEMA_VERSION = "distill-output-v2";
 
@@ -246,6 +247,15 @@ export function buildDistillationUserInput(
       thread_id: request.thread.threadId,
     },
   };
+  assertNoSensitiveContent(
+    {
+      review_data: reviewData,
+      ...(request.retryValidationError === undefined
+        ? {}
+        : { retry_validation_error: request.retryValidationError }),
+    },
+    "provider_distillation_payload",
+  );
   const serialized = escapeTagCharacters(canonicalizeJson(reviewData));
   const retry =
     request.retryValidationError === undefined

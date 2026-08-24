@@ -87,6 +87,9 @@ export function summarizePrepare(
       },
     };
   }
+  const sensitiveContentBlocked = result.blocked_jobs.some(
+    (job) => job.reason === "sensitive_content_detected",
+  );
   return {
     body: `### Distillation prepared\n\nLeased **${result.jobs.length}** job(s); **${result.blocked_jobs.length}** blocked.`,
     summary: {
@@ -97,8 +100,10 @@ export function summarizePrepare(
       next_action:
         result.jobs.length > 0
           ? "Distill each leased job and call submit_distillation with phase extract."
-          : "No submission is required; ingest changed review content before preparing again.",
-      retryable: false,
+          : sensitiveContentBlocked
+            ? "Remove or redact every flagged source field, re-ingest the pull request, then call prepare_distillation again. For a false positive, rewrite the flagged text or keep host-assisted transmission disabled."
+            : "No submission is required; ingest changed review content before preparing again.",
+      retryable: sensitiveContentBlocked,
     },
   };
 }
