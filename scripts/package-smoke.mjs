@@ -47,6 +47,11 @@ const expectedHelpCommands = ["sync [repo]", "stats [repo]", "distill [repo]"];
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
+  const typeScriptVersion = parseLockedTypeScriptVersion(
+    JSON.parse(
+      await readFile(join(repositoryRoot, "package-lock.json"), "utf8"),
+    ),
+  );
   const temporaryRoot = await mkdtemp(join(tmpdir(), "rkm-package-smoke-"));
   try {
     const packDirectory = join(temporaryRoot, "pack");
@@ -95,7 +100,14 @@ async function main() {
       "utf8",
     );
     await runNpm(
-      ["install", "--no-audit", "--no-fund", "--loglevel=error", installSpec],
+      [
+        "install",
+        "--no-audit",
+        "--no-fund",
+        "--loglevel=error",
+        installSpec,
+        `typescript@${typeScriptVersion}`,
+      ],
       installDirectory,
     );
 
@@ -152,7 +164,7 @@ async function main() {
     await run(
       process.execPath,
       [
-        join(repositoryRoot, "node_modules", "typescript", "bin", "tsc"),
+        join(installDirectory, "node_modules", "typescript", "bin", "tsc"),
         "--module",
         "NodeNext",
         "--moduleResolution",
@@ -354,6 +366,7 @@ async function main() {
           package_source: packageSource,
           review_help: true,
           stdio_json_rpc: true,
+          typescript_version: typeScriptVersion,
           workspace_clean: true,
         },
         null,
@@ -653,6 +666,20 @@ function parseArguments(argv) {
   return options;
 }
 
+export function parseLockedTypeScriptVersion(packageLock) {
+  const packages = asRecord(asRecord(packageLock).packages);
+  const typeScript = asRecord(packages["node_modules/typescript"]);
+  const version = typeScript.version;
+  assert(
+    typeof version === "string" &&
+      /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u.test(
+        version,
+      ),
+    "package-lock must pin one exact TypeScript compiler version",
+  );
+  return version;
+}
+
 function asErrorCode(error) {
   return typeof error === "object" && error !== null && "code" in error
     ? String(error.code)
@@ -823,4 +850,11 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-await main();
+function isMainModule() {
+  return (
+    process.argv[1] !== undefined &&
+    resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  );
+}
+
+if (isMainModule()) await main();

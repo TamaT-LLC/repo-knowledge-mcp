@@ -21,6 +21,7 @@ import {
   STABLE_ROOT_API,
   STABLE_ROOT_RUNTIME_EXPORTS,
 } from "./public-api-inventory.mjs";
+import { parseLockedTypeScriptVersion } from "./package-smoke.mjs";
 import {
   BOOTSTRAP_INVENTORY_SCHEMA,
   BOOTSTRAP_TAG,
@@ -144,6 +145,24 @@ export { CanonicalTransactionStore } from "./canonical-transaction-store.js";
       main: "./dist/index.js",
       types: "./dist/index.d.ts",
     }),
+  );
+});
+
+test("package smoke installs the exact locked TypeScript compiler", async () => {
+  const packageLock = JSON.parse(
+    await readFile(new URL("../package-lock.json", import.meta.url), "utf8"),
+  );
+  assert.equal(parseLockedTypeScriptVersion(packageLock), "6.0.3");
+  assert.throws(
+    () =>
+      parseLockedTypeScriptVersion({
+        packages: { "node_modules/typescript": { version: "^6.0.3" } },
+      }),
+    /exact TypeScript compiler version/u,
+  );
+  assert.throws(
+    () => parseLockedTypeScriptVersion({ packages: {} }),
+    /expected an object/u,
   );
 });
 

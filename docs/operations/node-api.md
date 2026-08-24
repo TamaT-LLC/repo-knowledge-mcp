@@ -67,6 +67,7 @@ import { CanonicalTransactionStore } from "@tamat-llc/repo-knowledge-mcp/experim
 
 `npm run package:gate` は package entry point、root runtime export、生成 declaration を inventory と照合します。
 `npm run package:smoke` は tarball を空の一時 project へ install し、次を検証します。
+型検証用の TypeScript は repository の `node_modules` に依存せず、`package-lock.json` の exact version を一時 project へ install します。
 
 - package 名から stable root と `./experimental` を import できる
 - stable root の runtime export が inventory と完全一致する
