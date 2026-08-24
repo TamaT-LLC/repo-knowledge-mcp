@@ -91,6 +91,8 @@ Stable packageは初回からOIDCで公開し、GitHub secretやtraditional publ
 
 ### Security review
 
+公開方式の判定には[2026-08-24のM3 npm公開方式セキュリティレビュー](./m3-npm-release-security-review-2026-08-24.md)を使う。
+
 | 項目 | 結果 | 根拠 |
 | --- | --- | --- |
 | CodeQL（Actions、JavaScript、TypeScript） | pass / fail | `___` |

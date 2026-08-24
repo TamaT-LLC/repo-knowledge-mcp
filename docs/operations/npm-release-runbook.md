@@ -4,6 +4,8 @@
 
 通常の公開は GitHub Actions と npm trusted publishing を使い、長期 npm credential を repository secret に保存しない。
 
+公開境界の差分レビューは[2026-08-24のM3 npm公開方式セキュリティレビュー](./m3-npm-release-security-review-2026-08-24.md)を正本とする。
+
 ## 1. 公開契約
 
 | 項目 | 契約 |
