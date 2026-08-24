@@ -63,14 +63,16 @@ test("package artifact paths use an explicit release allowlist", () => {
     ".repo-knowledge/config.json",
     "dist/fixture.json",
     "dist/private.pem",
-    "dist/stdio-bin.d.ts",
-    "dist/stdio-bin.js",
     "dist/doctor/nested/checks-canonical.js",
     "fixtures/review.json",
     "../package.json",
     "/tmp/package.json",
   ]) {
     assert.throws(() => validatePackagePath(path));
+  }
+
+  for (const path of ["dist/stdio-bin.d.ts", "dist/stdio-bin.js"]) {
+    assert.throws(() => validatePackagePath(path), /obsolete entry/u);
   }
 });
 
