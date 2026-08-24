@@ -106,7 +106,8 @@ raw evidence と pending job はローカルに保存されるため、後から
 ## Provider Adapter で蒸留する
 
 Provider Adapter は、ローカルでログイン済みの provider CLI を通じて distillation prompt と review data を送ります。
-API key は設定しません。server は provider CLI の子 process から API key environment を除外し、サブスクリプション login だけを使います。
+API key は設定しません。server は provider CLI の子 process へ渡す環境変数を実行・locale・provider subscription 認証に必要な allowlist に限定し、GitHub token や cloud credential を含むその他の親 process 環境変数を除外します。
+Codex CLI では user config と rule の読み込みに加え、shell、browser、computer、plugin 等の tool feature と web search も無効化します。
 
 | `llm.mode` | 利用する CLI | login / 確認 |
 | --- | --- | --- |

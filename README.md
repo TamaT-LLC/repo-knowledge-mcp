@@ -281,7 +281,8 @@ diff hunk の送信には別の opt-in が必要です。
 
 Provider Adapter の `llm.mode` は `anthropic`、`openai`、`xai` に対応します。
 認証には `claude auth login`、`codex login`、`grok login` で作成したサブスクリプション session を使います。
-Provider API key は設定せず、子 CLI process にも API key environment を渡しません。
+Provider API key は設定せず、子 CLI process へ渡す環境変数も実行・locale・provider subscription 認証に必要な allowlist に限定します。
+GitHub token、cloud credential、その他の任意の親 process 環境変数は引き継ぎません。
 
 `trust.autoActivateTrustedHuman` も既定では `false` です。
 この値を有効にしても、pilot、quality gate、trust policy の条件を満たす trusted-human non-`must` candidate だけが対象になります。
