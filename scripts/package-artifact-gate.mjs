@@ -110,7 +110,7 @@ export async function createPackageArtifact(options = {}) {
   const tarball = join(packDestination, basename(packed.filename));
   const report = {
     entry_count: packed.files.length,
-    file_allowlist: "dist-js-dts-plus-explicit-root-files-v1",
+    file_allowlist: "dist-js-dts-plus-explicit-root-files-v2",
     integrity: packed.integrity,
     name: packed.name,
     report_kind: PACKAGE_ARTIFACT_REPORT_KIND,
@@ -219,7 +219,7 @@ export function validatePackagePath(path) {
   );
   const allowed =
     allowedRootPaths.has(path) ||
-    /^dist\/[a-z0-9-]+(?:\.d\.ts|\.js)$/u.test(path);
+    /^dist\/(?:[a-z0-9-]+\/)?[a-z0-9-]+(?:\.d\.ts|\.js)$/u.test(path);
   assert(allowed, `packed artifact contains unexpected path ${path}`);
 }
 
