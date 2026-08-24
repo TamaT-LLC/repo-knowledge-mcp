@@ -48,7 +48,7 @@ jobs:
           --tag "${{ github.event.release.tag_name }}"
           --commit "${{ github.sha }}"
           --repository-visibility "${{ github.event.repository.visibility }}"
-      - name: Run source checks
+      - name: Run source checks and coverage gate
         run: npm run check
       - name: Run golden evaluations
         run: npm run golden

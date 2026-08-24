@@ -1,5 +1,7 @@
 import { configDefaults, defineConfig } from "vitest/config";
 
+import { coverageConfig } from "./coverage.config.mjs";
+
 // Several suites shell out to real child processes (CLI, MCP stdio and PTY
 // end-to-end flows, locale-matrix digest checks) or drive SQLite over a temp
 // directory. On an idle machine the slowest of those that does not pin its own
@@ -14,6 +16,7 @@ const TEST_TIMEOUT_MS = 30_000;
 
 export default defineConfig({
   test: {
+    coverage: coverageConfig,
     exclude: [...configDefaults.exclude, ".claude/worktrees/**"],
     testTimeout: TEST_TIMEOUT_MS,
     hookTimeout: TEST_TIMEOUT_MS,

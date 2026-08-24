@@ -35,7 +35,8 @@ jobs:
           npm audit signatures
       - name: Run verified dependency lifecycle scripts
         run: npm rebuild
-      - run: npm run check
+      - name: Run source checks and coverage gate
+        run: npm run check
       # Offline M2 quality gate: recorded predictions only, no live network
       # access and no provider credential. Fails on any metric below its
       # reviewed minimum, on fixture drift, and on threshold/baseline or

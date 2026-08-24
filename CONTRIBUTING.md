@@ -54,6 +54,31 @@ npm run package:smoke
 文書だけの変更でも、少なくとも`npm run docs:check`と`npm run format:check`を実行してください。
 Pull RequestのCIはNode.js 22と24で全gateを再実行します。
 
+### Coverage gate
+
+`npm run check`は全テストを1回だけcoverage付きで実行し、4指標の最低値を検証します。
+coverageだけを確認する場合は`npm run test:coverage`を実行してください。
+閾値検査そのものの回帰テストは`npm run test:coverage-thresholds`で実行できます。
+
+対象は`src/**/*.ts`の全ファイルです。
+直接実行されるCLI entry pointも対象に含め、未importのファイルは0%として集計します。
+実行コードを持たない`src/**/*.d.ts`だけを除外します。
+テスト、fixture、build script、設定ファイルは製品の実行コードではないため対象外です。
+
+2026-08-24にmainの`a1effb66a275d4929dba0d02f84818c8297a20ef`をNode.js 24.19.0で計測したbaselineと閾値は次のとおりです。
+Node.js 22と24で安定して通る余白を残すため、実測値の小数点以下を切り捨てた整数を初期閾値にしました。
+
+| 指標 | baseline | 閾値 |
+| --- | ---: | ---: |
+| Lines | 84.60% | 84% |
+| Branches | 73.60% | 73% |
+| Functions | 91.59% | 91% |
+| Statements | 83.78% | 83% |
+
+閾値はmainでcoverageが上がったときに引き上げ、原則として下げません。
+更新時はNode.js 22と24で`npm run test:coverage`を実行し、低い方の実測値を超えない整数へ変更してください。
+除外対象の追加や閾値の引き下げが必要な場合は、理由と影響範囲をIssueとPull Requestへ記録してください。
+
 ## Pull Requestを作る
 
 Pull Requestには、変更理由、変更内容、関連Issue、検証結果を記載してください。
