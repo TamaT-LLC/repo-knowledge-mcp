@@ -73,6 +73,6 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 2. npm organization、license、GitHub repositoryのpublic visibilityを確定する。初回公開は2FA付きorganization memberからinert bootstrap packageだけを公開し、npm trusted publisherを固定する。Stable packageは初回からOIDCで公開し、GitHub environmentへtraditional tokenを登録しない。
 3. `package.json` の version、`v<version>` tag、GitHub release、npm registry の exact version を一致させる。
 4. Release CI の Node.js 22 / 24 `verify` と `registry-smoke` を成功させる。
-5. [M3 release report template](../operations/m3-release-report-template.md) を実測値で埋め、reviewer の判定を残す。
+5. [M3 v0.3.0 release report](../operations/m3-release-v0.3.0.md) を実測値で埋め、[release report template](../operations/m3-release-report-template.md) が要求するreviewerの判定を残す。
 
 これらが完了するまでは、M3 の実装 gate が green でも v0.3 release と Issue #93 を完了扱いにしない。
