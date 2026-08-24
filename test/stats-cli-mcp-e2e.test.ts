@@ -23,7 +23,7 @@ import {
   type DistillJob,
   type KnowledgeEvidence,
   type KnowledgeOutcome,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY = "owner/repository";
 const REPO_ID = "R_stats_e2e_repository";

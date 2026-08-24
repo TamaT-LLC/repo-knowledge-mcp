@@ -10,7 +10,7 @@ import {
   parseDistillationPrompt,
   parseRepoKnowledgeConfig,
   type RepositoryResolution,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const temporaryDirectories: string[] = [];
 

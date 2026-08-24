@@ -19,7 +19,7 @@ import {
   type SetupTrustCandidate,
   type SyncCheckpoint,
   type SyncRepoSummary,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const NOW = new Date("2026-08-09T00:00:00.000Z");
 const DEFAULT_SINCE = "2026-05-11T00:00:00.000Z";

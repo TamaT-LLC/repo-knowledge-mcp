@@ -4,7 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { RepositoryRegistry, repositoryStorageId } from "../src/index.js";
+import {
+  RepositoryRegistry,
+  repositoryStorageId,
+} from "../src/experimental.js";
 
 const temporaryRegistries: string[] = [];
 

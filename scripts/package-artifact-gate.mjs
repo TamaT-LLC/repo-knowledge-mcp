@@ -16,11 +16,17 @@ import {
   relative,
   resolve,
 } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import {
+  EXPECTED_PACKAGE_EXPORTS,
+  STABLE_ROOT_API,
+  STABLE_ROOT_RUNTIME_EXPORTS,
+} from "./public-api-inventory.mjs";
 
 export const PACKAGE_ARTIFACT_REPORT_KIND =
   "repo_knowledge_npm_package_artifact_gate";
-export const PACKAGE_ARTIFACT_REPORT_SCHEMA_VERSION = 1;
+export const PACKAGE_ARTIFACT_REPORT_SCHEMA_VERSION = 2;
 export const EXPECTED_PACKAGE_NAME = "@tamat-llc/repo-knowledge-mcp";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -29,6 +35,8 @@ const requiredPackagePaths = [
   "README.md",
   "SECURITY.md",
   "dist/bin.js",
+  "dist/experimental.d.ts",
+  "dist/experimental.js",
   "dist/index.d.ts",
   "dist/index.js",
   "dist/stdio-bin.js",
@@ -93,6 +101,7 @@ export async function createPackageArtifact(options = {}) {
     ).stdout,
   );
   validatePackageManifest(dryRun);
+  await validatePublicApiArtifact(cwd);
   await scanPackageSourceFiles(cwd, dryRun.files);
 
   const packed = parsePackResult(
@@ -110,13 +119,17 @@ export async function createPackageArtifact(options = {}) {
   const tarball = join(packDestination, basename(packed.filename));
   const report = {
     entry_count: packed.files.length,
-    file_allowlist: "dist-js-dts-plus-explicit-root-files-v2",
+    file_allowlist: "dist-js-dts-plus-explicit-root-files-v3",
     integrity: packed.integrity,
     name: packed.name,
     report_kind: PACKAGE_ARTIFACT_REPORT_KIND,
     schema_version: PACKAGE_ARTIFACT_REPORT_SCHEMA_VERSION,
     secret_patterns_checked: secretPatterns.map((entry) => entry.name),
     shasum: packed.shasum,
+    stable_root_runtime_exports: STABLE_ROOT_RUNTIME_EXPORTS,
+    stable_root_type_exports: STABLE_ROOT_API.filter(
+      ({ kind }) => kind === "type",
+    ).map(({ name }) => name),
     status: "pass",
     tarball,
     version: packed.version,
@@ -195,6 +208,83 @@ export function validatePackageManifest(result) {
     assert(paths.includes(path), `packed artifact is missing ${path}`);
   }
   for (const path of paths) validatePackagePath(path);
+}
+
+export async function validatePublicApiArtifact(root) {
+  const absoluteRoot = resolve(root);
+  const packageDocument = JSON.parse(
+    await readFile(join(absoluteRoot, "package.json"), "utf8"),
+  );
+  validatePublicApiManifest(packageDocument);
+
+  const declaration = await readFile(
+    join(absoluteRoot, "dist", "index.d.ts"),
+    "utf8",
+  );
+  validateRootDeclaration(declaration);
+
+  const rootModuleUrl = pathToFileURL(join(absoluteRoot, "dist", "index.js"));
+  rootModuleUrl.searchParams.set(
+    "artifact-gate",
+    `${String(process.pid)}-${String(Date.now())}`,
+  );
+  const rootModule = await import(rootModuleUrl.href);
+  validateRootRuntimeExports(Object.keys(rootModule));
+}
+
+export function validatePublicApiManifest(packageDocument) {
+  const document = asRecord(packageDocument);
+  assert(
+    document.main === "./dist/index.js",
+    "package main must target the stable root JavaScript declaration",
+  );
+  assert(
+    document.types === "./dist/index.d.ts",
+    "package types must target the stable root type declaration",
+  );
+  assert(
+    canonicalJson(document.exports) === canonicalJson(EXPECTED_PACKAGE_EXPORTS),
+    "package exports do not match the reviewed public API inventory",
+  );
+}
+
+export function parseRootDeclaration(declaration) {
+  assert(typeof declaration === "string", "root declaration must be text");
+  const exportPattern = /export\s*\{([\s\S]*?)\}\s*from\s*"([^"]+)";/gu;
+  const entries = [];
+  for (const match of declaration.matchAll(exportPattern)) {
+    entries.push(...parseRootExportMatch(match));
+  }
+  const remainder = declaration
+    .replace(exportPattern, "")
+    .replace(/\/\*[\s\S]*?\*\//gu, "")
+    .trim();
+  assert(
+    remainder.length === 0,
+    "root declaration contains an unreviewed declaration or export form",
+  );
+  return entries;
+}
+
+export function validateRootDeclaration(declaration) {
+  const actual = parseRootDeclaration(declaration)
+    .map(publicApiEntryKey)
+    .sort();
+  const expected = STABLE_ROOT_API.map(publicApiEntryKey).sort();
+  assert(
+    canonicalJson(actual) === canonicalJson(expected),
+    `root declaration exports ${actual.join(", ")}, expected ${expected.join(", ")}`,
+  );
+}
+
+export function validateRootRuntimeExports(exports) {
+  assert(Array.isArray(exports), "root runtime exports must be an array");
+  const actual = [...exports].sort();
+  const expected = [...STABLE_ROOT_RUNTIME_EXPORTS].sort();
+  assert(
+    canonicalJson(actual) === canonicalJson(expected),
+    `root runtime exports ${actual.join(", ")}, expected ${expected.join(", ")}`,
+  );
 }
 
 export function validatePackagePath(path) {
@@ -337,6 +427,51 @@ function asRecord(value) {
     throw new TypeError("expected an object");
   }
   return value;
+}
+
+function publicApiEntryKey({ kind, name, source }) {
+  return `${kind}:${name}:${source}`;
+}
+
+function parseRootExportMatch(match) {
+  const source = match[2];
+  assert(source !== undefined, "root declaration export lost its source");
+  return (match[1] ?? "")
+    .split(",")
+    .map((specifier) => specifier.trim())
+    .filter(Boolean)
+    .map((token) => parseRootExportSpecifier(token, source));
+}
+
+function parseRootExportSpecifier(token, source) {
+  const kind = token.startsWith("type ") ? "type" : "value";
+  const name = token.replace(/^type\s+/u, "");
+  assert(
+    /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(name),
+    `unsupported root declaration export ${name}`,
+  );
+  return { kind, name, source };
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return JSON.stringify(value.map(sortJsonValue));
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value) {
+  if (Array.isArray(value)) return value.map(sortJsonValue);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => compareStrings(left, right))
+      .map(([key, entry]) => [key, sortJsonValue(entry)]),
+  );
+}
+
+function compareStrings(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function assert(condition, message) {

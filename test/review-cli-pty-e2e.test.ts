@@ -15,7 +15,7 @@ import {
   type CanonicalJsonlRecord,
   type KnowledgeRevisionProposal,
   type KnowledgeStatus,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPO = "owner/repository";
 const REPO_ID = "R_review_pty";
@@ -585,7 +585,8 @@ function runnerEnvironment(
 ): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    RKM_INDEX_URL: pathToFileURL(join(process.cwd(), "dist", "index.js")).href,
+    RKM_INDEX_URL: pathToFileURL(join(process.cwd(), "dist", "experimental.js"))
+      .href,
     RKM_RUNTIME_URL: pathToFileURL(
       join(process.cwd(), "dist", "cli-runtime.js"),
     ).href,

@@ -23,7 +23,7 @@ import {
   resolveRepositoryPolicy,
   SqliteCanonicalProjection,
   updateRepoKnowledgeConfig,
-} from "../src/index.js";
+} from "../src/experimental.js";
 import { rm } from "node:fs/promises";
 
 const temporaryDirectories: string[] = [];

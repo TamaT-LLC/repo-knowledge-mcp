@@ -15,7 +15,7 @@ import {
   deriveOutcomeEventId,
   serializeKnowledgeDocument,
   type KnowledgeStatus,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY = "owner/repository";
 const REPO_ID = "R_outcome_e2e_repository";

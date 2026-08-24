@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import type { QualityGateRunReport } from "../src/index.js";
+import type { QualityGateRunReport } from "../src/experimental.js";
 import {
   buildDegradedQualityGateScenario,
   loadQualityGateFixtures,

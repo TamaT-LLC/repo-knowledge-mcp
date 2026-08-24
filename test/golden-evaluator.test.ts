@@ -6,7 +6,7 @@ import {
   GoldenFixtureSchema,
   evaluateGoldenFixture,
   type GoldenFixture,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const FIXTURE_PATH = new URL(
   "./fixtures/golden/m1-golden.json",

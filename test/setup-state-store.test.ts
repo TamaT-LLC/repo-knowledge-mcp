@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SetupStateStore, type SetupState } from "../src/index.js";
+import { SetupStateStore, type SetupState } from "../src/experimental.js";
 
 const temporaryDirectories: string[] = [];
 

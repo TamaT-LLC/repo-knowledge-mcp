@@ -14,7 +14,7 @@ import {
   resolveAllowedWorkspacePath,
   type GhRunnerLike,
   type GitRemoteReader,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const temporaryDirectories: string[] = [];
 

@@ -7,7 +7,7 @@ import {
   assertNoSensitiveContent,
   findSensitiveContent,
   mapMutationError,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const SAMPLES = [
   {

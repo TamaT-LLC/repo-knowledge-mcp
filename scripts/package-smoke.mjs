@@ -15,14 +15,17 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, relative, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import {
   EXPECTED_PACKAGE_NAME,
   createPackageArtifact,
   scanPackageSourceFiles,
   validatePackageManifest,
+  validatePublicApiManifest,
+  validateRootDeclaration,
 } from "./package-artifact-gate.mjs";
+import { STABLE_ROOT_RUNTIME_EXPORTS } from "./public-api-inventory.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const smokeRepository = "owner/repository";
@@ -44,6 +47,11 @@ const expectedHelpCommands = ["sync [repo]", "stats [repo]", "distill [repo]"];
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
+  const typeScriptVersion = parseLockedTypeScriptVersion(
+    JSON.parse(
+      await readFile(join(repositoryRoot, "package-lock.json"), "utf8"),
+    ),
+  );
   const temporaryRoot = await mkdtemp(join(tmpdir(), "rkm-package-smoke-"));
   try {
     const packDirectory = join(temporaryRoot, "pack");
@@ -51,7 +59,8 @@ async function main() {
     const runtimeDirectory = join(temporaryRoot, "runtime");
     const binDirectory = join(temporaryRoot, "bin");
     const workspaceDirectory = join(temporaryRoot, "workspace");
-    const setupRunnerPath = join(temporaryRoot, "setup-runner.mjs");
+    const setupRunnerPath = join(installDirectory, "setup-runner.mjs");
+    const typeSmokePath = join(installDirectory, "public-api-smoke.mts");
     await Promise.all([
       mkdir(packDirectory, { recursive: true }),
       mkdir(installDirectory, { recursive: true }),
@@ -91,7 +100,14 @@ async function main() {
       "utf8",
     );
     await runNpm(
-      ["install", "--no-audit", "--no-fund", "--loglevel=error", installSpec],
+      [
+        "install",
+        "--no-audit",
+        "--no-fund",
+        "--loglevel=error",
+        installSpec,
+        `typescript@${typeScriptVersion}`,
+      ],
       installDirectory,
     );
 
@@ -119,11 +135,14 @@ async function main() {
       "node_modules",
       expectedName,
     );
+    validatePublicApiManifest(installedPackage);
+    validateRootDeclaration(
+      await readFile(join(installedPackageRoot, "dist", "index.d.ts"), "utf8"),
+    );
+    await writeFile(setupRunnerPath, setupRunnerSource(expectedName), "utf8");
     await writeFile(
-      setupRunnerPath,
-      setupRunnerSource(
-        pathToFileURL(join(installedPackageRoot, "dist", "index.js")).href,
-      ),
+      typeSmokePath,
+      publicApiTypeSmokeSource(expectedName),
       "utf8",
     );
     const installedFiles = await collectPackageFiles(installedPackageRoot);
@@ -141,6 +160,23 @@ async function main() {
       JSON.stringify(installedPackage.mcpProtocolVersions) ===
         JSON.stringify(["2025-11-25", "2026-07-28"]),
       "installed package has unexpected MCP protocol metadata",
+    );
+    await run(
+      process.execPath,
+      [
+        join(installDirectory, "node_modules", "typescript", "bin", "tsc"),
+        "--module",
+        "NodeNext",
+        "--moduleResolution",
+        "NodeNext",
+        "--noEmit",
+        "--skipLibCheck",
+        "--strict",
+        "--target",
+        "ES2022",
+        typeSmokePath,
+      ],
+      { cwd: installDirectory, env: process.env },
     );
 
     const executable = join(
@@ -323,11 +359,14 @@ async function main() {
           m3_readiness: "learning",
           m2_tool_calls: ["sync_repo", "stats", "get_rules"],
           mcp_tools: expectedTools.length,
+          node_api_import: true,
+          node_api_types: true,
           package: `${String(installedPackage.name)}@${String(installedPackage.version)}`,
           package_files: installedFiles.length,
           package_source: packageSource,
           review_help: true,
           stdio_json_rpc: true,
+          typescript_version: typeScriptVersion,
           workspace_clean: true,
         },
         null,
@@ -486,8 +525,19 @@ process.stdout.write(JSON.stringify({ data }) + "\\n");
 `;
 }
 
-function setupRunnerSource(indexUrl) {
-  return `import { runDefaultRepoKnowledgeCli } from ${JSON.stringify(indexUrl)};
+function setupRunnerSource(packageName) {
+  return `import * as experimentalApi from ${JSON.stringify(`${packageName}/experimental`)};
+import * as stableApi from ${JSON.stringify(packageName)};
+
+const actualRootExports = Object.keys(stableApi).sort();
+const expectedRootExports = ${JSON.stringify([...STABLE_ROOT_RUNTIME_EXPORTS].sort())};
+if (JSON.stringify(actualRootExports) !== JSON.stringify(expectedRootExports)) {
+  throw new Error("packed root API does not match the reviewed runtime inventory");
+}
+if (typeof experimentalApi.CanonicalTransactionStore !== "function") {
+  throw new Error("packed experimental compatibility subpath is unavailable");
+}
+const { runDefaultRepoKnowledgeCli } = stableApi;
 
 const confirmations = [];
 const jsonOutput = process.env.RKM_SETUP_OUTPUT === "json";
@@ -522,6 +572,36 @@ const exitCode = await runDefaultRepoKnowledgeCli({
   },
 });
 if (exitCode !== 0 || confirmations.length < 2) process.exitCode = 1;
+`;
+}
+
+function publicApiTypeSmokeSource(packageName) {
+  return `import {
+  runDefaultRepoKnowledgeCli,
+  type RunDefaultRepoKnowledgeCliOptions,
+} from ${JSON.stringify(packageName)};
+import type {
+  CanonicalTransactionStore as ExperimentalCanonicalTransactionStore,
+} from ${JSON.stringify(`${packageName}/experimental`)};
+
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends
+  (<Value>() => Value extends Right ? 1 : 2) ? true : false;
+type Assert<Condition extends true> = Condition;
+type RootModule = typeof import(${JSON.stringify(packageName)});
+type RootRuntimeExportsAreExact = Assert<
+  Equal<keyof RootModule, "runDefaultRepoKnowledgeCli">
+>;
+
+const options: RunDefaultRepoKnowledgeCliOptions = { argv: ["--help"] };
+const exitCode: Promise<number> = runDefaultRepoKnowledgeCli(options);
+declare const experimentalStore: ExperimentalCanonicalTransactionStore;
+void exitCode;
+void experimentalStore;
+type KeepExactAssertion = RootRuntimeExportsAreExact;
+
+// @ts-expect-error Internal implementation symbols are not stable root API.
+import type { CanonicalTransactionStore } from ${JSON.stringify(packageName)};
 `;
 }
 
@@ -584,6 +664,20 @@ function parseArguments(argv) {
     "choose either --tarball or --package-spec",
   );
   return options;
+}
+
+export function parseLockedTypeScriptVersion(packageLock) {
+  const packages = asRecord(asRecord(packageLock).packages);
+  const typeScript = asRecord(packages["node_modules/typescript"]);
+  const version = typeScript.version;
+  assert(
+    typeof version === "string" &&
+      /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u.test(
+        version,
+      ),
+    "package-lock must pin one exact TypeScript compiler version",
+  );
+  return version;
 }
 
 function asErrorCode(error) {
@@ -756,4 +850,11 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-await main();
+function isMainModule() {
+  return (
+    process.argv[1] !== undefined &&
+    resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  );
+}
+
+if (isMainModule()) await main();

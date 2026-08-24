@@ -9,7 +9,7 @@ import {
   GitHubPullRequestSnapshotClient,
   VALIDATE_PULL_REQUEST_SNAPSHOT_QUERY,
   type GhRunnerLike,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const NOW = "2026-08-06T00:00:00.000Z";
 const SNAPSHOT_ID = "snap_01ARZ3NDEKTSV4RRFFQ69G5FAV";

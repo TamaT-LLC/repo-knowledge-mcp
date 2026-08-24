@@ -8,7 +8,7 @@ import {
   TrustConfigSchema,
   buildUnreadableInputOutcome,
   runQualityGate,
-} from "../src/index.js";
+} from "../src/experimental.js";
 import {
   buildDegradedQualityGateScenario,
   loadQualityGateFixtures,

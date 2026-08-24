@@ -19,7 +19,7 @@ import {
   initializeStorage,
   repositoryStorageId,
   serializeKnowledgeDocument,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY = "owner/repository";
 const REPO_ID = "R_m2_upgrade_repository";

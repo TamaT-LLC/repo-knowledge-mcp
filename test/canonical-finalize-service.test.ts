@@ -26,7 +26,7 @@ import {
   type PullRequestSnapshot,
   type ThreadObservation,
   type TrustedHumanAutoActivationPolicyLike,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const CREATED_AT = "2026-08-06T00:00:00.000Z";
 const LEASED_AT = "2026-08-06T00:10:00.000Z";

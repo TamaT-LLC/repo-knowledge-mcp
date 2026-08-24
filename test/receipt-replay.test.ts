@@ -8,7 +8,7 @@ import {
   type FinalizeRequest,
   type PossibleKnowledgeMatch,
   type PossibleMatchSet,
-} from "../src/index.js";
+} from "../src/experimental.js";
 import {
   InMemoryReceiptStore,
   ReceiptReplayEngine,

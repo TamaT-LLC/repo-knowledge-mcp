@@ -15,7 +15,7 @@ import {
   loadDistillationPrompt,
   parseDistillationOutput,
   type GeneratedCodeExample,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 interface CodeExampleFixtureComment {
   readonly body: string;

@@ -9,7 +9,7 @@ import {
   validatePilotRubricEvaluation,
   type PilotHumanRubric,
   type PilotRubricEvaluation,
-} from "../src/index.js";
+} from "../src/experimental.js";
 import { repositoryRoot } from "./support/quality-gate-fixtures.js";
 
 const RUBRIC_FIXTURE_PATH = join(

@@ -9,7 +9,7 @@ import {
   SYNC_CURSOR_VERSION,
   SyncCheckpointStore,
   type SyncCheckpoint,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPO_ID = "R_repo_node";
 

@@ -20,7 +20,7 @@ import {
   type KnowledgeStatus,
   type ReviewInboxDetailReader,
   type Severity,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPO = "owner/repository";
 const REPO_ID = "R_review_inbox";

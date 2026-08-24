@@ -28,7 +28,7 @@ import {
   type SubmitDistillationContextOptions,
   type SubmitExtractMergeResponse,
   type SubmitFinalizeRequest,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPO_ID = "repo-submit-finalize";
 const REPOSITORY_CONTEXT = { language: "TypeScript" } as const;

@@ -29,7 +29,7 @@ import {
   type KnowledgeEvidence,
   type RepoKnowledgeConfig,
   type SubmitExtractRequest,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPO_ID = "repo-submit-extract";
 const REPOSITORY_NAME = "owner/repo";

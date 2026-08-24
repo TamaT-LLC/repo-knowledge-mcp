@@ -24,7 +24,7 @@ import {
   type GhCommandResult,
   type GhRunnerLike,
   type RepoKnowledgeCliIo,
-} from "../src/index.js";
+} from "../src/experimental.js";
 import { WireClient, readTools } from "./support/mcp-test-client.js";
 
 const temporaryDirectories: string[] = [];

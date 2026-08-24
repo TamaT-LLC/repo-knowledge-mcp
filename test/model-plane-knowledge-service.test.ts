@@ -15,7 +15,7 @@ import {
   renderKnowledgeBodyWithCodeExample,
   type GeneratedCodeExample,
   type IngestPullRequestResult,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const EVENT_ID = "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV";

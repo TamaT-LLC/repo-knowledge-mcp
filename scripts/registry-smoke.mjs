@@ -86,6 +86,8 @@ async function runRegistrySmoke(input) {
     if (
       smokeReport.package !== packageSpec ||
       smokeReport.package_source !== "registry" ||
+      smokeReport.node_api_import !== true ||
+      smokeReport.node_api_types !== true ||
       smokeReport.stdio_json_rpc !== true ||
       smokeReport.workspace_clean !== true
     ) {

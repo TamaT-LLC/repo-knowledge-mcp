@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import type { PilotDailyRecord, PilotSummaryReport } from "../src/index.js";
+import type {
+  PilotDailyRecord,
+  PilotSummaryReport,
+} from "../src/experimental.js";
 import { repositoryRoot } from "./support/quality-gate-fixtures.js";
 
 const CLI = join(repositoryRoot, "dist", "pilot-daily-record-cli.js");

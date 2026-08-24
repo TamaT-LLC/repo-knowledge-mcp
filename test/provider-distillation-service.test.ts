@@ -31,7 +31,7 @@ import {
   type RepoKnowledgeConfig,
   type StructuredCompletionRequest,
   type StructuredCompletionResponse,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPO_ID = "repo-1";
 const REPOSITORY = "owner/repo";

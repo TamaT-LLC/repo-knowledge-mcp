@@ -23,7 +23,7 @@ import {
   type IngestRepositoryResolver,
   type ProviderPostIngestRunner,
   type RepositoryResolution,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY = "owner/repository";
 const REPOSITORY_ID = "R_repository";

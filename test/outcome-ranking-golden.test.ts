@@ -8,7 +8,7 @@ import {
   OutcomeRankingFixtureSchema,
   evaluateOutcomeRankingFixture,
   type OutcomeRankingFixture,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const FIXTURE_PATH = new URL(
   "./fixtures/golden/m2-outcome-ranking-golden.json",

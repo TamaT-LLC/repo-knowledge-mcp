@@ -11,7 +11,7 @@ import {
   normalizeSetArrays,
   sha256NormalizedJcs,
   sortAndDedupeStrings,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 describe("compareCodeUnits", () => {
   it("orders strings by unsigned UTF-16 code units", () => {
@@ -132,7 +132,9 @@ describe("JCS", () => {
 describe("acceptance test 61", () => {
   it("keeps set arrays, comment order, and JCS digest identical across locale settings", () => {
     const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-    const moduleUrl = pathToFileURL(resolve(projectRoot, "dist/index.js")).href;
+    const moduleUrl = pathToFileURL(
+      resolve(projectRoot, "dist/experimental.js"),
+    ).href;
     const script = `
       import {
         normalizeComments,

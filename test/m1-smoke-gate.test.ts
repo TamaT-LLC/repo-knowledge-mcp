@@ -4,7 +4,7 @@ import {
   M1SmokeManifestSchema,
   runM1SmokeGate,
   type M1SmokeCommandExecutor,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY = "owner/repository";
 const SNAPSHOT_ID = "snap_01ARZ3NDEKTSV4RRFFQ69G5FAV";

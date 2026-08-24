@@ -11,7 +11,7 @@ import {
   ensureProjectionCurrent,
   isProjectionCurrent,
   readKnowledgeSnapshot,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const temporaryRepositories: string[] = [];
 

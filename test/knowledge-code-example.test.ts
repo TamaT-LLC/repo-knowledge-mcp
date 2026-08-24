@@ -7,7 +7,7 @@ import {
   renderKnowledgeBodyWithCodeExample,
   renderKnowledgeCodeExampleSection,
   type GeneratedCodeExample,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const DETAIL = "Handle invoke failures explicitly.\n\nNever swallow errors.";
 

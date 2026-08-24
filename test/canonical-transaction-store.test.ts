@@ -23,7 +23,7 @@ import {
   type CanonicalJsonlRecord,
   type CanonicalTransactionRequest,
   type KnowledgeEvidence,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const temporaryRepositories: string[] = [];
 const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -554,7 +554,9 @@ async function expectKilledCommit(
   point: CanonicalCommitPoint,
   writePartialLine = false,
 ): Promise<void> {
-  const moduleUrl = pathToFileURL(join(process.cwd(), "dist", "index.js")).href;
+  const moduleUrl = pathToFileURL(
+    join(process.cwd(), "dist", "experimental.js"),
+  ).href;
   const script = `
     import { appendFileSync, mkdirSync } from "node:fs";
     import { dirname, join } from "node:path";

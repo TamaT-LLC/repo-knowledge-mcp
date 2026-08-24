@@ -24,7 +24,7 @@ import {
   parseAnonymizedThreadCorpus,
   type BaselinePredictionProvider,
   type DistillationPromptTemplate,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const CORPUS_URL = new URL(
   "./fixtures/golden/m2-anonymized-corpus.json",
