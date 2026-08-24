@@ -68,7 +68,7 @@
   "scripts": {
     "bootstrap:pack": "node scripts/build-bootstrap-package.mjs",
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run format:check && npm run docs:check && npm run lint && npm run typecheck && npm run test:release-tools && npm test",
+    "check": "npm run format:check && npm run docs:check && npm run lint && npm run typecheck && npm run test:release-tools && npm run test:coverage-thresholds && npm run test:coverage",
     "docs:check": "node check-markdown-links.mjs",
     "format": "biome format --write . && prettier --write '.github/**/*.yml'",
     "format:check": "biome format . && prettier --check '.github/**/*.yml'",
@@ -84,6 +84,8 @@
     "release:verify": "node scripts/release-gate.mjs",
     "smoke:m1": "npm run build && node dist/m1-smoke-cli.js",
     "test": "npm run build && vitest run",
+    "test:coverage": "npm run build && vitest run --coverage",
+    "test:coverage-thresholds": "node --test scripts/coverage-gate-tests.mjs",
     "test:release-tools": "node --test scripts/release-tools-tests.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -92,6 +94,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.1",
     "@types/picomatch": "^4.0.3",
+    "@vitest/coverage-v8": "^4.1.10",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
