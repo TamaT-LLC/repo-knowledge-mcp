@@ -20,6 +20,9 @@ const REPO_ID = "repo-1";
 const DISTILLATION_KEY = `sha256:${"a".repeat(64)}`;
 const OTHER_DISTILLATION_KEY = `sha256:${"b".repeat(64)}`;
 const START = Date.parse("2026-08-06T00:00:00.000Z");
+// These tests use real filesystem locks; hosted runners can delay an
+// independent writer beyond one second when the full suite is contended.
+const LOCK_RELEASE_TIMEOUT_MS = 3_000;
 
 const temporaryRepositories: string[] = [];
 
@@ -92,7 +95,10 @@ describe("DistillJobCoordinator", () => {
     const result = await Promise.race([
       mutation,
       new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("repo lock remained held")), 1_000);
+        setTimeout(
+          () => reject(new Error("repo lock remained held")),
+          LOCK_RELEASE_TIMEOUT_MS,
+        );
       }),
     ]);
 
