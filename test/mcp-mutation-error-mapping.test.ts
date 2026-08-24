@@ -580,6 +580,19 @@ describe("mapMutationError", () => {
     });
   });
 
+  it("keeps a stable fallback for a runtime code outside its typed table", () => {
+    const error = new SyncCursorError(
+      "SYNC_CURSOR_FUTURE" as SyncCursorErrorCode,
+      "future code",
+    );
+
+    expect(mapMutationError(error)).toEqual({
+      code: "SYNC_CURSOR_FUTURE",
+      message: error.message,
+      retryable: false,
+    });
+  });
+
   it.each([
     {
       error: new Error("outer failure", {

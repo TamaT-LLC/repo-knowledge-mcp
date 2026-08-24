@@ -543,7 +543,7 @@ function mapTableError<Code extends string>(
   error: CodedError<Code>,
   rules: ErrorRuleTable<Code>,
 ): MutationToolErrorPayload {
-  return mapKnownError(error, rules[error.code]);
+  return mapKnownError(error, rules[error.code] ?? NON_RETRYABLE);
 }
 
 function mapKnownError(
