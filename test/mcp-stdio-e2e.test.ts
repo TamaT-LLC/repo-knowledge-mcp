@@ -260,7 +260,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const SERVER_SOURCE = `
-import { serveRepoKnowledgeStdio } from "./dist/index.js";
+import { serveRepoKnowledgeStdio } from "./dist/experimental.js";
 
 const repo = "owner/repository";
 const knowledgeId = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";

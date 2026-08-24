@@ -21,7 +21,7 @@ import {
   TransactionIdSchema,
   createDomainId,
   type DistilledCandidate,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const NOW = "2026-08-06T12:00:00.000Z";
 const SHA_A = `sha256:${"a".repeat(64)}`;

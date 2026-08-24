@@ -29,7 +29,7 @@ import {
   type Severity,
   type StructuredCompletionRequest,
   type StructuredCompletionResponse,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const NOW = "2026-08-06T00:00:00.000Z";
 const REPO_ID = "repo-a";

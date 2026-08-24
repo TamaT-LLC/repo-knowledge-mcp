@@ -25,7 +25,7 @@ import {
   type CanonicalCommitPoint,
   type CanonicalProjectionSnapshot,
   type KnowledgeStatus,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const NOW = "2026-08-07T01:00:00.000Z";
 const CREATED_AT = "2026-08-06T00:00:00.000Z";

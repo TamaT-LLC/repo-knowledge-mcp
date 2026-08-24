@@ -11,7 +11,7 @@ import {
   type BufferedCommandExecutor,
   type BufferedCommandRequest,
   type BufferedCommandResult,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 describe("OpenAiProviderAdapter", () => {
   it("runs Codex exec with ChatGPT login and private schema files", async () => {

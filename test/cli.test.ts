@@ -17,7 +17,7 @@ import {
   type RepoKnowledgeCliIo,
   type RepositoryStats,
   type ReviewInboxItem,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY = "owner/repository";
 const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";

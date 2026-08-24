@@ -7,7 +7,7 @@ import {
   RepoKnowledgeConfigSchema,
   type CanonicalProjectionSnapshot,
   type ProviderDistillationPipeline,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY_ID = "R_repository";
 const SNAPSHOT_ID = "snap_01ARZ3NDEKTSV4RRFFQ69G5FAV";

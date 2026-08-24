@@ -189,8 +189,9 @@ function createPtyChild(fixture: SetupPtyFixture, mode: SetupMode) {
   return execa("python3", [fixture.bridge, process.execPath, fixture.runner], {
     env: {
       ...process.env,
-      RKM_INDEX_URL: pathToFileURL(join(process.cwd(), "dist", "index.js"))
-        .href,
+      RKM_INDEX_URL: pathToFileURL(
+        join(process.cwd(), "dist", "experimental.js"),
+      ).href,
       RKM_RUNTIME_URL: pathToFileURL(
         join(process.cwd(), "dist", "cli-runtime.js"),
       ).href,

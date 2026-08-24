@@ -15,7 +15,7 @@ import {
   type CanonicalJsonlRecord,
   type DistillJob,
   type KnowledgeStatus,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY = "owner/repository";
 const REPO_ID = "R_readiness_e2e_repository";

@@ -10,8 +10,17 @@ import {
   EXPECTED_PACKAGE_NAME,
   assertEquivalentManifests,
   findSecretPattern,
+  parseRootDeclaration,
   validatePackagePath,
+  validatePublicApiManifest,
+  validateRootDeclaration,
+  validateRootRuntimeExports,
 } from "./package-artifact-gate.mjs";
+import {
+  EXPECTED_PACKAGE_EXPORTS,
+  STABLE_ROOT_API,
+  STABLE_ROOT_RUNTIME_EXPORTS,
+} from "./public-api-inventory.mjs";
 import {
   BOOTSTRAP_INVENTORY_SCHEMA,
   BOOTSTRAP_TAG,
@@ -85,6 +94,56 @@ test("package artifact scanning recognizes credential material", () => {
       "Set ANTHROPIC_API_KEY only when provider mode is enabled.",
     ),
     null,
+  );
+});
+
+test("stable root API matches the reviewed manifest and declaration inventory", () => {
+  assert.doesNotThrow(() =>
+    validatePublicApiManifest({
+      exports: EXPECTED_PACKAGE_EXPORTS,
+      main: "./dist/index.js",
+      types: "./dist/index.d.ts",
+    }),
+  );
+  const declaration = `/** Stable root. */
+export { runDefaultRepoKnowledgeCli, type RunDefaultRepoKnowledgeCliOptions } from "./cli-runtime.js";
+`;
+  assert.deepEqual(
+    parseRootDeclaration(declaration).sort(comparePublicApiEntries),
+    [...STABLE_ROOT_API].sort(comparePublicApiEntries),
+  );
+  assert.doesNotThrow(() => validateRootDeclaration(declaration));
+  assert.doesNotThrow(() =>
+    validateRootRuntimeExports(STABLE_ROOT_RUNTIME_EXPORTS),
+  );
+});
+
+test("public API gates reject accidental internal root exports", () => {
+  const declaration = `
+export { runDefaultRepoKnowledgeCli, type RunDefaultRepoKnowledgeCliOptions } from "./cli-runtime.js";
+export { CanonicalTransactionStore } from "./canonical-transaction-store.js";
+`;
+  assert.throws(
+    () => validateRootDeclaration(declaration),
+    /CanonicalTransactionStore/u,
+  );
+  assert.throws(
+    () =>
+      validateRootRuntimeExports([
+        ...STABLE_ROOT_RUNTIME_EXPORTS,
+        "CanonicalTransactionStore",
+      ]),
+    /CanonicalTransactionStore/u,
+  );
+  assert.throws(() =>
+    validatePublicApiManifest({
+      exports: {
+        ...EXPECTED_PACKAGE_EXPORTS,
+        "./internal": "./dist/internal.js",
+      },
+      main: "./dist/index.js",
+      types: "./dist/index.d.ts",
+    }),
   );
 });
 
@@ -316,4 +375,10 @@ function validReleaseInput() {
     tagCommit: commit,
     worktreeClean: true,
   };
+}
+
+function comparePublicApiEntries(left, right) {
+  return `${left.kind}:${left.name}:${left.source}`.localeCompare(
+    `${right.kind}:${right.name}:${right.source}`,
+  );
 }

@@ -20,6 +20,7 @@ GitHub token は `gh` CLI が管理し、repo-knowledge-mcp は token を受領�
 - [MCP client への登録](#mcp-clients)
 - [privacy と信頼設定](#privacy-and-trust)
 - [MCP tools と CLI](#tools-and-cli)
+- [Node API](#node-api)
 - [トラブルシュート](#troubleshooting)
 - [データの保存と削除](#data-lifecycle)
 - [開発と release gate](#development-and-release)
@@ -335,6 +336,21 @@ MCP plane から status を active または rejected に変更する tool は�
 
 すべての command と option は `repo-knowledge --help` で確認できます。
 定期同期、outcome、stats、storage の詳細は[利用と運用の詳細ガイド](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md)にあります。
+
+<a id="node-api"></a>
+
+## Node API
+
+package root は、CLI を Node.js から実行する `runDefaultRepoKnowledgeCli` と、その option type だけを stable API として公開します。
+
+```js
+import { runDefaultRepoKnowledgeCli } from "@tamat-llc/repo-knowledge-mcp";
+
+process.exitCode = await runDefaultRepoKnowledgeCli({ argv: ["--help"] });
+```
+
+旧 root export は移行用の `@tamat-llc/repo-knowledge-mcp/experimental` から参照できますが、SemVer の互換性保証と deprecation 期間の対象外です。
+公開 symbol の inventory、versioning、source checkout からの移行方法は [Node API と公開境界](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/node-api.md)に記載しています。
 
 <a id="troubleshooting"></a>
 

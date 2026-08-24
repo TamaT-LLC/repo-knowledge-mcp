@@ -17,7 +17,7 @@ import {
   SyncCheckpointStore,
   SyncRepoOutputSchema,
   SyncRepoResultSchema,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY = "owner/repository";
 const REPO_ID = "R_sync_e2e_repository";

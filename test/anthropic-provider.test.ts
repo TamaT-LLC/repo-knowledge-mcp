@@ -9,7 +9,7 @@ import {
   type BufferedCommandExecutor,
   type BufferedCommandRequest,
   type BufferedCommandResult,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 describe("AnthropicProviderAdapter", () => {
   it("uses Claude Code structured output through subscription login", async () => {

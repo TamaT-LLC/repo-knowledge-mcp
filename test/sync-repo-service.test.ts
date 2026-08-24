@@ -37,7 +37,7 @@ import {
   type SyncRepoServiceOptions,
   type TrustConfig,
   type UpdatedPullRequestRef,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPO_ID = "R_repo_node";
 const REPOSITORY = "owner/repository";

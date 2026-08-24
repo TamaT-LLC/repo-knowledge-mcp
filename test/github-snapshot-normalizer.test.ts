@@ -15,7 +15,7 @@ import {
   type GitHubReviewComment,
   type GitHubReviewSummary,
   type TrustConfig,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const NOW = "2026-08-06T12:00:00.000Z";
 const SNAPSHOT_ID = "snap_01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -472,7 +472,9 @@ describe("normalizeGitHubPullRequestSnapshot", () => {
 describe("locale-independent fingerprint normalization", () => {
   it("produces identical content and input digests across locale settings", () => {
     const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-    const moduleUrl = pathToFileURL(resolve(projectRoot, "dist/index.js")).href;
+    const moduleUrl = pathToFileURL(
+      resolve(projectRoot, "dist/experimental.js"),
+    ).href;
     const script = `
       import {
         computeDistillationInputDigest,

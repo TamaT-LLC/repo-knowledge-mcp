@@ -12,7 +12,7 @@ import {
   evaluateProviderBaselineArtifact,
   evaluateQualityGate,
   type QualityGateThresholds,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const THRESHOLDS_URL = new URL(
   "./fixtures/golden/m2-quality-thresholds.json",

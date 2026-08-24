@@ -11,7 +11,7 @@ import {
   type FinalizeJob,
   type FingerprintComment,
 } from "../src/finalize-guard.js";
-import type { PossibleMatchBinding } from "../src/index.js";
+import type { PossibleMatchBinding } from "../src/experimental.js";
 
 const CANDIDATE_ID = "cand_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const KNOWLEDGE_1 = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";

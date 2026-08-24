@@ -28,7 +28,7 @@ import {
   type GhRunnerLike,
   type KnowledgeEvidence,
   type LlmSubscriptionInspectorLike,
-} from "../src/index.js";
+} from "../src/experimental.js";
 import { inspectCanonicalState } from "../src/doctor/checks-canonical.js";
 import {
   PROJECTION_MISMATCH_CHECKS,

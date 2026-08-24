@@ -22,7 +22,7 @@ import {
   type KnowledgeMutationOperations,
   type KnowledgeMutationServiceResolver,
   type KnowledgeReadServiceResolver,
-} from "../src/index.js";
+} from "../src/experimental.js";
 import {
   WireClient,
   asRecord,

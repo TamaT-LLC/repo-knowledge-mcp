@@ -11,7 +11,7 @@ import {
   parseSyncCursor,
   resolveSyncBoundary,
   type SyncCursor,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const BOUNDARY_AT = "2026-08-01T12:00:00.000Z";
 

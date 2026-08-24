@@ -8,7 +8,7 @@ import {
   parsePilotLog,
   summarizePilotLog,
   type PilotDailyRecord,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const PILOT_ID = "m2-cron-pilot-test";
 const RECORDED_AT = "2026-08-02T00:05:00.000Z";

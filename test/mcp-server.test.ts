@@ -17,7 +17,7 @@ import {
   type KnowledgeReadOperations,
   type KnowledgeReadServiceResolver,
   type RepositoryStats,
-} from "../src/index.js";
+} from "../src/experimental.js";
 import {
   WireClient,
   asRecord,

@@ -9,7 +9,7 @@ import {
   type BufferedCommandExecutor,
   type BufferedCommandRequest,
   type BufferedCommandResult,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const successfulResult: BufferedCommandResult = {
   failed: false,

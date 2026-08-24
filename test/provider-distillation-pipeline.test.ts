@@ -8,7 +8,7 @@ import {
   type MergeClassificationRequest,
   type ProviderDistillationExtractedResult,
   type ProviderDistillationRunRequest,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
 const HASH_B = `sha256:${"b".repeat(64)}`;

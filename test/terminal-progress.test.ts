@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createTerminalProgressRenderer } from "../src/index.js";
+import { createTerminalProgressRenderer } from "../src/experimental.js";
 
 describe("terminal progress renderer", () => {
   it("renders elapsed interactive progress and clears its timer on success", () => {

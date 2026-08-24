@@ -11,7 +11,7 @@ import {
   type DistillationPromptTemplate,
   type ProviderGoldenBaselineArtifact,
   type TrustConfig,
-} from "../../src/index.js";
+} from "../../src/experimental.js";
 
 export const repositoryRoot = resolve(
   fileURLToPath(new URL("../..", import.meta.url)),

@@ -5,7 +5,7 @@ import {
   applySkipReasonPolicy,
   isDefinitiveNonKnowledge,
   type EvidenceRecord,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 describe("definitive non-knowledge policy", () => {
   it.each(DEFINITIVE_NON_KNOWLEDGE_SKIP_REASONS)(

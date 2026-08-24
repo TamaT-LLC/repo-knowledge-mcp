@@ -5,7 +5,7 @@ import {
   computeMatchSetDigest,
   hashFinalizeToken,
   type PossibleMatchBinding,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const NOW = Date.parse("2026-08-06T00:00:00.000Z");
 const EXPIRES_AT = "2026-08-06T00:05:00.000Z";

@@ -30,7 +30,7 @@ import {
   type KnowledgeOutcomeCounts,
   type KnowledgeStatus,
   type Severity,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const NOW = "2026-08-06T00:00:00.000Z";
 const HASH_A = `sha256:${"a".repeat(64)}`;

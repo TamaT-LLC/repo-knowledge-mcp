@@ -31,7 +31,7 @@ import {
   type StructuredCompletionResponse,
   type SyncPullRequestEnumerator,
   type UpdatedPullRequestRef,
-} from "../src/index.js";
+} from "../src/experimental.js";
 
 const REPOSITORY = "owner/repository";
 const REPOSITORY_ID = "R_repository";
