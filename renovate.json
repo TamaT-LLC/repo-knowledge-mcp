@@ -12,6 +12,7 @@
   "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
   "automerge": false,
+  "dependencyDashboardAutoclose": true,
   "labels": ["dependencies"],
   "vulnerabilityAlerts": {
     "enabled": true,
