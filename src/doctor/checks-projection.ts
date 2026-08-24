@@ -240,8 +240,8 @@ export function openProjectionSnapshot(
   results: ProjectionDiagnosticResultBuilder,
 ): Database.Database | null {
   // A WAL-format database cannot be deserialized directly. Flip only the
-  // private in-memory snapshot to rollback format after confirming that no
-  // uncheckpointed WAL bytes exist; the on-disk projection is never opened.
+  // private in-memory snapshot to rollback format; the on-disk projection is
+  // never opened. Pending WAL frames gate projection comparison later.
   const snapshotBytes = Buffer.from(file.databaseBytes);
   if (file.walHeader) {
     snapshotBytes[18] = 1;
