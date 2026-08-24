@@ -15,6 +15,24 @@ export const DEFAULT_OPENAI_CLI_EXECUTABLE = "codex";
 export type OpenAiProviderAdapterOptions =
   SubscriptionCliProviderAdapterOptions;
 
+const DISABLED_CODEX_TOOL_FEATURES = [
+  "apps",
+  "browser_use",
+  "browser_use_external",
+  "browser_use_full_cdp_access",
+  "code_mode_host",
+  "computer_use",
+  "hooks",
+  "image_generation",
+  "multi_agent",
+  "plugins",
+  "shell_tool",
+  "skill_search",
+  "unified_exec",
+  "view_image",
+  "workspace_dependencies",
+] as const;
+
 const DEFINITION: SubscriptionCliProviderDefinition = {
   cliExecutable: DEFAULT_OPENAI_CLI_EXECUTABLE,
   async createInvocation(context) {
@@ -34,7 +52,19 @@ const DEFINITION: SubscriptionCliProviderDefinition = {
         "exec",
         "--ephemeral",
         "--ignore-user-config",
+        "--ignore-rules",
+        "--strict-config",
         "--skip-git-repo-check",
+        ...DISABLED_CODEX_TOOL_FEATURES.flatMap((feature) => [
+          "--disable",
+          feature,
+        ]),
+        "--config",
+        'approval_policy="never"',
+        "--config",
+        'shell_environment_policy.inherit="none"',
+        "--config",
+        'web_search="disabled"',
         "--sandbox",
         "read-only",
         "--cd",
