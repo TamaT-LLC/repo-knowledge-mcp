@@ -29,6 +29,7 @@ import {
   OutcomeKindSchema,
   RecordOutcomeRequestSchema,
 } from "./record-outcome-mutation-service.js";
+import { SensitiveContentFindingSchema } from "./sensitive-content.js";
 import { SyncCursorSchema } from "./sync-cursor.js";
 
 const RawSha256Schema = z
@@ -293,9 +294,14 @@ const PrepareBlockedJobMcpSchema = z
       "extract_receipt_unavailable",
       "lease_expired_during_prepare",
       "max_characters_exceeded",
+      "sensitive_content_detected",
       "source_unavailable",
     ]),
     review_content_characters: z.number().int().nonnegative().optional(),
+    sensitive_content_findings: z
+      .array(SensitiveContentFindingSchema)
+      .min(1)
+      .optional(),
   })
   .strict();
 

@@ -52,6 +52,12 @@ import {
   RuntimeFinalizeContextStoreError,
   type RuntimeFinalizeHandle,
 } from "./runtime-finalize-context-store.js";
+import {
+  SensitiveContentTransmissionError,
+  assertNoSensitiveContent,
+  findSensitiveContent,
+  type SensitiveContentFinding,
+} from "./sensitive-content.js";
 import type { CanonicalProjectionSnapshot } from "./sqlite-projection.js";
 
 export const DEFAULT_PREPARE_DISTILLATION_LIMIT = 1;
@@ -131,6 +137,7 @@ export type HostAssistedBlockedJobReason =
   | "extract_receipt_unavailable"
   | "lease_expired_during_prepare"
   | "max_characters_exceeded"
+  | "sensitive_content_detected"
   | "source_unavailable";
 
 export interface HostAssistedBlockedJob {
@@ -138,6 +145,7 @@ export interface HostAssistedBlockedJob {
   readonly max_characters_per_job?: number;
   readonly reason: HostAssistedBlockedJobReason;
   readonly review_content_characters?: number;
+  readonly sensitive_content_findings?: readonly SensitiveContentFinding[];
 }
 
 export interface HostAssistedDistillationDisabledResult {
@@ -300,14 +308,15 @@ export class HostAssistedDistillationService {
           appendBlocked(blockedJobs, prepared.blocked);
           continue;
         }
+        assertNoSensitiveContent(prepared.job, "host_assisted_payload");
         jobs.push(prepared.job);
       } catch (error) {
         if (!isSafePerJobError(error)) throw error;
         const failed = await this.failOwnedLease(lease);
-        appendBlocked(blockedJobs, {
-          job: jobMetadata(failed ?? lease.job),
-          reason: blockedReason(error),
-        });
+        appendBlocked(
+          blockedJobs,
+          blockedJobFromError(failed ?? lease.job, error),
+        );
       }
     }
 
@@ -324,7 +333,10 @@ export class HostAssistedDistillationService {
     try {
       source = this.currentSource(snapshot, job);
       if (job.state === "awaiting_finalize") {
-        extractCandidates(snapshot, job.job_id);
+        const blocked = sensitiveContentBlockedJob(job, {
+          candidates: extractCandidates(snapshot, job.job_id),
+        });
+        if (blocked !== null) return { blocked };
       }
     } catch (error) {
       if (!isSafePerJobError(error)) throw error;
@@ -341,6 +353,11 @@ export class HostAssistedDistillationService {
         source,
         this.config.hostAssistedDistillation.includeDiffHunk,
       );
+      const blocked = sensitiveContentBlockedJob(job, {
+        comments: content.comments,
+        ...(content.path === null ? {} : { path: content.path }),
+      });
+      if (blocked !== null) return { blocked };
       const maximum = this.config.hostAssistedDistillation.maxCharactersPerJob;
       if (content.characters > maximum) {
         return {
@@ -414,6 +431,13 @@ export class HostAssistedDistillationService {
       threadId: lease.job.thread_id,
     });
     assertCandidateIdentityPreserved(candidates, matches);
+    assertNoSensitiveContent(
+      {
+        candidates,
+        possible_matches: matches.possible_matches,
+      },
+      "host_assisted_payload",
+    );
 
     const current = await this.store.readSnapshot();
     const currentJob = findLeasedJob(current, lease);
@@ -1019,9 +1043,12 @@ function appendBlocked(
   if (blocked.length < MAX_PREPARE_BLOCKED_JOB_METADATA) blocked.push(value);
 }
 
-function isSafePerJobError(
-  error: unknown,
-): error is HostAssistedDistillationError {
+type SafePerJobError =
+  | HostAssistedDistillationError
+  | SensitiveContentTransmissionError;
+
+function isSafePerJobError(error: unknown): error is SafePerJobError {
+  if (error instanceof SensitiveContentTransmissionError) return true;
   return (
     error instanceof HostAssistedDistillationError &&
     (error.code === "DISTILLATION_CONTEXT_CHANGED" ||
@@ -1031,9 +1058,10 @@ function isSafePerJobError(
   );
 }
 
-function blockedReason(
-  error: HostAssistedDistillationError,
-): HostAssistedBlockedJobReason {
+function blockedReason(error: SafePerJobError): HostAssistedBlockedJobReason {
+  if (error instanceof SensitiveContentTransmissionError) {
+    return "sensitive_content_detected";
+  }
   switch (error.code) {
     case "DISTILLATION_CONTEXT_CHANGED":
       return "distillation_context_changed";
@@ -1046,6 +1074,33 @@ function blockedReason(
     case "INVALID_PREPARE_LIMIT":
       throw error;
   }
+}
+
+function blockedJobFromError(
+  job: DistillJob,
+  error: SafePerJobError,
+): HostAssistedBlockedJob {
+  return {
+    job: jobMetadata(job),
+    reason: blockedReason(error),
+    ...(error instanceof SensitiveContentTransmissionError
+      ? { sensitive_content_findings: error.findings }
+      : {}),
+  };
+}
+
+function sensitiveContentBlockedJob(
+  job: DistillJob,
+  value: unknown,
+): HostAssistedBlockedJob | null {
+  const findings = findSensitiveContent(value);
+  return findings.length === 0
+    ? null
+    : {
+        job: jobMetadata(job),
+        reason: "sensitive_content_detected",
+        sensitive_content_findings: findings,
+      };
 }
 
 function hostError(

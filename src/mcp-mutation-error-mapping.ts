@@ -14,6 +14,7 @@ import { RecordOutcomeError } from "./record-outcome-mutation-service.js";
 import { RequestIntegrityError } from "./request-integrity.js";
 import { RepositoryResolutionError } from "./repository-resolver.js";
 import { RuntimeFinalizeContextStoreError } from "./runtime-finalize-context-store.js";
+import { SensitiveContentTransmissionError } from "./sensitive-content.js";
 import { SubmitDistillationError } from "./submit-distillation-service.js";
 import { SyncCheckpointError } from "./sync-checkpoint-store.js";
 import { SyncCursorError } from "./sync-cursor.js";
@@ -28,6 +29,17 @@ export interface MutationToolErrorPayload {
 }
 
 export function mapMutationError(error: unknown): MutationToolErrorPayload {
+  if (error instanceof SensitiveContentTransmissionError) {
+    return {
+      code: error.code,
+      details: { findings: error.findings },
+      message: error.message,
+      next_action:
+        "Remove or redact every flagged field at its source, then re-ingest and retry. For a false positive, rewrite the flagged text or keep external transmission disabled; do not bypass the scanner.",
+      retryable: false,
+    };
+  }
+
   if (error instanceof KnowledgeConflictError) {
     return {
       code: "KNOWLEDGE_CONFLICT",

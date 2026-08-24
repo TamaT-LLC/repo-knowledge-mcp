@@ -9,6 +9,18 @@ import {
   SourceProviderSchema,
   TrustLevelSchema,
 } from "./domain-schemas.js";
+import {
+  findSensitiveContent,
+  type SensitiveContentFinding,
+} from "./sensitive-content.js";
+
+export {
+  findSensitiveContent,
+  SensitiveContentFindingSchema,
+  SensitiveContentKindSchema,
+  type SensitiveContentFinding,
+  type SensitiveContentKind,
+} from "./sensitive-content.js";
 
 /** Design §18.3 quality gate floor: the corpus must hold 50+ threads. */
 export const MINIMUM_QUALITY_GATE_THREADS = 50;
@@ -153,90 +165,6 @@ export type AnonymizedThreadCorpus = z.infer<
 >;
 export type AnonymizedCorpusThread = AnonymizedThreadCorpus["threads"][number];
 export type AnonymizedCorpusSearch = AnonymizedThreadCorpus["searches"][number];
-
-export type SensitiveContentKind =
-  | "authorization_header"
-  | "aws_access_key_id"
-  | "email_address"
-  | "generic_secret_assignment"
-  | "github_token"
-  | "google_api_key"
-  | "private_key_block"
-  | "provider_api_key"
-  | "slack_token";
-
-export interface SensitiveContentFinding {
-  readonly kind: SensitiveContentKind;
-  readonly path: string;
-}
-
-interface SensitivePattern {
-  readonly kind: SensitiveContentKind;
-  readonly pattern: RegExp;
-}
-
-/**
- * Deny-list for anything that must never be transmitted to a provider or
- * persisted in a baseline artifact: raw credentials, tokens, and
- * non-anonymized identities (email addresses). Findings intentionally carry
- * only the JSON path and pattern kind, never the matched text.
- */
-const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
-  // Generic `sk-` prefix covers Anthropic (sk-ant-*), OpenAI (sk-*,
-  // sk-proj-*), and other providers that adopted the same convention.
-  { kind: "provider_api_key", pattern: /\bsk-[A-Za-z0-9_-]{10,}/u },
-  {
-    kind: "github_token",
-    pattern:
-      /\b(?:gh[oprsu]|ghp)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}/u,
-  },
-  { kind: "slack_token", pattern: /xox[abprs]-[A-Za-z0-9-]{10,}/u },
-  { kind: "aws_access_key_id", pattern: /\bAKIA[0-9A-Z]{16}\b/u },
-  { kind: "google_api_key", pattern: /\bAIza[0-9A-Za-z_-]{35}/u },
-  {
-    kind: "private_key_block",
-    pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/u,
-  },
-  {
-    kind: "authorization_header",
-    pattern: /\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/iu,
-  },
-  {
-    // Assignment-shaped secrets such as `api_key = "abcd…"`. Deliberately
-    // broad: a false positive fails closed and only costs an anonymization
-    // pass, while a false negative would transmit a credential.
-    kind: "generic_secret_assignment",
-    pattern:
-      /\b(?:api[_-]?key|apikey|secret|token|password|credential)s?\s*[:=]\s*["']?[A-Za-z0-9_-]{16,}/iu,
-  },
-  {
-    kind: "email_address",
-    pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/u,
-  },
-];
-
-/** Scans every string in a JSON value; findings never echo the match. */
-export function findSensitiveContent(
-  value: unknown,
-  path = "$",
-): SensitiveContentFinding[] {
-  if (typeof value === "string") {
-    return SENSITIVE_PATTERNS.filter((entry) => entry.pattern.test(value)).map(
-      (entry) => ({ kind: entry.kind, path }),
-    );
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap((entry, index) =>
-      findSensitiveContent(entry, `${path}[${String(index)}]`),
-    );
-  }
-  if (typeof value === "object" && value !== null) {
-    return Object.entries(value).flatMap(([key, entry]) =>
-      findSensitiveContent(entry, `${path}.${key}`),
-    );
-  }
-  return [];
-}
 
 export class SensitiveContentError extends Error {
   readonly code = "BASELINE_SENSITIVE_CONTENT";

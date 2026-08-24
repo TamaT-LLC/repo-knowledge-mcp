@@ -341,6 +341,56 @@ describe("MCP mutation tools", () => {
     expect(fixture.recordOutcome).toHaveBeenCalledWith(outcomeRequest);
   });
 
+  it("returns only safe finding metadata for a sensitive host payload", async () => {
+    const fixture = createMutationFixture();
+    fixture.prepareDistillation.mockResolvedValueOnce({
+      blocked_jobs: [
+        {
+          job: {
+            job_id: JOB_ID,
+            lease_generation: 0,
+            state: "pending",
+            thread_id: "thread-1",
+            updated_at: "2026-08-06T00:00:00.000Z",
+          },
+          reason: "sensitive_content_detected",
+          sensitive_content_findings: [
+            { kind: "github_token", path: "$.comments[0].body" },
+          ],
+        },
+      ],
+      jobs: [],
+      state: "prepared",
+    });
+    const connection = await connect(fixture.resolver);
+
+    const response = await callTool(connection.client, "prepare_distillation", {
+      repo: REPOSITORY,
+    });
+
+    expect(
+      PrepareDistillationOutputSchema.safeParse(toolStructuredContent(response))
+        .success,
+    ).toBe(true);
+    expect(toolStructuredContent(response)).toMatchObject({
+      ok: true,
+      result: {
+        blocked_jobs: [
+          {
+            reason: "sensitive_content_detected",
+            sensitive_content_findings: [
+              { kind: "github_token", path: "$.comments[0].body" },
+            ],
+          },
+        ],
+      },
+      summary: {
+        next_action: expect.stringContaining("Remove or redact"),
+        retryable: true,
+      },
+    });
+  });
+
   it("returns the stable original result when the same event_id is retried", async () => {
     const fixture = createMutationFixture();
     fixture.recordOutcome.mockResolvedValueOnce({
