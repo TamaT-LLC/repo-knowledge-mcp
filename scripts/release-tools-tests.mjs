@@ -1,7 +1,9 @@
+/* global URL */
+
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -11,12 +13,12 @@ import {
   validatePackagePath,
 } from "./package-artifact-gate.mjs";
 import {
-  BOOTSTRAP_RELEASE_TAG,
-  inspectBootstrapAuth,
-  parseArguments as parseBootstrapAuthArguments,
-  validateBootstrapAuth,
-  writeBootstrapAuthReport,
-} from "./bootstrap-auth-gate.mjs";
+  BOOTSTRAP_INVENTORY_SCHEMA,
+  BOOTSTRAP_TAG,
+  BOOTSTRAP_VERSION,
+  buildBootstrapPackage,
+  createBootstrapManifest,
+} from "./build-bootstrap-package.mjs";
 import {
   parsePublishedVersion,
   validateRegistrySmokeRequest,
@@ -83,118 +85,74 @@ test("package artifact scanning recognizes credential material", () => {
   );
 });
 
-test("bootstrap authentication is fail-closed and restricted to v0.3.0", () => {
-  const bootstrap = validateBootstrapAuth({
-    expectedOwner: "maintainer",
-    observedOwner: "maintainer",
-    tag: BOOTSTRAP_RELEASE_TAG,
-    tokenPresent: true,
+test("bootstrap manifest is an inert scoped name reservation", () => {
+  const manifest = createBootstrapManifest(EXPECTED_PACKAGE_NAME);
+  assert.equal(manifest.name, EXPECTED_PACKAGE_NAME);
+  assert.equal(manifest.version, BOOTSTRAP_VERSION);
+  assert.deepEqual(manifest.files, ["LICENSE", "README.md"]);
+  assert.deepEqual(manifest.publishConfig, {
+    access: "public",
+    registry: EXPECTED_REGISTRY,
+    tag: BOOTSTRAP_TAG,
   });
-  assert.equal(bootstrap.status, "pass");
-  assert.equal(bootstrap.authentication_mode, "bootstrap");
-  assert.equal(bootstrap.owner, "maintainer");
-
-  assert.deepEqual(
-    validateBootstrapAuth({
-      expectedOwner: "maintainer",
-      observedOwner: null,
-      tag: BOOTSTRAP_RELEASE_TAG,
-      tokenPresent: false,
-    }).failures,
-    ["bootstrap token is required for v0.3.0"],
+  assert.equal(
+    manifest.repository.url,
+    "git+https://github.com/TamaT-LLC/repo-knowledge-mcp.git",
   );
-  assert.deepEqual(
-    validateBootstrapAuth({
-      expectedOwner: "",
-      observedOwner: "maintainer",
-      tag: BOOTSTRAP_RELEASE_TAG,
-      tokenPresent: true,
-    }).failures,
-    ["NPM_PACKAGE_OWNER is required for bootstrap"],
-  );
-  assert.deepEqual(
-    validateBootstrapAuth({
-      expectedOwner: "maintainer",
-      observedOwner: "different-owner",
-      tag: BOOTSTRAP_RELEASE_TAG,
-      tokenPresent: true,
-    }).failures,
-    ["bootstrap token owner does not match NPM_PACKAGE_OWNER"],
-  );
-  assert.deepEqual(
-    validateBootstrapAuth({
-      expectedOwner: "maintainer",
-      observedOwner: null,
-      tag: "v0.3.1",
-      tokenPresent: true,
-    }).failures,
-    ["bootstrap token is restricted to v0.3.0"],
-  );
-
-  const trusted = validateBootstrapAuth({
-    expectedOwner: "",
-    observedOwner: null,
-    tag: "v0.3.1",
-    tokenPresent: false,
-  });
-  assert.equal(trusted.status, "pass");
-  assert.equal(trusted.authentication_mode, "trusted_publishing");
-  assert.equal(trusted.owner, null);
+  for (const forbidden of [
+    "private",
+    "bin",
+    "scripts",
+    "dependencies",
+    "optionalDependencies",
+    "peerDependencies",
+    "devDependencies",
+  ]) {
+    assert.equal(manifest[forbidden], undefined);
+  }
+  assert.throws(() => createBootstrapManifest("lookalike-package"));
 });
 
-test("bootstrap authentication requires an evidence report path", () => {
-  assert.throws(
-    () =>
-      parseBootstrapAuthArguments([
-        "--tag",
-        BOOTSTRAP_RELEASE_TAG,
-        "--expected-owner",
-        "maintainer",
-      ]),
-    /--report are required/u,
-  );
-  const options = parseBootstrapAuthArguments([
-    "--tag",
-    BOOTSTRAP_RELEASE_TAG,
-    "--expected-owner",
-    "maintainer",
-    "--report",
-    "bootstrap-auth-report.json",
-  ]);
-  assert.equal(options.tag, BOOTSTRAP_RELEASE_TAG);
-  assert.equal(options.expectedOwner, "maintainer");
-  assert.equal(options.reportPath, resolve("bootstrap-auth-report.json"));
-});
-
-test("bootstrap authentication persists a redacted report after owner lookup fails", async () => {
-  const root = await mkdtemp(join(tmpdir(), "rkm-bootstrap-auth-"));
-  const reportPath = join(root, "bootstrap-auth-report.json");
-  const token = `npm_${"x".repeat(36)}`;
+test("bootstrap builder emits one reviewed tarball and inventory", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rkm-bootstrap-package-"));
+  const output = join(root, "npm-bootstrap");
   try {
-    const report = await inspectBootstrapAuth(
-      {
-        cwd: root,
-        expectedOwner: "maintainer",
-        tag: BOOTSTRAP_RELEASE_TAG,
-      },
-      {
-        environment: { NODE_AUTH_TOKEN: token },
-        readOwner: async () => {
-          throw new Error(`simulated owner lookup failure: ${token}`);
-        },
-      },
+    const inventory = await buildBootstrapPackage({ output });
+    assert.equal(inventory.schema_version, BOOTSTRAP_INVENTORY_SCHEMA);
+    assert.equal(inventory.package.name, EXPECTED_PACKAGE_NAME);
+    assert.equal(inventory.package.version, BOOTSTRAP_VERSION);
+    assert.equal(inventory.package.file_count, 3);
+    assert.match(inventory.package.sha256, /^[0-9a-f]{64}$/u);
+    assert.deepEqual(
+      (await readdir(output)).sort(),
+      [inventory.package.tarball, "npm-bootstrap-package.json"].sort(),
     );
-    assert.equal(report.status, "fail");
-    assert.deepEqual(report.failures, [
-      "simulated owner lookup failure: [redacted]",
-    ]);
-    assert.doesNotMatch(JSON.stringify(report), new RegExp(token, "u"));
-
-    await writeBootstrapAuthReport(reportPath, report);
-    assert.deepEqual(JSON.parse(await readFile(reportPath, "utf8")), report);
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(join(output, "npm-bootstrap-package.json"), "utf8"),
+      ),
+      inventory,
+    );
+    await assert.rejects(() => buildBootstrapPackage({ output }), /exists/u);
   } finally {
     await rm(root, { force: true, recursive: true });
   }
+});
+
+test("release workflow publishes stable packages with OIDC only", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/release.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(workflow, /id-token: write/u);
+  assert.match(
+    workflow,
+    /@tamat-llc\/repo-knowledge-mcp@0\.0\.0-bootstrap\.0/u,
+  );
+  assert.match(workflow, /--tag latest/u);
+  assert.match(workflow, /--provenance/u);
+  assert.doesNotMatch(workflow, /secrets\.(?:NPM|NODE_AUTH_TOKEN)/u);
+  assert.doesNotMatch(workflow, /bootstrap-auth-gate/u);
 });
 
 test("dry-run and packed manifests must describe the same artifact", () => {
@@ -249,6 +207,7 @@ test("release metadata rejects mutable or inconsistent release state", () => {
       license: "UNLICENSED",
       publishConfig: {
         access: "restricted",
+        provenance: false,
         registry: "https://example.test/",
       },
     },
@@ -268,6 +227,7 @@ test("release metadata rejects mutable or inconsistent release state", () => {
     "release commit must contain a non-empty regular LICENSE or LICENSE.md file",
     "repository must be public for npm provenance",
     "publishConfig.access must be public",
+    "publishConfig.provenance must be true",
     `publishConfig.registry must be ${EXPECTED_REGISTRY}`,
     "release Node must be 22.14.0+ or 24+",
     "trusted publishing requires npm 11.5.1+",
@@ -339,7 +299,11 @@ function validReleaseInput() {
     packageDocument: {
       license: "MIT",
       name: EXPECTED_PACKAGE_NAME,
-      publishConfig: { access: "public", registry: EXPECTED_REGISTRY },
+      publishConfig: {
+        access: "public",
+        provenance: true,
+        registry: EXPECTED_REGISTRY,
+      },
       repository: { type: "git", url: EXPECTED_REPOSITORY_URL },
       version: "0.3.0",
     },

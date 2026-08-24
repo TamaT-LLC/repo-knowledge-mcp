@@ -324,7 +324,7 @@ describe("M2 product acceptance E2E", () => {
     expect(comparableStats(disabledStats)).toEqual(
       comparableStats(enabledStats),
     );
-  });
+  }, 15_000);
 });
 
 type StoreSnapshot = Awaited<

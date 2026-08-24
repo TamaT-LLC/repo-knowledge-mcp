@@ -96,6 +96,11 @@ export function validateReleaseMetadata(input) {
     failures,
   );
   check(
+    publishConfig.provenance === true,
+    "publishConfig.provenance must be true",
+    failures,
+  );
+  check(
     publishConfig.registry === EXPECTED_REGISTRY,
     `publishConfig.registry must be ${EXPECTED_REGISTRY}`,
     failures,

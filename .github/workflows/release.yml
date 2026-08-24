@@ -79,15 +79,20 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Install trusted-publishing npm version
         run: npm install --global "npm@${RELEASE_NPM_VERSION}"
-      - name: Verify publish authentication mode
-        env:
-          EXPECTED_NPM_OWNER: ${{ vars.NPM_PACKAGE_OWNER }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
-        run: >-
-          node scripts/bootstrap-auth-gate.mjs
-          --tag "${{ github.event.release.tag_name }}"
-          --expected-owner "${EXPECTED_NPM_OWNER}"
-          --report "${RUNNER_TEMP}/npm-bootstrap-auth-report.json"
+      - name: Verify inert bootstrap name reservation
+        shell: bash
+        run: |
+          package='@tamat-llc/repo-knowledge-mcp@0.0.0-bootstrap.0'
+          test "$(npm view "${package}" name)" = '@tamat-llc/repo-knowledge-mcp'
+          test "$(npm view "${package}" version)" = '0.0.0-bootstrap.0'
+          test "$(npm view "${package}" repository.url)" = 'git+https://github.com/TamaT-LLC/repo-knowledge-mcp.git'
+      - name: Reject traditional npm credentials
+        shell: bash
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN:-}" ] || [ -n "${NPM_TOKEN:-}" ]; then
+            echo "::error::Release publishing must use npm trusted publishing only."
+            exit 1
+          fi
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
       - name: Re-audit dependency graph and registry signatures
@@ -115,40 +120,19 @@ jobs:
           --expected-name "${{ steps.artifact.outputs.name }}"
           --expected-version "${{ steps.artifact.outputs.version }}"
       - name: Publish exact tarball with provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
         run: >-
           npm publish "${{ steps.artifact.outputs.tarball }}"
           --access public
+          --tag latest
           --provenance
-      - name: Establish trusted publisher after bootstrap
-        if: github.event.release.tag_name == 'v0.3.0'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
-        run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "::error::NPM_BOOTSTRAP_TOKEN is required to establish the initial trusted publisher."
-            exit 1
-          fi
-
-          npm trust github repo-knowledge-mcp \
-            --repository TamaT-LLC/repo-knowledge-mcp \
-            --file release.yml \
-            --environment npm \
-            --allow-publish \
-            --yes
-          npm trust list repo-knowledge-mcp --json \
-            > "${RUNNER_TEMP}/npm-release/trusted-publisher.json"
       - name: Upload release evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-release-${{ github.event.release.tag_name }}
           path: |
-            ${{ runner.temp }}/npm-bootstrap-auth-report.json
             ${{ steps.artifact.outputs.report }}
             ${{ steps.artifact.outputs.tarball }}
-            ${{ runner.temp }}/npm-release/trusted-publisher.json
           if-no-files-found: warn
           retention-days: 30
 
