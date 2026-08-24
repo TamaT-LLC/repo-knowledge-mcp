@@ -36,6 +36,19 @@ const REPO_ID = "repo-1";
 const REPOSITORY = "owner/repo";
 const REPOSITORY_CONTEXT = { language: "TypeScript" } as const;
 const NOW = Date.parse("2026-08-06T00:00:00.000Z");
+const LEASE_DURATION_MS = 1_000;
+/**
+ * Virtual clock steps for the lease renewal test. Every step is shorter than
+ * LEASE_DURATION_MS so one renewal always covers the next step, and the last
+ * step is past LEASE_DURATION_MS so the call outlives its initial lease.
+ */
+const LEASE_CLOCK_OFFSETS_MS = [900, 1_800, 2_700] as const;
+const LEASE_EXPIRY_POLL_INTERVAL_MS = 25;
+/**
+ * Only bounds a heartbeat that never renews; the assertions themselves never
+ * depend on the run finishing within a wall-clock budget.
+ */
+const STALLED_HEARTBEAT_TIMEOUT_MS = 30_000;
 const PROMPT_SOURCE = `---
 prompt_version: distill-test-v1
 ---
@@ -685,42 +698,64 @@ describe("ProviderDistillationService", () => {
     expect(adapter.requests).toEqual([]);
   });
 
-  it("renews the lease while a provider call exceeds its initial duration", async () => {
-    const repositoryRoot = await createRepository();
-    const configured = enabledConfig();
-    const coordinator = createCoordinator(repositoryRoot);
-    const thread = threadFor(configured);
-    const created = await coordinator.createJob({
-      distillation_key: thread.distillationKey,
-      repo_id: REPO_ID,
-      thread_id: thread.threadId,
-    });
-    const adapter = new FakeProvider([], async () => {
-      await new Promise<void>((resolve) => setTimeout(resolve, 1_200));
-      return fakeResponse(
-        JSON.stringify({ candidates: [], skip_reason: "pr_specific" }),
-      );
-    });
-    const runner = service(repositoryRoot, configured, adapter, [], {
-      coordinator: { leaseDurationMs: 1_000 },
-      leaseHeartbeatIntervalMs: 100,
-    });
+  it(
+    "renews the lease while a provider call exceeds its initial duration",
+    async () => {
+      const repositoryRoot = await createRepository();
+      const configured = enabledConfig();
+      // A virtual clock owns every lease deadline, so CI scheduling delays can
+      // no longer expire the lease between a renewal and the final mutation.
+      const clock = { value: NOW };
+      const leaseOptions = {
+        leaseDurationMs: LEASE_DURATION_MS,
+        now: () => new Date(clock.value),
+      };
+      const coordinator = createCoordinator(repositoryRoot, leaseOptions);
+      const thread = threadFor(configured);
+      const created = await coordinator.createJob({
+        distillation_key: thread.distillationKey,
+        repo_id: REPO_ID,
+        thread_id: thread.threadId,
+      });
+      const store = new CanonicalTransactionStore(repositoryRoot);
+      const adapter = new FakeProvider([], async () => {
+        // Hold the call open until virtual time has passed the initial lease.
+        // Each step waits for a persisted expiry that already covers the next
+        // clock value, so no wall-clock delay can expire the lease mid-call.
+        for (const offset of LEASE_CLOCK_OFFSETS_MS) {
+          await waitForLeaseExpiryAfter(
+            store,
+            created.job.job_id,
+            NOW + offset,
+          );
+          clock.value = NOW + offset;
+        }
+        return fakeResponse(
+          JSON.stringify({ candidates: [], skip_reason: "pr_specific" }),
+        );
+      });
+      const runner = service(repositoryRoot, configured, adapter, [], {
+        coordinator: leaseOptions,
+        leaseHeartbeatIntervalMs: 20,
+      });
 
-    await expect(
-      runner.run(runRequest(created.job.job_id, thread)),
-    ).resolves.toMatchObject({
-      job: { state: "awaiting_finalize" },
-      state: "extracted",
-    });
-    const snapshot = await new CanonicalTransactionStore(
-      repositoryRoot,
-    ).readSnapshot();
-    expect(
-      snapshot.records.filter(
-        (record) => record.record.record_type === "DistillationJobLeaseRenewed",
-      ).length,
-    ).toBeGreaterThan(0);
-  });
+      await expect(
+        runner.run(runRequest(created.job.job_id, thread)),
+      ).resolves.toMatchObject({
+        job: { state: "awaiting_finalize" },
+        state: "extracted",
+      });
+      expect(clock.value - NOW).toBeGreaterThan(LEASE_DURATION_MS);
+      const snapshot = await store.readSnapshot();
+      expect(
+        snapshot.records.filter(
+          (record) =>
+            record.record.record_type === "DistillationJobLeaseRenewed",
+        ).length,
+      ).toBeGreaterThanOrEqual(LEASE_CLOCK_OFFSETS_MS.length - 1);
+    },
+    STALLED_HEARTBEAT_TIMEOUT_MS,
+  );
 
   it("does not hold the repo writer lock while the provider is waiting", async () => {
     const repositoryRoot = await createRepository();
@@ -899,6 +934,29 @@ function coordinatorOptions(
           },
         }),
   };
+}
+
+/**
+ * Blocks until the job's persisted lease outlives `timestamp`, so a virtual
+ * clock may then move to `timestamp` without ever expiring the lease. The
+ * loop has no deadline on purpose: a wall-clock budget here would reintroduce
+ * the timing race, and vitest's own test timeout already bounds a real hang.
+ */
+async function waitForLeaseExpiryAfter(
+  store: CanonicalTransactionStore,
+  jobId: string,
+  timestamp: number,
+): Promise<void> {
+  while (true) {
+    const snapshot = await store.readSnapshot();
+    const expiresAt = snapshot.domain.distillJobs.find(
+      (job) => job.job_id === jobId,
+    )?.lease_expires_at;
+    if (expiresAt != null && Date.parse(expiresAt) > timestamp) return;
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, LEASE_EXPIRY_POLL_INTERVAL_MS);
+    });
+  }
 }
 
 function service(
