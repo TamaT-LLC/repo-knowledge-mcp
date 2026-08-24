@@ -106,6 +106,97 @@ describe("domain SQLite projection", () => {
     }
   });
 
+  it("rebuilds deterministic snapshots, search results, counts, FTS rows, and metadata", async () => {
+    const repository = await createRepository();
+    const ids = await seedCompleteDomainState(repository);
+    const projection = new SqliteCanonicalProjection(repository);
+    const checkpoint = createDomainId("transaction");
+
+    const firstSnapshot = await projection.rebuild(checkpoint);
+    const firstSearch = await projection.searchKnowledge({
+      query: "regression test",
+      repoId: "repo-1",
+    });
+    const firstState = readProjectionVerificationState(projection.databasePath);
+
+    const secondSnapshot = await projection.rebuild(checkpoint);
+    const secondSearch = await projection.searchKnowledge({
+      query: "regression test",
+      repoId: "repo-1",
+    });
+    const secondState = readProjectionVerificationState(
+      projection.databasePath,
+    );
+
+    expect(secondSnapshot).toEqual(firstSnapshot);
+    expect(secondSearch).toEqual(firstSearch);
+    expect(secondState).toEqual(firstState);
+    expect(secondSearch.hits.map((hit) => hit.id)).toEqual([ids.knowledgeId]);
+    expect(secondSnapshot.domain.knowledge).toEqual([
+      expect.objectContaining({
+        appliedCount: 1,
+        evidenceCount: 1,
+        falsePositiveCount: 1,
+        notApplicableCount: 1,
+        violationCount: 1,
+      }),
+    ]);
+    expect(secondState.metadata).toEqual(
+      expect.arrayContaining([
+        { key: "canonical_digest", value: secondSnapshot.canonicalDigest },
+        { key: "index_dirty", value: "false" },
+        { key: "last_committed_transaction_id", value: checkpoint },
+        { key: "schema_version", value: PROJECTION_SCHEMA_VERSION },
+      ]),
+    );
+  });
+
+  it("rolls back every rebuild phase when metadata finalization fails", async () => {
+    const repository = await createRepository();
+    await seedCompleteDomainState(repository);
+    const projection = new SqliteCanonicalProjection(repository);
+    const previousCheckpoint = createDomainId("transaction");
+    await projection.rebuild(previousCheckpoint);
+    const before = readProjectionVerificationState(projection.databasePath);
+
+    const addedKnowledgeId = createDomainId("knowledge");
+    await writeKnowledge(repository, addedKnowledgeId, "repo-1");
+    const database = new Database(projection.databasePath);
+    try {
+      database.exec(`
+        CREATE TRIGGER inject_projection_metadata_failure
+        BEFORE UPDATE OF value ON projection_meta
+        WHEN OLD.key = 'canonical_digest'
+        BEGIN
+          SELECT RAISE(ABORT, 'injected projection metadata failure');
+        END;
+      `);
+    } finally {
+      database.close();
+    }
+
+    const nextCheckpoint = createDomainId("transaction");
+    await expect(projection.rebuild(nextCheckpoint)).rejects.toThrow(
+      "injected projection metadata failure",
+    );
+
+    expect(readProjectionVerificationState(projection.databasePath)).toEqual(
+      before,
+    );
+
+    const cleanup = new Database(projection.databasePath);
+    try {
+      cleanup.exec("DROP TRIGGER inject_projection_metadata_failure");
+    } finally {
+      cleanup.close();
+    }
+    const rebuilt = await projection.rebuild(nextCheckpoint);
+    expect(rebuilt.checkpointTransactionId).toBe(nextCheckpoint);
+    expect(rebuilt.domain.knowledge.map((value) => value.id)).toContain(
+      addedKnowledgeId,
+    );
+  });
+
   it("drops and rebuilds derived tables left by an older schema version", async () => {
     const repository = await createRepository();
     await seedCompleteDomainState(repository);
@@ -163,9 +254,23 @@ describe("domain SQLite projection", () => {
       canonicalRecord("EvidenceCreated", second),
     ]);
 
-    await expect(
-      new SqliteCanonicalProjection(repository).rebuild(),
-    ).rejects.toThrow(/UNIQUE constraint failed/u);
+    const projection = new SqliteCanonicalProjection(repository);
+    await expect(projection.rebuild()).rejects.toThrow(
+      /UNIQUE constraint failed/u,
+    );
+
+    const database = new Database(projection.databasePath, { readonly: true });
+    try {
+      expect(
+        database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projection_meta'",
+          )
+          .get(),
+      ).toBeUndefined();
+    } finally {
+      database.close();
+    }
   });
 });
 
@@ -348,6 +453,61 @@ function evidence(
     status: "active",
     thread_id: threadId,
   };
+}
+
+function readProjectionVerificationState(databasePath: string): {
+  readonly counts: Readonly<Record<string, number>>;
+  readonly fileState: readonly unknown[];
+  readonly fts: readonly unknown[];
+  readonly metadata: readonly { key: string; value: string }[];
+} {
+  const database = new Database(databasePath, { readonly: true });
+  try {
+    const tables = [
+      "canonical_records",
+      "distill_jobs",
+      "evidence",
+      "knowledge",
+      "knowledge_documents",
+      "knowledge_file_state",
+      "knowledge_fts",
+      "outcomes",
+      "pull_request_snapshots",
+      "pull_requests",
+      "review_comments",
+      "review_threads",
+      "revision_proposals",
+      "submission_receipts",
+      "thread_removals",
+    ] as const;
+    return {
+      counts: Object.fromEntries(
+        tables.map((table) => {
+          const row = database
+            .prepare(`SELECT count(*) AS count FROM ${table}`)
+            .get() as { count: number };
+          return [table, row.count];
+        }),
+      ),
+      fileState: database
+        .prepare(
+          `SELECT path, knowledge_id, byte_sha256, size, mtime_ns
+           FROM knowledge_file_state ORDER BY path`,
+        )
+        .all(),
+      fts: database
+        .prepare(
+          `SELECT knowledge_id, rule, detail
+           FROM knowledge_fts ORDER BY knowledge_id`,
+        )
+        .all(),
+      metadata: database
+        .prepare("SELECT key, value FROM projection_meta ORDER BY key")
+        .all() as Array<{ key: string; value: string }>,
+    };
+  } finally {
+    database.close();
+  }
 }
 
 async function createRepository(): Promise<string> {
