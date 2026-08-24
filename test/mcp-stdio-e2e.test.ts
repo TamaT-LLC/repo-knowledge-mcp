@@ -3,6 +3,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
 const REPOSITORY = "owner/repository";
+// サーバー起動直後の initialize は CPU 競合下で 5 秒を超えることがあるため、
+// vitest の testTimeout(30s) より先に誤発火しない範囲で余裕を持たせる。
+const RPC_TIMEOUT_MS = 15_000;
+const SIGKILL_GRACE_MS = 5_000;
 const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const JOB_ID = "job_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const HASH = `sha256:${"a".repeat(64)}`;
@@ -167,7 +171,7 @@ class StdioProcessClient {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`timed out waiting for ${method}`));
-      }, 5_000);
+      }, RPC_TIMEOUT_MS);
       this.pending.set(id, { reject, resolve, timer });
     });
     this.send({ id, jsonrpc: "2.0", method, params });
@@ -190,7 +194,7 @@ class StdioProcessClient {
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
         resolve();
-      }, 2_000);
+      }, SIGKILL_GRACE_MS);
       child.once("exit", () => {
         clearTimeout(timer);
         resolve();
