@@ -35,10 +35,11 @@ export function validateRegistrySmokeRequest(input) {
 
 export function parsePublishedVersion(stdout) {
   const value = JSON.parse(stdout);
-  if (typeof value !== "string" || !stableVersionPattern.test(value)) {
+  const version = Array.isArray(value) && value.length === 1 ? value[0] : value;
+  if (typeof version !== "string" || !stableVersionPattern.test(version)) {
     throw new TypeError("npm view returned an invalid published version");
   }
-  return value;
+  return version;
 }
 
 async function runRegistrySmoke(input) {
