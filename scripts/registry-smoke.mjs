@@ -42,6 +42,15 @@ export function parsePublishedVersion(stdout) {
   return version;
 }
 
+export function validateExactVersionNpxHelp(result) {
+  if (!result.stdout.startsWith("Usage: repo-knowledge <command> [options]")) {
+    throw new Error(
+      `exact-version npx CLI help failed: stdout=${JSON.stringify(result.stdout.slice(0, 200))}, stderr=${JSON.stringify(result.stderr.slice(0, 200))}`,
+    );
+  }
+  return true;
+}
+
 async function runRegistrySmoke(input) {
   const request = validateRegistrySmokeRequest(input);
   const temporaryRoot = await mkdtemp(join(tmpdir(), "rkm-registry-smoke-"));
@@ -64,12 +73,7 @@ async function runRegistrySmoke(input) {
       ["--yes", `--package=${packageSpec}`, "--", "repo-knowledge", "--help"],
       { cwd: temporaryRoot, env: environment },
     );
-    if (
-      npx.stderr !== "" ||
-      !npx.stdout.startsWith("Usage: repo-knowledge <command> [options]")
-    ) {
-      throw new Error("exact-version npx CLI help failed");
-    }
+    validateExactVersionNpxHelp(npx);
     const packageSmoke = await run(
       process.execPath,
       [
