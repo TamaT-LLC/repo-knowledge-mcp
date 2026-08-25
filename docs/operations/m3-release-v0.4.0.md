@@ -228,9 +228,9 @@ PR #160のCodeQL、Greptile、CodeRabbitはpassし、最終commitの未解決rev
 
 - operator: `TakehiroT`
 - evidence compilation: `Codex`
-- reviewer: PR #160のCI、CodeQL、Greptile、CodeRabbit。release report PRは作成後に記録
+- reviewer: PR #160と[#161](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/161)のCI、CodeQL、Greptile、CodeRabbit
 - 最終判断日時（UTC）: 公開後に記録
-- release tracking: PR #160、release report PRは作成後に記録
+- release tracking: PR #160、PR #161
 
 本reportの§1〜§7をreviewしてmainへ反映し、同じfileをdraft GitHub Releaseへ添付した後にだけReleaseを公開する。
 Release CI完了後は§8〜§10を実測値で更新し、main上のfileとGitHub Release assetのSHA-256を一致させる。
