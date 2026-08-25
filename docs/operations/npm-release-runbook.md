@@ -171,6 +171,8 @@ bootstrapとtrusted publisher設定後、stable `0.3.0`を通常のrelease workf
 version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。
 
 ```console
+RELEASE_VERSION=0.4.0
+RELEASE_COMMIT="$(git rev-parse HEAD)"
 npm ci --ignore-scripts
 npm run install-scripts:check
 npm audit --audit-level=high
@@ -180,7 +182,10 @@ npm run check
 npm run golden
 npm run quality:gate
 npm run package:smoke
-npm run --silent release:verify -- --tag v<version> --commit <full-commit-sha> --repository-visibility public
+npm run --silent release:verify -- \
+  --tag "v${RELEASE_VERSION}" \
+  --commit "${RELEASE_COMMIT}" \
+  --repository-visibility public
 ```
 
 この順序を入れ替えてはならない。
@@ -224,8 +229,11 @@ workflow の artifact から `package-artifact-report.json` を取得し、relea
 手元で再確認する場合も `latest` を使わず exact version を指定する。
 
 ```console
-npx --yes --package=@tamat-llc/repo-knowledge-mcp@<version> -- repo-knowledge --help
-npm run --silent registry:smoke -- --name @tamat-llc/repo-knowledge-mcp --version <version>
+RELEASE_VERSION=0.4.0
+npx --yes --package="@tamat-llc/repo-knowledge-mcp@${RELEASE_VERSION}" -- repo-knowledge --help
+npm run --silent registry:smoke -- \
+  --name @tamat-llc/repo-knowledge-mcp \
+  --version "${RELEASE_VERSION}"
 ```
 
 npm package page の provenance が対象 GitHub repository、workflow、commit を指していることを確認する。
@@ -241,13 +249,15 @@ publish 後の registry smoke が失敗した場合は、package page と exact 
 利用させてはいけない version は、2FA 付きの対話認証で次のように deprecate する。
 
 ```console
-npm deprecate @tamat-llc/repo-knowledge-mcp@<bad-version> "Do not use: see GitHub release notes"
+: "${BAD_VERSION:?set BAD_VERSION to the exact version to deprecate}"
+npm deprecate "@tamat-llc/repo-knowledge-mcp@${BAD_VERSION}" "Do not use: see GitHub release notes"
 ```
 
 必要なら直前の正常 version へ `latest` dist-tag を戻す。
 
 ```console
-npm dist-tag add @tamat-llc/repo-knowledge-mcp@<previous-version> latest
+: "${PREVIOUS_VERSION:?set PREVIOUS_VERSION to the exact version to restore}"
+npm dist-tag add "@tamat-llc/repo-knowledge-mcp@${PREVIOUS_VERSION}" latest
 ```
 
 trusted publishing の OIDC token は publish 操作に限定されるため、deprecate と dist-tag の変更には npm account の 2FA 付き対話認証を使う。
