@@ -480,6 +480,7 @@ test("registry smoke requires the fixed package and an exact stable version", ()
   };
   assert.equal(validateRegistrySmokeRequest(request), request);
   assert.equal(parsePublishedVersion('"0.3.0"'), "0.3.0");
+  assert.equal(parsePublishedVersion('["0.4.0"]'), "0.4.0");
   assert.throws(() =>
     validateRegistrySmokeRequest({ ...request, name: "lookalike-package" }),
   );
@@ -492,7 +493,8 @@ test("registry smoke requires the fixed package and an exact stable version", ()
   assert.throws(() =>
     validateRegistrySmokeRequest({ ...request, attempts: 61 }),
   );
-  assert.throws(() => parsePublishedVersion('["0.3.0"]'));
+  assert.throws(() => parsePublishedVersion("[]"));
+  assert.throws(() => parsePublishedVersion('["0.3.0", "0.4.0"]'));
 });
 
 function validReleaseInput() {
