@@ -4,7 +4,8 @@
 
 通常の公開は GitHub Actions と npm trusted publishing を使い、長期 npm credential を repository secret に保存しない。
 
-`v0.3.0`の実測値と公開後の完了判定は[M3 v0.3.0 release report](./m3-release-v0.3.0.md)へ記録する。
+各 stable release の実測値と公開後の完了判定は`m3-release-v<version>.md`へ記録する。
+完了済みの基準記録は[M3 v0.3.0 release report](./m3-release-v0.3.0.md)である。
 
 公開境界の差分レビューは[2026-08-24のM3 npm公開方式セキュリティレビュー](./m3-npm-release-security-review-2026-08-24.md)を正本とする。
 
@@ -25,25 +26,25 @@
 | 通常認証 | GitHub Actions OIDC による npm trusted publishing |
 | provenance | trusted publishing と `npm publish --provenance` で生成 |
 
-2026-08-24 時点の公開準備状況は次のとおりである。
+2026-08-26 時点の `v0.4.0` 公開準備状況は次のとおりである。
 
 | 項目 | 状態 |
 | --- | --- |
-| npm registry | `@tamat-llc/repo-knowledge-mcp` は未公開で、`npm view` は E404 |
-| npm package owner | npm organization `tamat-llc`。初回公開者はorganization内のpublish権限を持つaccountに限定する |
-| local npm認証 | `npm whoami`がE401を返すため未認証 |
+| npm registry | `@tamat-llc/repo-knowledge-mcp@0.3.0` を`latest`として公開済み |
+| npm package owner | npm organization `tamat-llc`。GitHub Actions trusted publisherを設定済み |
+| local npm認証 | stable releaseでは使用せず、GitHub Actions OIDCだけを使う |
 | GitHub repository | public |
-| package version | `0.3.0` |
+| package version | `0.4.0` |
 | license | `package.json` はMIT、rootに`LICENSE`あり |
 | GitHub `npm` environment | required reviewer、self-review禁止、`v*` tag deployment policyを設定済み |
 | `main` protection | Pull Request、owner review、Node.js 22と24のCI、CodeQLを必須化済み |
 | version tag protection | `v*`の更新と削除を禁止済み |
-| release artifact | tag、GitHub Release、npm packageはいずれも未作成 |
+| release artifact | `v0.3.0`は完了済み。`v0.4.0`のtag、GitHub Release、npm packageは未作成 |
 | M2 release gate | pilot-002の14日運用gateと修正後のranking human評価を組み合わせてgo。Issue `#118`はclosed |
-| bootstrap設定 | GitHub secretとtokenを使わず、2FA付きaccountから無害なplaceholderを対話的に公開する |
+| bootstrap設定 | `0.0.0-bootstrap.0`を公開、deprecate済み。stable releaseはOIDC trusted publishingを使用 |
 
-E404はpackage名の確保やpublish権限を保証しない。
-初回公開前に、npm accountからscope、organization membership、publish権限、2FA、public accessを確認する。
+初回 bootstrap は完了している。
+以後の stable release では、trusted publisher、2FAとtoken禁止、public accessを公開前に再確認する。
 
 ## 2. trusted publishing の設定
 
@@ -88,7 +89,7 @@ trusted publishing の要件は [npm trusted publishing](https://docs.npmjs.com/
 
 provenance の検証方法は [npm provenance statements](https://docs.npmjs.com/generating-provenance-statements/) を参照する。
 
-## 3. 初回公開の bootstrap
+## 3. 初回公開の bootstrap（完了済み）
 
 npm は既存 package に対して trusted publisher を設定するため、未作成 package の初回公開だけは OIDC 設定より先に実施する必要がある。
 
@@ -148,7 +149,8 @@ npx --yes npm@12.0.2 trust list @tamat-llc/repo-knowledge-mcp --json
 
 その後、npm package settingsでtraditional token publicationを禁止する。
 GitHub `npm` environmentには`NPM_TOKEN`、`NODE_AUTH_TOKEN`、bootstrap用のsecretやvariableを登録しない。
-同じ作業時間内にstable `0.3.0`を通常のrelease workflowから公開する。
+bootstrapとtrusted publisher設定後、stable `0.3.0`を通常のrelease workflowから公開した。
+この手順を後続のstable releaseで繰り返さない。
 
 ## 4. release 前提条件
 
@@ -178,7 +180,7 @@ npm run check
 npm run golden
 npm run quality:gate
 npm run package:smoke
-npm run --silent release:verify -- --tag v0.3.0 --commit <full-commit-sha> --repository-visibility public
+npm run --silent release:verify -- --tag v<version> --commit <full-commit-sha> --repository-visibility public
 ```
 
 この順序を入れ替えてはならない。
@@ -194,7 +196,7 @@ dependency 更新で install script の対象が変わった場合は、script �
 1. main の検証済み commit に annotated tag を作成して push する。
 2. 同じ tag を指定した draft GitHub release に、review 済み release report を添付する。
 3. draft を publish して `Release npm package` workflow を開始する。
-   `v0.3.0`を含むすべてのstable releaseはOIDC trusted publishingだけを使う。
+   すべてのstable releaseはOIDC trusted publishingだけを使う。
 4. `verify release` と `registry smoke` の Node.js 22 と 24、および `publish exact tarball` が成功するまで release 完了としない。
 
 workflow の verify job は exact tag を checkout し、source check、golden、quality gate、package smoke を Node.js 22 と 24 で再実行する。
@@ -222,8 +224,8 @@ workflow の artifact から `package-artifact-report.json` を取得し、relea
 手元で再確認する場合も `latest` を使わず exact version を指定する。
 
 ```console
-npx --yes --package=@tamat-llc/repo-knowledge-mcp@0.3.0 -- repo-knowledge --help
-npm run --silent registry:smoke -- --name @tamat-llc/repo-knowledge-mcp --version 0.3.0
+npx --yes --package=@tamat-llc/repo-knowledge-mcp@<version> -- repo-knowledge --help
+npm run --silent registry:smoke -- --name @tamat-llc/repo-knowledge-mcp --version <version>
 ```
 
 npm package page の provenance が対象 GitHub repository、workflow、commit を指していることを確認する。
@@ -239,7 +241,7 @@ publish 後の registry smoke が失敗した場合は、package page と exact 
 利用させてはいけない version は、2FA 付きの対話認証で次のように deprecate する。
 
 ```console
-npm deprecate @tamat-llc/repo-knowledge-mcp@0.3.0 "Do not use: see GitHub release notes"
+npm deprecate @tamat-llc/repo-knowledge-mcp@<bad-version> "Do not use: see GitHub release notes"
 ```
 
 必要なら直前の正常 version へ `latest` dist-tag を戻す。

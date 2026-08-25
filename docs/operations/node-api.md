@@ -41,20 +41,23 @@ repository 内 test と source checkout 利用者の移行を可能にするた�
 
 ## 互換性と versioning
 
-stable root の symbol 削除、改名、または互換性のない型変更には major version を使います。
+`0.y.z` の間は、stable root の symbol 削除、改名、または互換性のない型変更に minor version を使います。
+`1.0.0` 以降は、このような変更に major version を使います。
 後方互換な追加には minor version、互換性を保つ修正には patch version を使います。
 
 `./experimental` は SemVer の互換性保証と deprecation 期間の対象外です。
 minor または patch release でも変更・削除される可能性があるため、新しい integration は stable root、CLI、または MCP tool を使ってください。
 internal subpath は公開 API ではなく、存在していても import できることを保証しません。
 
-この整理時点では README に記載のとおり機能版 `v0.3.0` は npm registry へ未公開であり、公開済みの v0.3 Node API consumer は存在しません。
-そのため root に旧 symbol の deprecated alias は残さず、初回 v0.3 公開前に安定境界を確定しました。
+`v0.3.0` は整理前の広い root barrel を npm registry へ公開しました。
+`v0.4.0` は pre-1.0 の breaking minor release として root を上記の二 symbol に縮小し、旧 symbol を `./experimental` へ移しました。
+CLI command と MCP protocol の利用者に移行作業はありません。
+Node.js から旧 root symbol を import している利用者は、次の一時的な互換経路へ変更してください。
 
-source checkout で旧 root symbol を使っていた場合は、次のように import 先を変更できます。
+`v0.3.0`またはsource checkoutで旧 root symbolを使っている場合は、次のようにimport先を変更できます。
 
 ```js
-// Before: v0.3 公開前の source checkout だけで利用できた import
+// Before: v0.3.0 の package root
 import { CanonicalTransactionStore } from "@tamat-llc/repo-knowledge-mcp";
 
 // Migration escape hatch: SemVer の保証はない

@@ -51,7 +51,7 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 | M3-AC-005 | 明示 opt-in と gate 条件を満たす trusted-human non-`must` 候補だけを active 化する | [trusted-human policy matrix](../../test/trusted-human-auto-activation-policy.test.ts)、[submit/finalize service test](../../test/submit-finalize-service.test.ts) | 実装済み、運用 opt-in は pilot 後 |
 | M3-AC-006 | AI、未知 bot、外部 contributor、mixed trust、`must` は proposed のままにする | [trusted-human policy matrix](../../test/trusted-human-auto-activation-policy.test.ts) | 実装済み |
 | M3-AC-007 | 一つの TTY session で approve、reject、skip、edit、再開を行う | [review CLI PTY E2E](../../test/review-cli-pty-e2e.test.ts) | 実装済み |
-| M3-AC-008 | Node.js 22 / 24 で exact registry package の CLI と stdio MCP を起動する | [release workflow](../../.github/workflows/release.yml) の `registry-smoke`、[registry smoke](../../scripts/registry-smoke.mjs) | v0.3 公開後に確定 |
+| M3-AC-008 | Node.js 22 / 24 で exact registry package の CLI と stdio MCP を起動する | [release workflow](../../.github/workflows/release.yml) の `registry-smoke`、[registry smoke](../../scripts/registry-smoke.mjs) | `v0.3.0`で確定、releaseごとに再検証 |
 | M3-AC-009 | M2 config、registry、knowledge の byte を変更せず既存 rule を読む | [M2→M3 upgrade E2E](../../test/m3-upgrade-e2e.test.ts) | 実装済み |
 | M3-AC-010 | E2E 後も対象 workspace に `.repo-knowledge/` を作らない | [CLI runtime test](../../test/cli-runtime.test.ts)、[package smoke](../../scripts/package-smoke.mjs)、[M2→M3 upgrade E2E](../../test/m3-upgrade-e2e.test.ts) | 実装済み |
 | M3-AC-011 | setup / review の長時間 phase と経過時間を実 TTY で表示し、終了時に描画を解放し、`setup --json` の stdout を JSON 1 document に保つ | [terminal progress test](../../test/terminal-progress.test.ts)、[setup CLI PTY E2E](../../test/setup-cli-pty-e2e.test.ts)、[review CLI PTY E2E](../../test/review-cli-pty-e2e.test.ts) | 実装済み |
@@ -65,14 +65,15 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 - [submit/finalize service test](../../test/submit-finalize-service.test.ts) は host-assisted の明示 opt-in 後に、eligible な trusted-human rule を個別 TTY 承認なしで active 化できることを検証する。
 - [package smoke](../../scripts/package-smoke.mjs) は checkout 外の clean temporary project に packed package だけを install し、guided setup、CLI help、全 11 MCP tool、`sync_repo`、`stats`、`get_rules`、stdio 純度、workspace 非汚染を検証する。
 
-## M3 release の未自動化 gate
+## M3 release の運用 gate
 
 次の項目は source test だけでは完了にできない。
 
 1. [pilot-002最終report](../operations/m2-cron-pilot-report-m2-cron-pilot-002.md)の14日運用gateと、[修正後限定再評価report](../operations/m2-post-fix-revalidation-report-m2-post-fix-revalidation-001.md)のranking gateをreviewし、組み合わせたM2判定を`go`としてIssue `#118`をcloseする。
-2. npm organization、license、GitHub repositoryのpublic visibilityを確定する。初回公開は2FA付きorganization memberからinert bootstrap packageだけを公開し、npm trusted publisherを固定する。Stable packageは初回からOIDCで公開し、GitHub environmentへtraditional tokenを登録しない。
+2. npm organization、license、GitHub repositoryのpublic visibilityを確定する。初回公開では2FA付きorganization memberからinert bootstrap packageだけを公開し、npm trusted publisherを固定した。後続のstable releaseでもOIDCを使い、GitHub environmentへtraditional tokenを登録しない。
 3. `package.json` の version、`v<version>` tag、GitHub release、npm registry の exact version を一致させる。
 4. Release CI の Node.js 22 / 24 `verify` と `registry-smoke` を成功させる。
-5. [M3 v0.3.0 release report](../operations/m3-release-v0.3.0.md) を実測値で埋め、[release report template](../operations/m3-release-report-template.md) が要求するreviewerの判定を残す。
+5. releaseごとに[release report template](../operations/m3-release-report-template.md)を複製して実測値を埋め、reviewerの判定を残す。`v0.3.0`の基準記録は[M3 v0.3.0 release report](../operations/m3-release-v0.3.0.md)とする。
 
-これらが完了するまでは、M3 の実装 gate が green でも v0.3 release と Issue #93 を完了扱いにしない。
+`v0.3.0`でM3の初回releaseは完了した。
+後続releaseも、該当する運用gateとRelease CIが完了するまでは公開完了としない。
