@@ -34,6 +34,7 @@ import {
 import { validateInstallScriptApprovals } from "./install-scripts-gate.mjs";
 import {
   parsePublishedVersion,
+  validateExactVersionNpxHelp,
   validateRegistrySmokeRequest,
 } from "./registry-smoke.mjs";
 import {
@@ -495,6 +496,22 @@ test("registry smoke requires the fixed package and an exact stable version", ()
   );
   assert.throws(() => parsePublishedVersion("[]"));
   assert.throws(() => parsePublishedVersion('["0.3.0", "0.4.0"]'));
+});
+
+test("registry smoke accepts npm diagnostics when exact CLI help is valid", () => {
+  assert.equal(
+    validateExactVersionNpxHelp({
+      stderr: "npm notice run repo-knowledge --help\n",
+      stdout: "Usage: repo-knowledge <command> [options]\n",
+    }),
+    true,
+  );
+  assert.throws(() =>
+    validateExactVersionNpxHelp({
+      stderr: "",
+      stdout: "unexpected output\n",
+    }),
+  );
 });
 
 function validReleaseInput() {
