@@ -1,6 +1,6 @@
 # M3 release report（テンプレート）
 
-M3 v0.3 を公開するときに本ファイルを複製し、`m3-release-v<version>.md` として実測値を記録する。
+M3 の stable release を公開するときに本ファイルを複製し、`m3-release-v<version>.md` として実測値を記録する。
 
 source checkout の結果、Pull Request CI、Release CI、npm registry の結果を混同しない。
 すべての digest、URL、実行 ID は再確認できる値を残す。
@@ -14,12 +14,12 @@ main上のrelease commitとtagを確定した後、GitHub releaseをdraftのま�
 | 項目 | 値 |
 | --- | --- |
 | package | `@tamat-llc/repo-knowledge-mcp` |
-| version | `0.3.___` |
-| Git tag | `v0.3.___` |
+| version | `<version>` |
+| Git tag | `v<version>` |
 | commit SHA | `___` |
 | main 到達確認 | `git merge-base --is-ancestor <commit> origin/main`: `___` |
 | GitHub release URL | `___` |
-| npm registry URL | `https://www.npmjs.com/package/@tamat-llc/repo-knowledge-mcp/v/0.3.___` |
+| npm registry URL | `https://www.npmjs.com/package/@tamat-llc/repo-knowledge-mcp/v/<version>` |
 | npm integrity | `sha512-___` |
 | npm provenance | `___` |
 | release workflow run | `___` |
@@ -31,7 +31,7 @@ package version、tag、GitHub release、npm registry version、report の値が
 | 項目 | 結果 | 根拠 |
 | --- | --- | --- |
 | npm organizationが`tamat-llc`である | pass / fail | `___` |
-| 初回publisherがorganization内のpublish権限と2FAを持つ | pass / fail | `___` |
+| 初回publisherがorganization内のpublish権限と2FAを持つ | pass / fail / n/a | `___` |
 | project license と `package.json` の license が確定している | pass / fail | `___` |
 | 空でない通常ファイルの `LICENSE` / `LICENSE.md` が release commit に存在する | pass / fail | `___` |
 | GitHub repository が public である | pass / fail | `___` |
@@ -81,6 +81,7 @@ Stable packageは初回からOIDCで公開し、GitHub secretやtraditional publ
 | command | exit | report / digest | 判定 |
 | --- | ---: | --- | --- |
 | `npm ci --ignore-scripts` |  | `___` | pass / fail |
+| `npm run install-scripts:check` |  | `___` | pass / fail |
 | `npm audit --audit-level=high` |  | `___` | pass / fail |
 | `npm audit signatures` |  | `___` | pass / fail |
 | `npm rebuild` |  | `___` | pass / fail |
@@ -157,7 +158,7 @@ Pull Request CI の package smoke は registry package の証明ではない。
 
 | 項目 | 値 |
 | --- | --- |
-| tarball filename | `tamat-llc-repo-knowledge-mcp-0.3.___.tgz` |
+| tarball filename | `tamat-llc-repo-knowledge-mcp-<version>.tgz` |
 | tarball SHA-256 | `sha256:___` |
 | package artifact report | `___` |
 | bootstrap inventory / SHA-256 | `___` / `sha256:___` / n/a |
@@ -214,4 +215,4 @@ registry smoke では `npx -y @tamat-llc/repo-knowledge-mcp@<exact-version>` 相
 - 判断者: `___`
 - reviewer: `___`
 - 判断日時（UTC）: `___`
-- Issue #93: `closed / open`
+- release tracking Issue / Pull Request: `___`
