@@ -26,7 +26,7 @@
 | 通常認証 | GitHub Actions OIDC による npm trusted publishing |
 | provenance | trusted publishing と `npm publish --provenance` で生成 |
 
-2026-08-26 時点の `v0.4.0` 公開準備状況は次のとおりである。
+2026-08-26（JST）時点の `v0.4.0` 公開準備状況は次のとおりである。
 
 | 項目 | 状態 |
 | --- | --- |

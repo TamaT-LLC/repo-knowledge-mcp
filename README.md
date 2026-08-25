@@ -2,8 +2,8 @@
 
 > **公開状況**
 >
-> この source の release version は `v0.4.0` です。
-> install 例は再現性のため exact version を指定しています。
+> この source の release target は `v0.4.0` です。
+> npm registry で `0.4.0` を確認できるまでは、公開済みの `0.3.0` を利用してください。
 
 **repo-knowledge-mcp** は、Pull Request のレビューから得た知見を個人用ローカルストアへ保存し、Codex、Claude Code、Cursor から再利用できる rule に変換する stdio MCP server です。
 人間と複数の AI reviewer が残した指摘を GitHub から取得し、根拠を追跡できる Markdown として管理します。
@@ -72,6 +72,8 @@ Windows、NFS、SMB、Dropbox、iCloud Drive などの同期領域は保証対�
 ## 最短セットアップ
 
 以下の package コマンドは npm registry の exact version を使います。
+最初に `npm view @tamat-llc/repo-knowledge-mcp@0.4.0 version` が `0.4.0` を返すことを確認してください。
+`E404` の間は各例の `0.4.0` を `0.3.0` に置き換えます。
 source checkout から試す手順は[開発と release gate](#development-and-release)にあります。
 
 ### 1. GitHub と Node.js を準備する
