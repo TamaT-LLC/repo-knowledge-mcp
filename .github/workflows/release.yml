@@ -78,7 +78,50 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+      - name: Reject traditional npm credentials and auth config
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          credential_env_names="$(
+            env | cut -d= -f1 | grep -Ei \
+              '^(NODE_AUTH_TOKEN|NPM_TOKEN|NPM_AUTH_TOKEN|YARN_NPM_AUTH_TOKEN|NPM_CONFIG_.*(AUTH|TOKEN|PASSWORD|USERNAME|CERTFILE|KEYFILE|USERCONFIG|GLOBALCONFIG)|npm_config_.*(auth|token|password|username|certfile|keyfile|userconfig|globalconfig))$' \
+              || true
+          )"
+          if [[ -n "$credential_env_names" ]]; then
+            while IFS= read -r credential_env_name; do
+              echo "::error::Unexpected npm credential environment variable: ${credential_env_name}"
+            done <<<"$credential_env_names"
+            exit 1
+          fi
+
+          npm_config_json="$(npm config list --json)"
+          if jq -e '
+            to_entries
+            | any(
+                (.key | ascii_downcase | test("(^|:)(_auth|_authtoken|username|_password|certfile|keyfile)$")) and
+                (.value != null and .value != "")
+              )
+          ' <<<"$npm_config_json" >/dev/null; then
+            echo "::error::npm config contains a traditional authentication setting."
+            exit 1
+          fi
+
+          npmrc_paths="$(
+            printf '%s\n' \
+              "${GITHUB_WORKSPACE}/.npmrc" \
+              "$(npm config get userconfig)" \
+              "$(npm config get globalconfig)" \
+              | awk 'NF && !seen[$0]++'
+          )"
+          while IFS= read -r npmrc_path; do
+            if [[ -f "$npmrc_path" ]] && grep -Eiq \
+              '^[[:space:]]*([^#;=[:space:]]+:)?(_auth|_authToken|username|_password|certfile|keyfile)[[:space:]]*=' \
+              "$npmrc_path"; then
+              echo "::error::npm config file contains a traditional authentication setting: ${npmrc_path}"
+              exit 1
+            fi
+          done <<<"$npmrc_paths"
       - name: Install trusted-publishing npm version
         run: npm install --global "npm@${RELEASE_NPM_VERSION}"
       - name: Verify inert bootstrap name reservation
@@ -88,13 +131,6 @@ jobs:
           test "$(npm view "${package}" name)" = '@tamat-llc/repo-knowledge-mcp'
           test "$(npm view "${package}" version)" = '0.0.0-bootstrap.0'
           test "$(npm view "${package}" repository.url)" = 'git+https://github.com/TamaT-LLC/repo-knowledge-mcp.git'
-      - name: Reject traditional npm credentials
-        shell: bash
-        run: |
-          if [ -n "${NODE_AUTH_TOKEN:-}" ] || [ -n "${NPM_TOKEN:-}" ]; then
-            echo "::error::Release publishing must use npm trusted publishing only."
-            exit 1
-          fi
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
       - name: Verify dependency install-script decisions

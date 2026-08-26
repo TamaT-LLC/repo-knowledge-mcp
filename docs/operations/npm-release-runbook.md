@@ -5,7 +5,7 @@
 通常の公開は GitHub Actions と npm trusted publishing を使い、長期 npm credential を repository secret に保存しない。
 
 各 stable release の実測値と公開後の完了判定は`m3-release-v<version>.md`へ記録する。
-完了済みの基準記録は[M3 v0.3.0 release report](./m3-release-v0.3.0.md)である。
+最新の完了記録は[M3 v0.4.0 release report](./m3-release-v0.4.0.md)である。
 
 公開境界の差分レビューは[2026-08-24のM3 npm公開方式セキュリティレビュー](./m3-npm-release-security-review-2026-08-24.md)を正本とする。
 
@@ -26,11 +26,11 @@
 | 通常認証 | GitHub Actions OIDC による npm trusted publishing |
 | provenance | trusted publishing と `npm publish --provenance` で生成 |
 
-2026-08-26（JST）時点の `v0.4.0` 公開準備状況は次のとおりである。
+2026-08-26（JST）時点の公開状況は次のとおりである。
 
 | 項目 | 状態 |
 | --- | --- |
-| npm registry | `@tamat-llc/repo-knowledge-mcp@0.3.0` を`latest`として公開済み |
+| npm registry | `@tamat-llc/repo-knowledge-mcp@0.4.0` を`latest`として公開済み |
 | npm package owner | npm organization `tamat-llc`。GitHub Actions trusted publisherを設定済み |
 | local npm認証 | stable releaseでは使用せず、GitHub Actions OIDCだけを使う |
 | GitHub repository | public |
@@ -39,12 +39,13 @@
 | GitHub `npm` environment | required reviewer、self-review禁止、`v*` tag deployment policyを設定済み |
 | `main` protection | Pull Request、owner review、Node.js 22と24のCI、CodeQLを必須化済み |
 | version tag protection | `v*`の更新と削除を禁止済み |
-| release artifact | `v0.3.0`は完了済み。`v0.4.0`のtag、GitHub Release、npm packageは未作成 |
+| release artifact | `v0.4.0`のtag、GitHub Release、npm package、provenance、registry smokeを確認済み |
 | M2 release gate | pilot-002の14日運用gateと修正後のranking human評価を組み合わせてgo。Issue `#118`はclosed |
 | bootstrap設定 | `0.0.0-bootstrap.0`を公開、deprecate済み。stable releaseはOIDC trusted publishingを使用 |
 
 初回 bootstrap は完了している。
-以後の stable release では、trusted publisher、2FAとtoken禁止、public accessを公開前に再確認する。
+通常のstable releaseは、OIDC publish、provenance、GitHub credential 0件、exact-version registry smokeを自動gateとする。
+npm package settingsの対話監査はreleaseごとに繰り返さず、設定変更時、異常検出時、定期監査時に実施する。
 
 ## 2. trusted publishing の設定
 
@@ -69,8 +70,29 @@ workflow は `id-token: write` を publish job だけに付与し、GitHub-hoste
 
 trusted publisher の動作確認後は、npm の publishing access を `Require two-factor authentication and disallow tokens` に設定する。
 
-初回 package 作成後は npm CLI 12.0.2 以降の `npm trust` で同じ設定を作成して監査する。
-実行する account が package owner または trusted publisher を管理できる maintainer であることを確認し、workflow filename には path ではなく basename だけを渡す。
+通常リリースでは次の証跡を自動gateにする。
+
+1. publish jobだけが`id-token: write`を持つ。credential環境変数、effective npm config、project / user / globalの`.npmrc`に認証設定があればpublish前に失敗する。
+2. GitHub `npm` environmentのsecretとvariableが0件である。
+3. npm provenanceが対象repository、workflow、tag、commitを示す。
+4. Node.js 22と24のexact-version registry smokeが成功する。
+
+OIDC publishの成功はtrusted publisherがpublish時に有効だったことを示す。
+一方、npm側のtoken禁止設定までは証明しないため、release reportで両者を同じ`pass`として扱わない。
+
+npm package settingsの対話監査は、次のいずれかに該当するときに実施する。
+
+| 契機 | 期限 |
+| --- | --- |
+| trusted publisher、publishing access、maintainerを変更する | 変更時。次のpublishより前 |
+| OIDC認証失敗、provenance不一致、credential検出、security incidentが発生する | 次のrelease完了判定より前 |
+| 定期監査 | 前回の対話監査から90日以内 |
+
+対話監査ではnpm CLI 12.0.2以降の`npm trust list`とnpm package settingsを確認する。
+実行accountにはpackage settingsを管理できる権限と2FAが必要である。
+workflow filenameはpathではなくbasenameだけを照合する。
+
+trusted publisherを初回作成または変更するときだけ、次の設定commandを実行する。
 
 ```console
 npm trust github @tamat-llc/repo-knowledge-mcp \
@@ -79,8 +101,17 @@ npm trust github @tamat-llc/repo-knowledge-mcp \
   --environment npm \
   --allow-publish \
   --yes
+```
+
+対話監査だけを行う場合は設定を変更せず、現在値を表示する。
+
+```console
 npm trust list @tamat-llc/repo-knowledge-mcp --json
 ```
+
+Release reportには前回の対話監査日、次回期限、今回の判定を記録する。
+監査契機がなければ`not_due`とし、現在のnpm設定を直接確認したという意味の`pass`は記録しない。
+`v0.3.0`公開時の対話監査日は2026-08-24で、設定変更がなければ次回期限は2026-11-22である。
 
 GitHub environment の required reviewer と deployment branch policy は GitHub plan で利用可能な場合に設定する。
 設定 API が plan 制約で拒否された場合も空の `npm` environment を release 承認の代替として扱わず、repository の public 化または plan 変更後に protection rule を再設定してから公開する。
@@ -165,7 +196,8 @@ bootstrapとtrusted publisher設定後、stable `0.3.0`を通常のrelease workf
 7. Issue `#118`がclosedであり、closeしたPull Request、M2 report、共有artifactの判定が一致している。
 8. M3 acceptance reportがreview済みである。
 9. GitHub repositoryがpublicで、npm organization、license、GitHub `npm` environmentが確認済みである。
-   初回公開ではinert bootstrap package、organization memberのpublish権限、trusted publisherをreviewし、二回目以降はtrusted publisherを再確認する。
+   初回公開ではinert bootstrap package、organization memberのpublish権限、trusted publisherをreviewする。
+   二回目以降は自動gateの証跡と対話監査の期限を確認し、監査契機があれば次のpublishより前に実施する。
 10. 公開対象 commit の security review が完了し、CodeQL、secret scanning、依存関係監査に未解決の critical または high finding がない。
 
 version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。

@@ -70,7 +70,7 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 次の項目は source test だけでは完了にできない。
 
 1. [pilot-002最終report](../operations/m2-cron-pilot-report-m2-cron-pilot-002.md)の14日運用gateと、[修正後限定再評価report](../operations/m2-post-fix-revalidation-report-m2-post-fix-revalidation-001.md)のranking gateをreviewし、組み合わせたM2判定を`go`としてIssue `#118`をcloseする。
-2. npm organization、license、GitHub repositoryのpublic visibilityを確定する。初回公開では2FA付きorganization memberからinert bootstrap packageだけを公開し、npm trusted publisherを固定した。後続のstable releaseでもOIDCを使い、GitHub environmentへtraditional tokenを登録しない。
+2. npm organization、license、GitHub repositoryのpublic visibilityを確定する。初回公開では2FA付きorganization memberからinert bootstrap packageだけを公開し、npm trusted publisherを固定した。後続のstable releaseはOIDC provenance、GitHub credential 0件、exact-version registry smokeで判定する。npm package settingsの対話監査は設定変更時、異常検出時、または前回監査から90日以内に実施する。
 3. `package.json` の version、`v<version>` tag、GitHub release、npm registry の exact version を一致させる。
 4. Release CI の Node.js 22 / 24 `verify` と `registry-smoke` を成功させる。
 5. releaseごとに[release report template](../operations/m3-release-report-template.md)を複製して実測値を埋め、reviewerの判定を残す。`v0.3.0`の基準記録は[M3 v0.3.0 release report](../operations/m3-release-v0.3.0.md)とする。
