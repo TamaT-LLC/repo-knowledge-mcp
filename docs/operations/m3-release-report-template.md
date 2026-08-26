@@ -180,14 +180,19 @@ Pull Request CI の package smoke は registry package の証明ではない。
 
 registry smoke では `npx -y @tamat-llc/repo-knowledge-mcp@<exact-version>` 相当のexact packageからCLIとstdio MCPを起動したことを記録する。
 
-### npm公開後の認証固定
+### npm公開後の認証境界
 
 | 項目 | 結果 | 根拠 |
 | --- | --- | --- |
-| `npm trust list`が`@tamat-llc/repo-knowledge-mcp`、`TamaT-LLC/repo-knowledge-mcp`、`release.yml`、`npm` environment、publish権限を示す | pass / fail | `___` |
-| npm publishing accessが2FA必須かつtoken禁止である | pass / fail | `___` |
+| OIDC publishが対象package、repository、workflow、environmentから成功した | pass / fail | `___` |
+| traditional npm credentialをworkflowで使用していない | pass / fail | `___` |
 | GitHub `npm` environmentにnpm credentialのsecretとvariableがない | pass / fail | `___` |
 | npm provenanceがrelease workflowとcommitを示す | pass / fail | `___` |
+| npm package settingsの対話監査 | pass / not_due / fail | 前回`___`、次回期限`___`、今回の契機`___` |
+
+対話監査が`not_due`の場合、npm側のtrusted publisherとtoken禁止設定を今回直接確認したとは記録しない。
+通常releaseの認証境界はOIDC publish、provenance、GitHub credential 0件で判定する。
+対話監査の契機と90日の期限は[npm release runbook](./npm-release-runbook.md)に従う。
 
 ## 9. Incident と差分
 
@@ -207,7 +212,7 @@ registry smoke では `npx -y @tamat-llc/repo-knowledge-mcp@<exact-version>` 相
 | M3-AC-001〜011 | go / no-go | §6 |
 | package artifact | go / no-go | §7 |
 | npm publish と registry smoke Node.js 22 / 24 | go / no-go | §8 |
-| trusted publisher とtraditional token禁止 | go / no-go | §8 |
+| tokenless OIDC publishing boundary | go / no-go | §8 |
 | version の全媒体一致 | go / no-go | §1 |
 
 **総合判定: M3 release 完了 / 未完了**

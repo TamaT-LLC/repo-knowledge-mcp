@@ -43,14 +43,16 @@ CLI commandとMCP protocolは互換性を維持するが、`v0.3.0`のpackage ro
 | security reviewに未解決のcriticalまたはhigh findingがない | pass | CodeQL、secret scanning、Dependabotのopen alertはいずれも0件 |
 
 Trusted publisherの固定値はpackage、`TamaT-LLC/repo-knowledge-mcp`、`release.yml`、GitHub `npm` environment、`npm publish`権限、trust ID `c7c3ff7b-8cb5-4575-bcec-796f76ff7dcb`である。
-この値と2FA必須・token禁止の設定は`v0.3.0`公開時に確認した。
+この値と2FA必須・token禁止の設定は、`v0.3.0`公開時の2026-08-24に対話監査した。
+次回の定期監査期限は2026-11-22である。
 
 今回のrelease workflow差分はnpmを`12.0.2`へ更新し、dependency install-script gateをverify jobとpublish jobへ追加した。
 OIDC、environment、workflow filename、publish権限の境界は変更していない。
 
 local npm CLIは意図的に未認証なので、`npm trust list`はE401を返した。
 この操作で設定は変更していない。
-最終判定では、固定済みtrusted publisherを使ったOIDC publishの成功、npm attestation、GitHub `npm` environmentのsecret / variable 0件を確認した。
+今回の対話監査は`not_due`であり、npm側の現在設定を直接確認したという`pass`判定には使わない。
+通常releaseの認証境界は、OIDC publish、npm attestation、GitHub `npm` environmentのsecret / variable 0件で判定した。
 
 ## 3. M2 release gate
 
@@ -209,15 +211,18 @@ local pre-release tarballとの差分は§9に記録する。
 いずれもpackageのinstall、CLI、MCP動作の不具合ではない。
 PR [#162](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/162)と[#163](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/163)で検証器を修正し、recovery 2でexact versionのCLI help、package smoke、workspace cleanをNode.js 22 / 24の両方で確認した。
 
-### npm公開後の認証固定
+### npm公開後の認証境界
 
 | 項目 | 結果 | 根拠 |
 | --- | --- | --- |
-| trusted publisherがpackage、repository、`release.yml`、`npm` environment、publish権限を示す | pass | trust ID `c7c3ff7b-8cb5-4575-bcec-796f76ff7dcb`のbaselineとOIDC publish job |
+| OIDC publishが対象package、repository、workflow、environmentから成功した | pass | publish jobとnpm provenanceが`release.yml`、`npm` environment、release tag、commitを示す |
 | traditional npm tokenを使用していない | pass | GitHub `npm` environmentのsecret / variableは0件。publish provenanceはGitHub OIDC workflowを示す |
-| npm publishing accessが2FA必須かつtoken禁止である | pass | [v0.3.0 release report](./m3-release-v0.3.0.md)で固定したbaseline。今回のreleaseでは設定変更なし |
 | GitHub `npm` environmentにnpm credentialのsecretとvariableがない | pass | GitHub APIでいずれも0件 |
 | npm provenanceがrelease workflowとcommitを示す | pass | SLSA subjectとresolved dependency、workflow ref、invocationを照合 |
+| npm package settingsの対話監査 | not_due | 前回2026-08-24、次回期限2026-11-22。release境界の差分、OIDC認証異常、provenance不一致、credential検出なし |
+
+`not_due`はnpm側のtoken禁止設定を今回直接確認したという意味ではない。
+OIDC publishはtrusted publisherがpublish時に有効だったことを示すが、traditional token禁止設定までは証明しない。
 
 ### npm registry metadataとprovenance
 
@@ -244,7 +249,7 @@ publish attestationのpackage、version、registryも公開物と一致した。
 | --- | --- | --- | --- | --- |
 | PRE-001 | PR #160のauto-mergeがself-review禁止のrequired reviewで停止 | release準備PRが自動mergeされない | 全check greenと未解決thread 0件を確認し、repository adminとしてmerge | なし |
 | PRE-002 | 既定GPG設定ではtag署名に失敗 | remote tagへの影響なし | `v0.3.0`と同じ既存SSH keyを明示し、fingerprint一致と署名をlocal検証してからpush | なし |
-| PRE-003 | local `npm trust list`がE401 | local CLIからtrusted publisherを再表示できない | 認証状態を変更せず、`v0.3.0`のtrust ID、GitHub environment、最終OIDC publishで検証 | なし |
+| PRE-003 | local `npm trust list`がE401 | npm側の現在設定は今回直接確認していない | 対話監査を`not_due`と記録し、通常releaseはOIDC publish、provenance、GitHub credential 0件で判定 | なし |
 | PRE-004 | local checkoutのignored `dist/`に削除済みmodule 2件が残り、local tarballが225 entriesになった | local artifactとclean Release CI artifactのhashが不一致 | clean checkoutで生成した223 entriesのRelease CI artifactだけをpublishし、registry integrityと一致を確認 | なし |
 | REL-001 | GitHub `npm` environmentのrequired reviewerがself-review禁止のためpublish jobが待機 | publish開始が保留 | 全verify jobを確認後、repository adminとしてdeployment protectionをbypass | なし |
 | REL-002 | npm 12の`npm view --json`が単一versionを配列で返し、初回registry smokeが失敗 | Release workflow全体はfailure。OIDC publish自体は成功済み | PR #162で単一要素の文字列配列を許容し、recovery workflowを実行 | なし |
@@ -260,16 +265,16 @@ publish attestationのpackage、version、registryも公開物と一致した。
 | M3-AC-001〜011 | go | §6。全項目pass |
 | package artifact | go | Release CI artifact、registry integrity、provenanceが一致 |
 | npm publishとregistry smoke Node.js 22 / 24 | go | §8。OIDC publishとrecovery 2がpass |
-| trusted publisherとtraditional token禁止 | go | §8。OIDC provenanceとcredential 0件を確認 |
+| tokenless OIDC publishing boundary | go | §8。OIDC publish、provenance、GitHub credential 0件を確認 |
 | versionの全媒体一致 | go | source、tag、GitHub Release、npm registry、provenanceが`0.4.0`で一致 |
 
 **総合判定: release完了**
 
 - operator: `TakehiroT`
 - evidence compilation: `Codex`
-- reviewer: PR #160、[#161](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/161)、[#162](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/162)、[#163](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/163)のCI、CodeQL、Greptile、CodeRabbit
-- 最終判断日時（UTC）: `2026-08-25T20:16Z`
-- release tracking: PR #160、PR #161、PR #162、PR #163、release run 32892785194、recovery run 32894284063
+- reviewer: PR #160、[#161](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/161)、[#162](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/162)、[#163](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/163)、[#164](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/164)のCI、CodeQL、Greptile、CodeRabbit
+- 最終判断日時（UTC）: `2026-08-26T00:41Z`
+- release tracking: PR #160、PR #161、PR #162、PR #163、PR #164、release run 32892785194、recovery run 32894284063
 
 本reportをreviewしてmainへ反映した後、同じfileでGitHub Release assetを置き換える。
 main上のfileとRelease assetのSHA-256一致を最終確認とする。

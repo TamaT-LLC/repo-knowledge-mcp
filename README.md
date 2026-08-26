@@ -2,8 +2,8 @@
 
 > **公開状況**
 >
-> この source の release target は `v0.4.0` です。
-> npm registry で `0.4.0` を確認できるまでは、公開済みの `0.3.0` を利用してください。
+> 現行の stable release は `v0.4.0` です。
+> npm registry では `@tamat-llc/repo-knowledge-mcp@0.4.0` を利用できます。
 
 **repo-knowledge-mcp** は、Pull Request のレビューから得た知見を個人用ローカルストアへ保存し、Codex、Claude Code、Cursor から再利用できる rule に変換する stdio MCP server です。
 人間と複数の AI reviewer が残した指摘を GitHub から取得し、根拠を追跡できる Markdown として管理します。
