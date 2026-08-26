@@ -2,8 +2,8 @@
 
 本reportは、`@tamat-llc/repo-knowledge-mcp@0.4.1`の公開前gate、OIDC publish、provenance、公開後検証を記録する。
 
-現時点では公開前gateが完了し、Git tagとdraft GitHub Releaseを作成済みである。
-GitHub Release、npm package、registry smokeは未完了なので、総合判定は`release未完了`とする。
+GitHub Releaseとnpm packageを公開し、Release CIでNode.js 22 / 24のregistry smokeまで完了した。
+総合判定は`release完了`である。
 
 ## 1. Release identity
 
@@ -15,12 +15,12 @@ GitHub Release、npm package、registry smokeは未完了なので、総合判�
 | tag object | `ca04561aaea3e8f21c6d8394fbcf1203dbb34658`。SSH署名をlocal検証済み |
 | commit SHA | `53bed87d07999c84cbe565c224dd4ea28853e036` |
 | main到達確認 | `git merge-base --is-ancestor 53bed87 origin/main`: pass |
-| GitHub Release | [draft release](https://github.com/TamaT-LLC/repo-knowledge-mcp/releases/tag/untagged-f2c355c86363564e2a1d) |
-| 公開後GitHub Release URL | `https://github.com/TamaT-LLC/repo-knowledge-mcp/releases/tag/v0.4.1` |
-| npm registry URL | `https://www.npmjs.com/package/@tamat-llc/repo-knowledge-mcp/v/0.4.1` |
-| npm integrity | 公開後に記録 |
-| npm provenance | 公開後に記録 |
-| release workflow run | GitHub Release公開後に記録 |
+| GitHub Release | [v0.4.1](https://github.com/TamaT-LLC/repo-knowledge-mcp/releases/tag/v0.4.1)。`2026-08-26T08:54:35Z`に公開 |
+| npm registry | [@tamat-llc/repo-knowledge-mcp@0.4.1](https://www.npmjs.com/package/@tamat-llc/repo-knowledge-mcp/v/0.4.1)。`2026-08-26T08:59:11.416Z`に公開 |
+| npm integrity | `sha512-gJzQ23yKfHQI8N4V/tDo546XOzI5E8qYl1qmp3qCZ2nj+GnrjL26/zl5uqsxMxXMmWvpaL1f/PiEeV1xz2RqXQ==` |
+| npm shasum | `85b3e38e029d9ab7b9dbe8b22a96a393f4229055` |
+| npm provenance | pass。SLSA subject、release commit、workflow、runが一致 |
+| release workflow | [run 32950191790](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/32950191790) |
 
 `v0.4.1`はbackward-compatibleなpatch releaseである。
 GitHubの検索結果がpage間で変化した場合のPull Request一覧retry、npm 12のregistry smoke互換性、traditional npm credentialのfail-closed検出を含む。
@@ -141,7 +141,7 @@ CodeRabbitはreview rate limitのため実質reviewを行わず、statusのみpa
 | M3-AC-005 | pass | trusted-human policy matrixとsubmit / finalize service |
 | M3-AC-006 | pass | AI、未知bot、外部contributor、mixed trust、`must`のdeny matrix |
 | M3-AC-007 | pass | review CLI real TTY E2E |
-| M3-AC-008 | pending | 公開後のNode.js 22 / 24 registry smokeで確定する |
+| M3-AC-008 | pass | 公開済みexact versionのNode.js 22 / 24 registry smoke |
 | M3-AC-009 | pass | M2→M3 upgrade E2E |
 | M3-AC-010 | pass | CLI runtime、package smoke、upgrade E2Eのworkspace clean |
 | M3-AC-011 | pass | setup / review real TTY E2EとJSON stdout purity |
@@ -176,41 +176,65 @@ CodeRabbitはreview rate limitのため実質reviewを行わず、statusのみpa
 | 項目 | 値 |
 | --- | --- |
 | tarball filename | `tamat-llc-repo-knowledge-mcp-0.4.1.tgz` |
-| local tarball SHA-256 | `sha256:975303a769a7a708d43728084c521196776f120498f81aa9fe74ba3c3c6002b3` |
-| local npm shasum | `0becf5677207d7a437b43005b2b5fa9e1a695ad9` |
-| local npm integrity | `sha512-oFFB9m9/002jJFX/lAu/Th41nCjEFzDDEmYOpOIJMIWKrKfUzIfoAABMikg1f3xfvuSS9wH+Dg0N0OHyR3o0BA==` |
-| local packed size / unpacked size | 328,319 bytes / 1,544,918 bytes |
-| package artifact report | Release CI完了後に記録 |
+| Release CI tarball SHA-256 | `sha256:6696b1904665895db9919b0dc0864bc3fd50ada0289c99a1a6b4ce09ee60bf43` |
+| npm shasum | `85b3e38e029d9ab7b9dbe8b22a96a393f4229055` |
+| npm integrity | `sha512-gJzQ23yKfHQI8N4V/tDo546XOzI5E8qYl1qmp3qCZ2nj+GnrjL26/zl5uqsxMxXMmWvpaL1f/PiEeV1xz2RqXQ==` |
+| packed size / unpacked size | 326,196 bytes / 1,535,476 bytes |
+| package artifact | `npm-release-v0.4.1`、artifact ID `9599956897` |
+| package artifact report SHA-256 | `sha256:86f58facb974a626b1fb66ee645729997936a9ebe04e85921dbc979fd66c05be` |
 | bootstrap inventory | n/a。`v0.3.0`で完了済み |
 | release gate report schema | `2` |
-| allowlist判定 | pass。225 local entries、clean PR CIでは223 entries |
+| allowlist判定 | pass。`dist-js-dts-plus-explicit-root-files-v3`、223 entries |
 | credential / local-data scan | pass |
 | stable root API | runtime `runDefaultRepoKnowledgeCli`、type `RunDefaultRepoKnowledgeCliOptions` |
 | CLI bin | `repo-knowledge` / `repo-knowledge-mcp` |
 | MCP tool count | `11` |
 
-local checkoutのignored `dist/`には`v0.4.0`時点から削除済みmodule 2件が残るため、local artifactは225 entriesである。
-公開物の正本はclean checkoutのRelease CIで生成する。
+Release CIが生成したtarballのintegrityとshasumはnpm registryの値と一致した。
+公開物の正本はclean checkoutで生成した223 entriesのRelease CI artifactである。
+local pre-release tarballとの差分は§9に記録する。
 
 ## 8. Release CIとregistry smoke
 
 | job | Node.js | 結果 | run URL |
 | --- | --- | --- | --- |
-| verify release | 22 | pending | GitHub Release公開後に記録 |
-| verify release | 24 | pending | GitHub Release公開後に記録 |
-| publish exact tarball（OIDC） | 24 | pending | GitHub Release公開後に記録 |
-| registry smoke | 22 | pending | GitHub Release公開後に記録 |
-| registry smoke | 24 | pending | GitHub Release公開後に記録 |
+| verify release | 22 | pass | [job 98119640892](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/32950191790/job/98119640892) |
+| verify release | 24 | pass | [job 98119640656](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/32950191790/job/98119640656) |
+| publish exact tarball（OIDC） | 24 | pass | [job 98120097729](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/32950191790/job/98120097729) |
+| registry smoke | 22 | pass | [job 98120855180](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/32950191790/job/98120855180) |
+| registry smoke | 24 | pass | [job 98120855249](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/32950191790/job/98120855249) |
 
 ### npm公開後の認証境界
 
 | 項目 | 結果 | 根拠 |
 | --- | --- | --- |
-| OIDC publishが対象package、repository、workflow、environmentから成功した | pending | 公開後に記録 |
-| traditional npm credentialをworkflowで使用していない | pending | credential環境変数、effective npm config、`.npmrc`の検査結果を公開後に記録 |
+| OIDC publishが対象package、repository、workflow、environmentから成功した | pass | publish jobとnpm provenanceが`release.yml`、`npm` environment、release tag、commitを示す |
+| traditional npm credentialをworkflowで使用していない | pass | credential環境変数、effective npm config、project / user / global `.npmrc`のfail-closed検査を通過 |
 | GitHub `npm` environmentにnpm credentialのsecretとvariableがない | pass | repositoryとenvironmentのsecret / variableはいずれも0件 |
-| npm provenanceがrelease workflowとcommitを示す | pending | 公開後に記録 |
-| npm package settingsの対話監査 | not_due | 前回2026-08-24、次回期限2026-11-22。今回の事前契機なし |
+| npm provenanceがrelease workflowとcommitを示す | pass | SLSA subject、tag、resolved commit、workflow、runを照合 |
+| npm package settingsの対話監査 | not_due | 前回2026-08-24、次回期限2026-11-22。release境界の異常、provenance不一致、credential検出なし |
+
+`not_due`はnpm側のtoken禁止設定を今回直接確認したという意味ではない。
+OIDC publishはtrusted publisherがpublish時に有効だったことを示すが、traditional token禁止設定までは証明しない。
+
+### npm registry metadataとprovenance
+
+| 項目 | 値 |
+| --- | --- |
+| version / `latest` | `0.4.1` / `0.4.1` |
+| `bootstrap` dist-tag | `0.0.0-bootstrap.0` |
+| 公開日時 | `2026-08-26T08:59:11.416Z` |
+| file count / unpacked size | 223 / 1,535,476 bytes |
+| SLSA subject | `pkg:npm/%40tamat-llc/repo-knowledge-mcp@0.4.1` |
+| SLSA subject SHA-512 | `809cd0db7c8a7c7408f0de15fed0e8e78e973b323913ca98975aa6a77a826769e3f869eb8cbdbaff3979baab313315cc996be968bd5ffcf884795d71cf646a5d` |
+| resolved Git commit | `53bed87d07999c84cbe565c224dd4ea28853e036` |
+| workflow | `TamaT-LLC/repo-knowledge-mcp/.github/workflows/release.yml@refs/tags/v0.4.1` |
+| builder | `https://github.com/actions/runner/github-hosted` |
+| invocation | [run 32950191790 attempt 1](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/32950191790/attempts/1) |
+| attestations | npm publish attestationとSLSA provenanceの2件 |
+
+SLSA subjectのSHA-512はregistry integrityをhexへ変換した値と一致した。
+publish attestationのpackage、version、registryも公開物と一致した。
 
 ## 9. Incidentと差分
 
@@ -219,6 +243,7 @@ local checkoutのignored `dist/`には`v0.4.0`時点から削除済みmodule 2�
 | PRE-001 | PR #167がself-review禁止のrequired reviewで停止 | release準備PRが通常mergeされない | 全check green、Greptile 5/5、未解決thread 0件を確認し、repository adminとしてmerge | なし |
 | PRE-002 | local checkoutのignored `dist/`に削除済みmodule 2件が残り、local tarballが225 entriesになった | local artifactとclean CI artifactのhashが異なる | clean checkoutで生成するRelease CI artifactだけをpublishし、registry integrityと照合する | なし |
 | PRE-003 | CodeRabbitがreview rate limitに到達 | CodeRabbitの実質reviewなし | CodeQL、Node 22 / 24 CI、Greptile 5/5、未解決thread 0件で公開前review gateを判定 | なし |
+| REL-001 | GitHub `npm` environmentのrequired reviewerがself-review禁止のためpublish jobが待機 | publish開始が保留 | 全verify jobを確認後、repository adminとしてdeployment protectionをbypass | なし |
 
 ## 10. Go / no-go
 
@@ -227,19 +252,19 @@ local checkoutのignored `dist/`には`v0.4.0`時点から削除済みmodule 2�
 | M2 pilot gate | go | §3 |
 | Local verification | go | §4 |
 | Pull Request CI Node.js 22 / 24 | go | §5 |
-| M3-AC-001〜011 | pending | M3-AC-008を公開後に確定する |
-| package artifact | pre-release go | local gateとclean PR CIはpass、Release CI reportはpending |
-| npm publishとregistry smoke Node.js 22 / 24 | pending | §8 |
-| tokenless OIDC publishing boundary | pending | baselineとcredential 0件はpass、公開後にOIDC / provenanceを確認 |
-| versionの全媒体一致 | pending | sourceとtagは一致。GitHub Releaseとnpm registryは未公開 |
+| M3-AC-001〜011 | go | §6。全項目pass |
+| package artifact | go | Release CI artifact、registry integrity、provenanceが一致 |
+| npm publishとregistry smoke Node.js 22 / 24 | go | §8。OIDC publishと両runtimeのsmokeがpass |
+| tokenless OIDC publishing boundary | go | §8。OIDC publish、provenance、credential 0件、credential guardを確認 |
+| versionの全媒体一致 | go | source、tag、GitHub Release、npm registry、provenanceが`0.4.1`で一致 |
 
-**総合判定: release未完了（公開前gateはgo）**
+**総合判定: release完了**
 
 - operator: `TakehiroT`
 - evidence compilation: `Codex`
-- reviewer: PR #167のCI、CodeQL、Greptile、および本reportのPull Request
-- 最終判断日時（UTC）: 公開後に記録
-- release tracking: PR #167、本reportのPull Request、draft release `376992396`
+- reviewer: PR [#167](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/167)、[#168](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/168)、本reportのPull RequestのCI、CodeQL、Greptile
+- 最終判断日時（UTC）: `2026-08-26T09:01Z`
+- release tracking: PR #167、PR #168、本reportのPull Request、release run 32950191790
 
-本reportの§1〜§7をreviewしてmainへ反映し、同じfileをdraft GitHub Releaseへ添付した後にだけReleaseを公開する。
-Release CI完了後は§8〜§10を実測値で更新し、main上のfileとGitHub Release assetのSHA-256を一致させる。
+本reportをreviewしてmainへ反映した後、同じfileでGitHub Release assetを置き換える。
+main上のfileとRelease assetのSHA-256一致を最終確認とする。
