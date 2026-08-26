@@ -5,6 +5,7 @@ import {
   AddKnowledgeOutputSchema,
   DistillJobCoordinatorError,
   FileLockTimeoutError,
+  GitHubSnapshotError,
   IngestPrOutputSchema,
   KnowledgeConflictError,
   PrepareDistillationOutputSchema,
@@ -794,6 +795,13 @@ describe("MCP mutation tools", () => {
           "ingester is bound to another repository",
         ),
       )
+      .mockRejectedValueOnce(
+        new GitHubSnapshotError(
+          "PULL_REQUEST_LIST_CHANGED",
+          "pullRequests page",
+          "pull request listing changed while it was being enumerated",
+        ),
+      )
       .mockRejectedValueOnce(new FileLockTimeoutError("/repo/.sync.lock"));
     const connection = await connect(fixture.resolver);
     const call = async () =>
@@ -824,6 +832,15 @@ describe("MCP mutation tools", () => {
 
     expect(toolStructuredContent(await call())).toMatchObject({
       error: { code: "SYNC_REPOSITORY_MISMATCH", retryable: false },
+      ok: false,
+    });
+
+    expect(toolStructuredContent(await call())).toMatchObject({
+      error: {
+        code: "PULL_REQUEST_LIST_CHANGED",
+        next_action: expect.stringContaining("same arguments"),
+        retryable: true,
+      },
       ok: false,
     });
 

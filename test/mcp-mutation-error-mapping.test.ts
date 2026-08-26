@@ -21,6 +21,7 @@ import {
   IngestPrMutationError,
   type IngestPrMutationErrorCode,
 } from "../src/ingest-pr-mutation-service.js";
+import { GitHubSnapshotError } from "../src/github-graphql.js";
 import {
   MergeClassifierError,
   type MergeClassifierErrorCode,
@@ -564,6 +565,21 @@ describe("mapMutationError", () => {
       message: error.message,
       next_action:
         "Another run holds the repository sync lock; wait for it to finish, then call sync_repo again.",
+      retryable: true,
+    });
+  });
+
+  it("maps an exhausted pull-request listing change as retryable", () => {
+    const error = new GitHubSnapshotError(
+      "PULL_REQUEST_LIST_CHANGED",
+      "pullRequests page",
+      "pull request listing changed while it was being enumerated",
+    );
+
+    expect(mapMutationError(error)).toEqual({
+      code: "PULL_REQUEST_LIST_CHANGED",
+      message: error.message,
+      next_action: expect.stringContaining("same arguments"),
       retryable: true,
     });
   });

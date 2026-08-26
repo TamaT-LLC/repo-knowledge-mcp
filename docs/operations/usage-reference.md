@@ -263,6 +263,9 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin
 部分失敗時は最初に失敗した Pull Request で停止します。
 checkpoint は最後に連続成功した Pull Request に留まるため、失敗より新しい Pull Request が先に取り込まれることはありません。
 
+複数ページの列挙中に Pull Request 一覧が変化した場合は、不安定な結果を破棄して同じ checkpoint から最大 3 回まで自動再試行します。
+それでも安定しない場合、MCP の `sync_repo` は `PULL_REQUEST_LIST_CHANGED` を `retryable: true` で返すため、同じ引数で再実行してください。
+
 境界規則、最小権限、lock contention、再試行は [sync cron 運用 runbook](./sync-cron-runbook.md) を参照してください。
 
 ## outcome とランキング
