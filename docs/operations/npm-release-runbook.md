@@ -203,7 +203,7 @@ bootstrapとtrusted publisher設定後、stable `0.3.0`を通常のrelease workf
 version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。
 
 ```console
-RELEASE_VERSION=0.4.0
+RELEASE_VERSION=0.4.1
 RELEASE_COMMIT="$(git rev-parse HEAD)"
 npm ci --ignore-scripts
 npm run install-scripts:check
@@ -261,7 +261,7 @@ workflow の artifact から `package-artifact-report.json` を取得し、relea
 手元で再確認する場合も `latest` を使わず exact version を指定する。
 
 ```console
-RELEASE_VERSION=0.4.0
+RELEASE_VERSION=0.4.1
 npx --yes --package="@tamat-llc/repo-knowledge-mcp@${RELEASE_VERSION}" -- repo-knowledge --help
 npm run --silent registry:smoke -- \
   --name @tamat-llc/repo-knowledge-mcp \
