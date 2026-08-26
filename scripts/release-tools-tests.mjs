@@ -317,6 +317,10 @@ test("release workflow publishes stable packages with OIDC only", async () => {
     new URL("../.github/workflows/release.yml", import.meta.url),
     "utf8",
   );
+  const publishJob = /^ {2}publish:\n[\s\S]*?(?=^ {2}registry-smoke:)/mu.exec(
+    workflow,
+  )?.[0];
+  assert.ok(publishJob);
   assert.match(workflow, /id-token: write/u);
   assert.match(
     workflow,
@@ -326,6 +330,18 @@ test("release workflow publishes stable packages with OIDC only", async () => {
   assert.match(workflow, /--provenance/u);
   assert.doesNotMatch(workflow, /secrets\.(?:NPM|NODE_AUTH_TOKEN)/u);
   assert.doesNotMatch(workflow, /bootstrap-auth-gate/u);
+  assert.doesNotMatch(publishJob, /registry-url:/u);
+  assert.match(publishJob, /npm config list --json/u);
+  assert.match(publishJob, /\.npmrc/u);
+  assert.match(publishJob, /NPM_CONFIG_/u);
+  assert.match(publishJob, /npm_config_/u);
+  assert.match(publishJob, /_authToken/u);
+  assert.match(publishJob, /npm config get userconfig/u);
+  assert.match(publishJob, /npm config get globalconfig/u);
+  assert.ok(
+    publishJob.indexOf("Reject traditional npm credentials and auth config") <
+      publishJob.indexOf("npm install --global"),
+  );
 });
 
 test("CI and release workflows use one npm 12 version and gate install scripts", async () => {

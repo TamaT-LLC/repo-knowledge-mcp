@@ -185,7 +185,7 @@ registry smoke では `npx -y @tamat-llc/repo-knowledge-mcp@<exact-version>` 相
 | 項目 | 結果 | 根拠 |
 | --- | --- | --- |
 | OIDC publishが対象package、repository、workflow、environmentから成功した | pass / fail | `___` |
-| traditional npm credentialをworkflowで使用していない | pass / fail | `___` |
+| traditional npm credentialをworkflowで使用していない | pass / fail | credential環境変数、effective npm config、`.npmrc`の検査結果`___` |
 | GitHub `npm` environmentにnpm credentialのsecretとvariableがない | pass / fail | `___` |
 | npm provenanceがrelease workflowとcommitを示す | pass / fail | `___` |
 | npm package settingsの対話監査 | pass / not_due / fail | 前回`___`、次回期限`___`、今回の契機`___` |

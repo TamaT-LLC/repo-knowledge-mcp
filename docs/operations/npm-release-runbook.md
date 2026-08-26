@@ -72,7 +72,7 @@ trusted publisher の動作確認後は、npm の publishing access を `Require
 
 通常リリースでは次の証跡を自動gateにする。
 
-1. publish jobだけが`id-token: write`を持ち、traditional npm credentialを参照しない。
+1. publish jobだけが`id-token: write`を持つ。credential環境変数、effective npm config、project / user / globalの`.npmrc`に認証設定があればpublish前に失敗する。
 2. GitHub `npm` environmentのsecretとvariableが0件である。
 3. npm provenanceが対象repository、workflow、tag、commitを示す。
 4. Node.js 22と24のexact-version registry smokeが成功する。

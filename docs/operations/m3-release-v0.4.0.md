@@ -254,6 +254,7 @@ publish attestationのpackage、version、registryも公開物と一致した。
 | REL-001 | GitHub `npm` environmentのrequired reviewerがself-review禁止のためpublish jobが待機 | publish開始が保留 | 全verify jobを確認後、repository adminとしてdeployment protectionをbypass | なし |
 | REL-002 | npm 12の`npm view --json`が単一versionを配列で返し、初回registry smokeが失敗 | Release workflow全体はfailure。OIDC publish自体は成功済み | PR #162で単一要素の文字列配列を許容し、recovery workflowを実行 | なし |
 | REL-003 | npm 12の`npx`が正常終了時にもnoticeをstderrへ出し、recovery 1が失敗 | exact CLI helpの検証が完了しない | PR #163でstdoutの期待値を検証しつつnpm diagnostic stderrを許容。recovery 2でNode.js 22 / 24ともpass | なし |
+| POST-001 | release workflowのcredential guardが`NODE_AUTH_TOKEN`と`NPM_TOKEN`だけを検査していた | v0.4.0はprovenanceとcredential 0件からOIDC publishと確認済み。将来の別npm config経路には検出漏れがあった | PR #164でpublish jobの`registry-url`生成設定を除き、credential環境変数、effective npm config、project / user / globalの`.npmrc`をfail-closedで検査 | なし |
 
 ## 10. Go / no-go
 
@@ -273,7 +274,7 @@ publish attestationのpackage、version、registryも公開物と一致した。
 - operator: `TakehiroT`
 - evidence compilation: `Codex`
 - reviewer: PR #160、[#161](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/161)、[#162](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/162)、[#163](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/163)、[#164](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/164)のCI、CodeQL、Greptile、CodeRabbit
-- 最終判断日時（UTC）: `2026-08-26T00:41Z`
+- 最終判断日時（UTC）: `2026-08-26T00:53Z`
 - release tracking: PR #160、PR #161、PR #162、PR #163、PR #164、release run 32892785194、recovery run 32894284063
 
 本reportをreviewしてmainへ反映した後、同じfileでGitHub Release assetを置き換える。
