@@ -2,8 +2,8 @@
 
 > **公開状況**
 >
-> 現行の stable release は `v0.4.0` です。
-> npm registry では `@tamat-llc/repo-knowledge-mcp@0.4.0` を利用できます。
+> この source の release version は `v0.4.1` です。
+> npm registry への反映前は `@tamat-llc/repo-knowledge-mcp@0.4.0` を利用してください。
 
 **repo-knowledge-mcp** は、Pull Request のレビューから得た知見を個人用ローカルストアへ保存し、Codex、Claude Code、Cursor から再利用できる rule に変換する stdio MCP server です。
 人間と複数の AI reviewer が残した指摘を GitHub から取得し、根拠を追跡できる Markdown として管理します。
@@ -72,8 +72,8 @@ Windows、NFS、SMB、Dropbox、iCloud Drive などの同期領域は保証対�
 ## 最短セットアップ
 
 以下の package コマンドは npm registry の exact version を使います。
-最初に `npm view @tamat-llc/repo-knowledge-mcp@0.4.0 version` が `0.4.0` を返すことを確認してください。
-`E404` の間は各例の `0.4.0` を `0.3.0` に置き換えます。
+最初に `npm view @tamat-llc/repo-knowledge-mcp@0.4.1 version` が `0.4.1` を返すことを確認してください。
+`E404` の間は各例の `0.4.1` を `0.4.0` に置き換えます。
 source checkout から試す手順は[開発と release gate](#development-and-release)にあります。
 
 ### 1. GitHub と Node.js を準備する
@@ -92,19 +92,19 @@ private repository を対象にする場合は、その repository を読める 
 
 ```console
 cd /absolute/path/to/repository
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.0 setup
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 setup
 ```
 
 workspace の外から実行する場合は repository 名を指定します。
 
 ```console
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.0 setup owner/repository
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 setup owner/repository
 ```
 
 継続して CLI を使う場合は global install も選べます。
 
 ```console
-npm install --global @tamat-llc/repo-knowledge-mcp@0.4.0
+npm install --global @tamat-llc/repo-knowledge-mcp@0.4.1
 repo-knowledge --help
 ```
 
@@ -121,7 +121,7 @@ guided setup は repository の解決、private storage の作成、外部送信
 ### 3. installation を診断する
 
 ```console
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.0 doctor owner/repository
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 doctor owner/repository
 ```
 
 `doctor` は runtime、GitHub 認証、config、storage、canonical data、検索用 projection を変更せずに検査します。
@@ -131,14 +131,14 @@ npx -y @tamat-llc/repo-knowledge-mcp@0.4.0 doctor owner/repository
 Codex を使う場合は次の command で登録します。
 
 ```console
-codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.0
+codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
 codex mcp list
 ```
 
 続いて、agent が変更前に `get_rules` を呼ぶための一文を出力します。
 
 ```console
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.0 export owner/repository --bootstrap
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 export owner/repository --bootstrap
 ```
 
 出力された一文を `AGENTS.md`、`CLAUDE.md`、または `.cursor/rules` 配下の rule に追加してください。
@@ -217,7 +217,7 @@ rule の detail、コード例、paginated evidence を確認する場合は `ge
 ### Codex
 
 ```console
-codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.0
+codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
 codex mcp get repo-knowledge
 ```
 
@@ -226,7 +226,7 @@ codex mcp get repo-knowledge
 ```console
 codex mcp add repo-knowledge \
   --env REPO_KNOWLEDGE_HOME=/absolute/private/path \
-  -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.0
+  -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
 ```
 
 設定方法は [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) を参照してください。
@@ -234,14 +234,14 @@ codex mcp add repo-knowledge \
 ### Claude Code
 
 ```console
-claude mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.0
+claude mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
 claude mcp get repo-knowledge
 ```
 
 ```console
 claude mcp add repo-knowledge \
   --env REPO_KNOWLEDGE_HOME=/absolute/private/path \
-  -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.0
+  -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
 ```
 
 設定方法は [Claude Code MCP documentation](https://docs.anthropic.com/en/docs/claude-code/mcp) を参照してください。
@@ -255,7 +255,7 @@ project 単位では `.cursor/mcp.json`、全 project 共通では `~/.cursor/mc
   "mcpServers": {
     "repo-knowledge": {
       "command": "npx",
-      "args": ["-y", "@tamat-llc/repo-knowledge-mcp@0.4.0"],
+      "args": ["-y", "@tamat-llc/repo-knowledge-mcp@0.4.1"],
       "env": {
         "REPO_KNOWLEDGE_HOME": "/absolute/private/path"
       }
