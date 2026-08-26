@@ -91,6 +91,16 @@ MCP `sync_repo` との同時実行は片方が lock 待ちになり、既定 5 �
 - 対処: 原因（`gh` 認証切れ、レート制限、ネットワーク等）を解消して再実行するだけでよい。
   再実行は失敗 PR から再試行し、成功済み PR の再 ingest は冪等な no-op になる
 
+### PR 一覧の走査中変更
+
+PR を `updatedAt` 順に複数ページ走査している間に更新が入ると、ページ間の重複や順序退行を
+検知して不安定な列挙結果を破棄する。`sync` / `sync_repo` は同じ checkpoint 境界から列挙全体を
+最大 3 回まで自動再試行し、安定した一覧を得た場合だけ ingest と checkpoint 更新へ進む。
+
+3 回とも `PULL_REQUEST_LIST_CHANGED` になった場合、checkpoint は変更されない。MCP 応答は
+`retryable: true` と同じ引数での再実行を案内するため、呼び出し側は境界を変更せずに再試行する。
+更新が継続する高頻度リポジトリでは、短い待機を挟むか更新の少ない時間帯に再実行する。
+
 ### 再実行時の不変条件
 
 - `sync` の再実行・`--since` replay・MCP `sync_repo` との重複実行のいずれでも
@@ -109,6 +119,7 @@ MCP `sync_repo` との同時実行は片方が lock 待ちになり、既定 5 �
 | `SYNC_REPOSITORY_MISMATCH`                                        | 解決された repository と ingest 先の repo_id が不一致           | `--repo` 指定と config の workspaceMappings を確認                                                   |
 | `SYNC_CHECKPOINT_REPOSITORY_MISMATCH`                             | checkpoint が別リポジトリのもの                                 | storage の取り違えを調査。安易に checkpoint を削除しない                                             |
 | `SYNC_CHECKPOINT_INVALID` / `SYNC_CHECKPOINT_VERSION_UNSUPPORTED` | checkpoint 破損または将来 version                               | バックアップから復旧するか、全期間再同期を許容できる場合のみ checkpoint を退避して初回同期をやり直す |
+| `PULL_REQUEST_LIST_CHANGED`                                      | 自動再試行中も PR 一覧が継続して変化                            | 同じ引数で再実行。checkpoint は未変更なので `since` を新しくしない                                  |
 | `LOCK_TIMEOUT`                                                    | 同時実行による lock 待ちタイムアウト                            | 放置してよい。次回実行が再開する                                                                     |
 | `GRAPHQL_REQUEST_FAILED` ほか `GH_*`                              | `gh` 実行失敗（未認証・ネットワーク等）                         | `gh auth status` と接続を確認して再実行                                                              |
 

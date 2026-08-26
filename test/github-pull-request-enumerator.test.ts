@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS,
   DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE,
   LIST_UPDATED_PULL_REQUESTS_PAGE_QUERY,
   LIST_UPDATED_PULL_REQUESTS_QUERY,
@@ -176,8 +177,52 @@ describe("GitHubPullRequestEnumerator", () => {
     await expect(
       new GitHubPullRequestEnumerator({
         ghRunner: runner,
+        maxListChangeAttempts: 1,
       }).enumerateUpdatedPullRequests({ repo: REPO_NAME }),
     ).rejects.toMatchObject({ code: "PULL_REQUEST_LIST_CHANGED" });
+  });
+
+  it("restarts a changed listing from the same cursor boundary", async () => {
+    const runner = pagedRunner([
+      page([node(10)], "stale-cursor"),
+      page([node(11)], null),
+      page([node(11), node(10), node(9)], null),
+    ]);
+    const cursor = cursorAt(9, timestampMs(9));
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner,
+    }).enumerateUpdatedPullRequests({ cursor, repo: REPO_NAME });
+
+    expect(
+      result.pullRequests.map((pullRequest) => pullRequest.number),
+    ).toEqual([10, 11]);
+    expect(result.nextCursor).toMatchObject({ last_pr_number: 11 });
+    expect(runner.calls.map((call) => call.variables.after ?? null)).toEqual([
+      null,
+      "stale-cursor",
+      null,
+    ]);
+  });
+
+  it("bounds repeated retries when every listing attempt changes", async () => {
+    const pages = Array.from(
+      { length: DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS },
+      (_, index) => [
+        page([node(10)], `stale-cursor-${String(index)}`),
+        page([node(11)], null),
+      ],
+    ).flat();
+    const runner = pagedRunner(pages);
+
+    await expect(
+      new GitHubPullRequestEnumerator({
+        ghRunner: runner,
+      }).enumerateUpdatedPullRequests({ repo: REPO_NAME }),
+    ).rejects.toMatchObject({ code: "PULL_REQUEST_LIST_CHANGED" });
+    expect(runner.calls).toHaveLength(
+      DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS * 2,
+    );
   });
 
   it("follows a rename when the repository node ID stays stable", async () => {
@@ -206,6 +251,7 @@ describe("GitHubPullRequestEnumerator", () => {
     await expect(
       new GitHubPullRequestEnumerator({
         ghRunner: runner,
+        maxListChangeAttempts: 1,
       }).enumerateUpdatedPullRequests({ repo: REPO_NAME }),
     ).rejects.toMatchObject({ code: "PULL_REQUEST_LIST_CHANGED" });
   });

@@ -31,6 +31,9 @@ import {
 } from "./sync-cursor.js";
 
 export const DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE = 50;
+export const DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS = 3;
+
+const MAX_SYNC_PULL_REQUEST_LIST_ATTEMPTS = 10;
 
 const PULL_REQUEST_LIST_FIELDS = `
   id
@@ -132,20 +135,27 @@ export interface EnumerateUpdatedPullRequestsResult {
 
 export interface GitHubPullRequestEnumeratorOptions {
   readonly ghRunner?: GhRunnerLike;
+  readonly maxListChangeAttempts?: number;
   readonly pageSize?: number;
 }
 
 /**
  * Enumerates the PRs a sync run must revisit, ordered deterministically by
- * (updatedAt, PR number) ascending. Every partial or unstable listing fails
- * by throwing, so a successful result always carries a resumable cursor.
+ * (updatedAt, PR number) ascending. Each partial or unstable attempt is
+ * discarded; mutable listings restart from the same boundary a bounded
+ * number of times, so a successful result always carries a resumable cursor.
  */
 export class GitHubPullRequestEnumerator {
   private readonly ghRunner: GhRunnerLike;
+  private readonly maxListChangeAttempts: number;
   private readonly pageSize: number;
 
   constructor(options: GitHubPullRequestEnumeratorOptions = {}) {
     this.ghRunner = options.ghRunner ?? new GhRunner();
+    this.maxListChangeAttempts = assertListChangeAttempts(
+      options.maxListChangeAttempts ??
+        DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS,
+    );
     this.pageSize = assertGraphqlPageSize(
       options.pageSize ?? DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE,
       "pageSize",
@@ -162,6 +172,26 @@ export class GitHubPullRequestEnumerator {
     });
     const [owner, name] = repo.split("/") as [string, string];
 
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.enumerateStablePullRequestList(boundary, owner, name);
+      } catch (error) {
+        if (
+          !isPullRequestListChanged(error) ||
+          attempt >= this.maxListChangeAttempts
+        ) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  /** Restarts from the same sync boundary after a mutable listing is seen. */
+  private async enumerateStablePullRequestList(
+    boundary: SyncBoundary,
+    owner: string,
+    name: string,
+  ): Promise<EnumerateUpdatedPullRequestsResult> {
     const traversal = new PullRequestListTraversal(boundary);
     let repository: SyncRepositoryIdentity | null = null;
     let cursor: string | null = null;
@@ -312,4 +342,26 @@ function listChangedError(operation: string): GitHubSnapshotError {
     operation,
     "pull request listing changed while it was being enumerated",
   );
+}
+
+function isPullRequestListChanged(
+  error: unknown,
+): error is GitHubSnapshotError {
+  return (
+    error instanceof GitHubSnapshotError &&
+    error.code === "PULL_REQUEST_LIST_CHANGED"
+  );
+}
+
+function assertListChangeAttempts(value: number): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > MAX_SYNC_PULL_REQUEST_LIST_ATTEMPTS
+  ) {
+    throw new TypeError(
+      `maxListChangeAttempts must be between 1 and ${String(MAX_SYNC_PULL_REQUEST_LIST_ATTEMPTS)}`,
+    );
+  }
+  return value;
 }

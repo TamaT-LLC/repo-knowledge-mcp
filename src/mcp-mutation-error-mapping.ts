@@ -19,6 +19,7 @@ import {
   IngestPrMutationError,
   type IngestPrMutationErrorCode,
 } from "./ingest-pr-mutation-service.js";
+import { GitHubSnapshotError } from "./github-graphql.js";
 import {
   MergeClassifierError,
   type MergeClassifierErrorCode,
@@ -297,6 +298,12 @@ const SYNC_CHECKPOINT_RULES = {
   },
 } satisfies ErrorRuleTable<SyncCheckpointErrorCode>;
 
+const PULL_REQUEST_LIST_CHANGED_RULE = {
+  nextAction:
+    "Call sync_repo again with the same arguments; the unchanged checkpoint keeps the retry lossless. If repository updates remain continuous, retry during a quieter interval.",
+  retryable: true,
+} as const;
+
 const MERGE_CLASSIFIER_RULES = {
   MERGE_CLASSIFIER_TRANSMISSION_DENIED: NON_RETRYABLE,
   MERGE_DECISIONS_INVALID: NON_RETRYABLE,
@@ -336,6 +343,7 @@ const MUTATION_ERROR_TRANSLATORS = [
   translateSyncRepoError,
   translateSyncCursorError,
   translateSyncCheckpointError,
+  translatePullRequestListChangedError,
   translateFileLockError,
   translateProviderPipelineError,
   translateGenericCodedError,
@@ -501,6 +509,15 @@ function translateSyncCheckpointError(
 ): MutationToolErrorPayload | undefined {
   return error instanceof SyncCheckpointError
     ? mapTableError(error, SYNC_CHECKPOINT_RULES)
+    : undefined;
+}
+
+function translatePullRequestListChangedError(
+  error: unknown,
+): MutationToolErrorPayload | undefined {
+  return error instanceof GitHubSnapshotError &&
+    error.code === "PULL_REQUEST_LIST_CHANGED"
+    ? mapKnownError(error, PULL_REQUEST_LIST_CHANGED_RULE)
     : undefined;
 }
 
