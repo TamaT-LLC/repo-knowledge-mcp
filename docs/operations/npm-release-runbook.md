@@ -5,7 +5,7 @@
 通常の公開は GitHub Actions と npm trusted publishing を使い、長期 npm credential を repository secret に保存しない。
 
 各 stable release の実測値と公開後の完了判定は`m3-release-v<version>.md`へ記録する。
-最新の完了記録は[M3 v0.4.0 release report](./m3-release-v0.4.0.md)である。
+最新の完了記録は[M3 v0.4.1 release report](./m3-release-v0.4.1.md)である。
 
 公開境界の差分レビューは[2026-08-24のM3 npm公開方式セキュリティレビュー](./m3-npm-release-security-review-2026-08-24.md)を正本とする。
 
@@ -30,16 +30,16 @@
 
 | 項目 | 状態 |
 | --- | --- |
-| npm registry | `@tamat-llc/repo-knowledge-mcp@0.4.0` を`latest`として公開済み |
+| npm registry | `@tamat-llc/repo-knowledge-mcp@0.4.1` を`latest`として公開済み |
 | npm package owner | npm organization `tamat-llc`。GitHub Actions trusted publisherを設定済み |
 | local npm認証 | stable releaseでは使用せず、GitHub Actions OIDCだけを使う |
 | GitHub repository | public |
-| package version | `0.4.0` |
+| package version | `0.4.1` |
 | license | `package.json` はMIT、rootに`LICENSE`あり |
 | GitHub `npm` environment | required reviewer、self-review禁止、`v*` tag deployment policyを設定済み |
 | `main` protection | Pull Request、owner review、Node.js 22と24のCI、CodeQLを必須化済み |
 | version tag protection | `v*`の更新と削除を禁止済み |
-| release artifact | `v0.4.0`のtag、GitHub Release、npm package、provenance、registry smokeを確認済み |
+| release artifact | `v0.4.1`のtag、GitHub Release、npm package、provenance、registry smokeを確認済み |
 | M2 release gate | pilot-002の14日運用gateと修正後のranking human評価を組み合わせてgo。Issue `#118`はclosed |
 | bootstrap設定 | `0.0.0-bootstrap.0`を公開、deprecate済み。stable releaseはOIDC trusted publishingを使用 |
 
