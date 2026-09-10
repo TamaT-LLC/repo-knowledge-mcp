@@ -2,7 +2,7 @@ import { createCommandTestRunner } from "./support/command-runner.js";
 import { runQualityGateCli } from "../src/quality-gate-command.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -169,6 +169,52 @@ describe.each(["in-process", "subprocess"] as const)(
       expect(report.failures.map((failure) => failure.code)).toEqual([
         "INPUT_UNREADABLE",
       ]);
+    });
+
+    it("formats invalid trust settings in the machine-readable failure report", async () => {
+      const trustPath = join(workingDirectory, "invalid-trust.json");
+      await writeFile(
+        trustPath,
+        JSON.stringify({
+          autoActivateTrustedHuman: "true",
+          trustedActorIds: [42],
+        }),
+      );
+      const result = await executeCli([CLI, "--trust", trustPath], {
+        cwd: repositoryRoot,
+        reject: false,
+      });
+
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toBe("");
+      const report = JSON.parse(result.stdout) as QualityGateRunReport;
+      expect(report.status).toBe("integrity_failure");
+      expect(report.failures).toHaveLength(1);
+      expect(report.failures[0]).toMatchObject({
+        code: "INPUT_UNREADABLE",
+        detail: expect.stringContaining(
+          "trust configuration failed validation: autoActivateTrustedHuman:",
+        ),
+      });
+      expect(report.failures[0]!.detail).toContain("; trustedActorIds.0:");
+      expect(report.failures[0]!.detail).not.toContain('"code"');
+    });
+
+    it("identifies the resolved input path for malformed JSON", async () => {
+      const malformedPath = join(workingDirectory, "malformed-thresholds.json");
+      await writeFile(malformedPath, "{broken");
+      const { exitCode, report } = await runCli([
+        "--thresholds",
+        relative(repositoryRoot, malformedPath),
+      ]);
+
+      expect(exitCode).toBe(2);
+      expect(report.status).toBe("integrity_failure");
+      expect(report.failures).toHaveLength(1);
+      expect(report.failures[0]).toMatchObject({
+        code: "INPUT_UNREADABLE",
+        detail: expect.stringContaining(`Invalid JSON in ${malformedPath}:`),
+      });
     });
 
     it("rejects unknown arguments with usage help", async () => {

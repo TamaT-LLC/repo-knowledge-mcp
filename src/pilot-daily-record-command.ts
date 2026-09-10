@@ -329,7 +329,13 @@ function parseRecordArguments(argv: readonly string[]): RecordArguments {
         "--missing cannot be combined with --sync-log or --stats",
       );
     }
+    if (qualityGatePath !== undefined) {
+      throw new UsageError("--missing cannot be combined with --quality-gate");
+    }
   } else {
+    if (reason !== undefined) {
+      throw new UsageError("--reason requires --missing");
+    }
     if (syncLogPath === undefined) {
       throw new UsageError("--sync-log is required (or use --missing)");
     }
@@ -491,5 +497,13 @@ function requireValue(
 }
 
 async function readJson(path: string): Promise<unknown> {
-  return JSON.parse(await readFile(resolve(path), "utf8")) as unknown;
+  const resolvedPath = resolve(path);
+  const content = await readFile(resolvedPath, "utf8");
+  try {
+    return JSON.parse(content) as unknown;
+  } catch (cause) {
+    throw new Error(`Invalid JSON in ${resolvedPath}: ${String(cause)}`, {
+      cause,
+    });
+  }
 }

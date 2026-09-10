@@ -2,7 +2,7 @@ import { createCommandTestRunner } from "./support/command-runner.js";
 import { runPilotDailyRecordCli } from "../src/pilot-daily-record-command.js";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -424,6 +424,73 @@ describe.each(["in-process", "subprocess"] as const)(
 
       expect(exitCode).toBe(1);
     });
+
+    it.each([
+      ["reason without missing", "--reason requires --missing"],
+      [
+        "missing with quality gate",
+        "--missing cannot be combined with --quality-gate",
+      ],
+    ])("rejects %s without creating a record", async (combination, message) => {
+      const rejectedLog = join(workingDirectory, `${combination}.jsonl`);
+      const result = await runCli([
+        "record",
+        "--log",
+        rejectedLog,
+        "--pilot",
+        PILOT_ID,
+        "--date",
+        "2026-08-03",
+        ...RECORD_WINDOW_ARGS,
+        "--reason",
+        "operator offline",
+        ...(combination === "reason without missing"
+          ? ["--sync-log", syncLogPath, "--stats", statsPath]
+          : ["--missing", "--quality-gate", gatePath]),
+      ]);
+
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toContain(message);
+      expect(result.stdout).toBe("");
+      await expect(readFile(rejectedLog, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    });
+
+    it.each(["--stats", "--quality-gate"])(
+      "identifies the resolved input path for malformed JSON in %s",
+      async (flag) => {
+        const malformedPath = join(workingDirectory, `malformed-${flag}.json`);
+        const rejectedLog = join(workingDirectory, `malformed-${flag}.jsonl`);
+        await writeFile(malformedPath, "{broken");
+        const result = await runCli([
+          "record",
+          "--log",
+          rejectedLog,
+          "--pilot",
+          PILOT_ID,
+          "--date",
+          "2026-08-03",
+          ...RECORD_WINDOW_ARGS,
+          "--sync-log",
+          syncLogPath,
+          "--stats",
+          flag === "--stats"
+            ? relative(repositoryRoot, malformedPath)
+            : statsPath,
+          ...(flag === "--quality-gate"
+            ? [flag, relative(repositoryRoot, malformedPath)]
+            : []),
+        ]);
+
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(`Invalid JSON in ${malformedPath}:`);
+        expect(result.stdout).toBe("");
+        await expect(readFile(rejectedLog, "utf8")).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      },
+    );
 
     it("rejects usage errors with exit code 2", async () => {
       const unknownCommand = await runCli(["frobnicate"]);

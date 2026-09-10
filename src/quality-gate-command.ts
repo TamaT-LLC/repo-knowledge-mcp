@@ -79,16 +79,23 @@ async function runParsedQualityGate(
     ],
   );
   const prompt = await loadDistillationPrompt(resolve(parsed.promptPath));
-  const trust = TrustConfigSchema.parse(
+  const trust = TrustConfigSchema.safeParse(
     parsed.trustPath === undefined ? {} : await readJson(parsed.trustPath),
   );
+  if (!trust.success) {
+    const detail = trust.error.issues
+      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+      .join("; ");
+    // Invalid file contents retain the JSON failure report on stdout.
+    throw new TypeError(`trust configuration failed validation: ${detail}`);
+  }
   return runQualityGate({
     artifact,
     corpus,
     prompt,
     recordedPredictions,
     thresholds,
-    trust,
+    trust: trust.data,
   });
 }
 
@@ -153,5 +160,13 @@ function requireValue(
 }
 
 async function readJson(path: string): Promise<unknown> {
-  return JSON.parse(await readFile(resolve(path), "utf8")) as unknown;
+  const resolvedPath = resolve(path);
+  const content = await readFile(resolvedPath, "utf8");
+  try {
+    return JSON.parse(content) as unknown;
+  } catch (cause) {
+    throw new Error(`Invalid JSON in ${resolvedPath}: ${String(cause)}`, {
+      cause,
+    });
+  }
 }

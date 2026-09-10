@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { execa } from "execa";
 
 import type { CommandIo } from "../../src/command-io.js";
@@ -31,6 +32,13 @@ export function createCommandTestRunner(
     }
     const command = commands.get(args[0]!);
     if (command === undefined) throw new Error(`Unknown CLI: ${args[0]}`);
+    // Runners resolve paths from process.cwd(); reject unsupported overrides
+    // instead of silently testing different inputs than the subprocess path.
+    if (resolve(options.cwd) !== process.cwd()) {
+      throw new Error(
+        `in-process mode cannot change cwd: requested ${options.cwd}, current ${process.cwd()}`,
+      );
+    }
     const stdout: string[] = [];
     const stderr: string[] = [];
     const exitCode = await command(
