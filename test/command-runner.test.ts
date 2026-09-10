@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -56,6 +56,25 @@ describe("command test runner working directory", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(workingDirectory);
+    expect(process.cwd()).toBe(originalCwd);
+  });
+
+  it("accepts a symlink to the current in-process cwd", async () => {
+    const originalCwd = process.cwd();
+    const linkedDirectory = join(workingDirectory, "linked-cwd");
+    await symlink(originalCwd, linkedDirectory, "dir");
+    const command = vi.fn(async () => 0);
+    const run = createCommandTestRunner(
+      "in-process",
+      new Map([["test-command", command]]),
+    );
+    const result = await run(["test-command"], {
+      cwd: linkedDirectory,
+      reject: false,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(command).toHaveBeenCalledOnce();
     expect(process.cwd()).toBe(originalCwd);
   });
 });

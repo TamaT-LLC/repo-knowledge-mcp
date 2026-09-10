@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { realpath } from "node:fs/promises";
 import { execa } from "execa";
 
 import type { CommandIo } from "../../src/command-io.js";
@@ -32,9 +32,13 @@ export function createCommandTestRunner(
     }
     const command = commands.get(args[0]!);
     if (command === undefined) throw new Error(`Unknown CLI: ${args[0]}`);
+    const [requestedCwd, currentCwd] = await Promise.all([
+      realpath(options.cwd),
+      realpath(process.cwd()),
+    ]);
     // Runners resolve paths from process.cwd(); reject unsupported overrides
     // instead of silently testing different inputs than the subprocess path.
-    if (resolve(options.cwd) !== process.cwd()) {
+    if (requestedCwd !== currentCwd) {
       throw new Error(
         `in-process mode cannot change cwd: requested ${options.cwd}, current ${process.cwd()}`,
       );
