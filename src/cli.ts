@@ -142,67 +142,19 @@ async function executeCliCommand(
       options.io.writeStdout(REPO_KNOWLEDGE_CLI_HELP);
       return;
     case "serve":
-      await options.serve({
-        ...(command.selection.repo === undefined
-          ? {}
-          : { startupRepo: command.selection.repo }),
-        ...(command.selection.workspacePath === undefined
-          ? {}
-          : { startupWorkspace: command.selection.workspacePath }),
-      });
-      return;
-    case "setup": {
-      if (
-        !options.io.stdinIsTTY ||
-        !options.io.stdoutIsTTY ||
-        options.io.confirm === undefined ||
-        options.io.input === undefined
-      ) {
-        throw new RepoKnowledgeCliError(
-          "CLI_TTY_REQUIRED",
-          "setup requires real TTY stdin and stdout",
-          REPO_KNOWLEDGE_CLI_EXIT.failure,
-        );
-      }
-      const prompt: GuidedSetupPrompt = {
-        confirm: (request) => options.io.confirm!(request),
-        input: (request) => options.io.input!(request),
-        ...(command.json !== true && options.io.activity !== undefined
-          ? {
-              progress: (update: TerminalActivityUpdate) =>
-                options.io.activity!(update),
-            }
-          : {}),
-      };
-      const result = await options.setup(command.request, prompt);
-      if (command.json) {
-        writeJson(options.io, result);
-      } else {
-        options.io.writeStdout(renderGuidedSetupSummary(result));
-      }
-      return;
-    }
-    case "sync": {
-      const service = await options.mutationServiceResolver.resolve(
-        command.selection,
-      );
-      const summary = await service.syncRepo(
-        command.since === undefined ? {} : { since: command.since },
-      );
-      writeJson(options.io, summary);
-      if (summary.failed === 0) return;
-      // Machine-readable summary stays on stdout; the operator diagnostic and
-      // the non-zero exit code make partial failures visible to cron.
-      options.io.writeStderr(syncFailureDiagnostic(summary));
-      return REPO_KNOWLEDGE_CLI_EXIT.failure;
-    }
-    case "stats": {
-      const service = await options.operationsResolver.resolve(
-        command.selection,
-      );
-      writeJson(options.io, await service.stats(command.request));
-      return;
-    }
+      return executeServeCommand(command, options);
+    case "setup":
+      return executeSetupCommand(command, options);
+    case "sync":
+      return executeSyncCommand(command, options);
+
+    case "stats":
+    case "distill":
+    case "list":
+    case "reindex":
+    case "redistill":
+    case "reconcile":
+      return executeRepositoryCommand(command, options);
     case "doctor": {
       const result = await options.doctor.run(command.selection);
       writeJson(options.io, result);
@@ -220,25 +172,7 @@ async function executeCliCommand(
       );
       return;
     }
-    case "distill": {
-      const service = await options.operationsResolver.resolve(
-        command.selection,
-      );
-      writeJson(options.io, await service.distill());
-      return;
-    }
-    case "list": {
-      const service = await options.operationsResolver.resolve(
-        command.selection,
-      );
-      writeJson(
-        options.io,
-        await service.listKnowledge(
-          command.status === undefined ? {} : { status: command.status },
-        ),
-      );
-      return;
-    }
+
     case "review": {
       assertReviewTerminal(options.io);
       const service = await runCliActivity(
@@ -249,38 +183,125 @@ async function executeCliCommand(
       );
       return executeReviewSession(service, options.io);
     }
-    case "reindex": {
-      const service = await options.operationsResolver.resolve(
-        command.selection,
-      );
-      writeJson(options.io, await service.reindex());
-      return;
-    }
-    case "redistill": {
-      const service = await options.operationsResolver.resolve(
-        command.selection,
-      );
-      writeJson(options.io, await service.redistill(command.request));
-      return;
-    }
-    case "reconcile": {
-      const service = await options.operationsResolver.resolve(
-        command.selection,
-      );
-      writeJson(options.io, await service.reconcileDerivedMetadata());
-      return;
-    }
+
     case "export-bootstrap":
       options.io.writeStdout(`${REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION}\n`);
       return;
-    case "approve":
-    case "reject":
-    case "edit":
-    case "approve-revision":
-    case "add-active":
+    default:
       await executeAdminCommand(command, options);
       return;
   }
+}
+
+async function executeRepositoryCommand(
+  command: Extract<
+    ParsedCliCommand,
+    {
+      readonly kind:
+        | "stats"
+        | "distill"
+        | "list"
+        | "reindex"
+        | "redistill"
+        | "reconcile";
+    }
+  >,
+  options: RunRepoKnowledgeCliOptions,
+): Promise<undefined> {
+  const service = await options.operationsResolver.resolve(command.selection);
+  switch (command.kind) {
+    case "stats":
+      writeJson(options.io, await service.stats(command.request));
+      return;
+    case "distill":
+      writeJson(options.io, await service.distill());
+      return;
+    case "list":
+      writeJson(
+        options.io,
+        await service.listKnowledge(
+          command.status === undefined ? {} : { status: command.status },
+        ),
+      );
+      return;
+    case "reindex":
+      writeJson(options.io, await service.reindex());
+      return;
+    case "redistill":
+      writeJson(options.io, await service.redistill(command.request));
+      return;
+    case "reconcile":
+      writeJson(options.io, await service.reconcileDerivedMetadata());
+      return;
+  }
+}
+
+async function executeServeCommand(
+  command: Extract<ParsedCliCommand, { readonly kind: "serve" }>,
+  options: RunRepoKnowledgeCliOptions,
+): Promise<number | undefined> {
+  await options.serve({
+    ...(command.selection.repo === undefined
+      ? {}
+      : { startupRepo: command.selection.repo }),
+    ...(command.selection.workspacePath === undefined
+      ? {}
+      : { startupWorkspace: command.selection.workspacePath }),
+  });
+  return;
+}
+
+async function executeSetupCommand(
+  command: Extract<ParsedCliCommand, { readonly kind: "setup" }>,
+  options: RunRepoKnowledgeCliOptions,
+): Promise<number | undefined> {
+  if (
+    !options.io.stdinIsTTY ||
+    !options.io.stdoutIsTTY ||
+    options.io.confirm === undefined ||
+    options.io.input === undefined
+  ) {
+    throw new RepoKnowledgeCliError(
+      "CLI_TTY_REQUIRED",
+      "setup requires real TTY stdin and stdout",
+      REPO_KNOWLEDGE_CLI_EXIT.failure,
+    );
+  }
+  const prompt: GuidedSetupPrompt = {
+    confirm: (request) => options.io.confirm!(request),
+    input: (request) => options.io.input!(request),
+    ...(command.json !== true && options.io.activity !== undefined
+      ? {
+          progress: (update: TerminalActivityUpdate) =>
+            options.io.activity!(update),
+        }
+      : {}),
+  };
+  const result = await options.setup(command.request, prompt);
+  if (command.json) {
+    writeJson(options.io, result);
+  } else {
+    options.io.writeStdout(renderGuidedSetupSummary(result));
+  }
+  return;
+}
+
+async function executeSyncCommand(
+  command: Extract<ParsedCliCommand, { readonly kind: "sync" }>,
+  options: RunRepoKnowledgeCliOptions,
+): Promise<number | undefined> {
+  const service = await options.mutationServiceResolver.resolve(
+    command.selection,
+  );
+  const summary = await service.syncRepo(
+    command.since === undefined ? {} : { since: command.since },
+  );
+  writeJson(options.io, summary);
+  if (summary.failed === 0) return;
+  // Machine-readable summary stays on stdout; the operator diagnostic and
+  // the non-zero exit code make partial failures visible to cron.
+  options.io.writeStderr(syncFailureDiagnostic(summary));
+  return REPO_KNOWLEDGE_CLI_EXIT.failure;
 }
 
 async function executeAdminCommand(

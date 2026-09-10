@@ -38,42 +38,49 @@ export function parseRepoKnowledgeCliArguments(
     return { kind: "help" };
   }
 
+  return parseNamedCommand(name, argv.slice(1));
+}
+
+function parseNamedCommand(
+  name: string,
+  args: readonly string[],
+): ParsedCliCommand {
   switch (name) {
     case "setup":
-      return parseSetup(argv.slice(1));
+      return parseSetup(args);
     case "serve":
-      return parseServe(argv.slice(1));
+      return parseServe(args);
     case "sync":
-      return parseSync(argv.slice(1));
+      return parseSync(args);
     case "stats":
-      return parseStats(argv.slice(1));
+      return parseStats(args);
     case "doctor":
-      return parseDoctor(argv.slice(1));
+      return parseDoctor(args);
     case "ingest":
-      return parseIngest(argv.slice(1));
+      return parseIngest(args);
     case "distill":
-      return parseRepositoryOnly("distill", argv.slice(1));
+      return parseRepositoryOnly("distill", args);
     case "list":
-      return parseList(argv.slice(1));
+      return parseList(args);
     case "review":
-      return parseRepositoryOnly("review", argv.slice(1));
+      return parseRepositoryOnly("review", args);
     case "reindex":
-      return parseRepositoryOnly("reindex", argv.slice(1));
+      return parseRepositoryOnly("reindex", args);
     case "redistill":
-      return parseRedistill(argv.slice(1));
+      return parseRedistill(args);
     case "reconcile":
-      return parseReconcile(argv.slice(1));
+      return parseReconcile(args);
     case "export":
-      return parseExport(argv.slice(1));
+      return parseExport(args);
     case "approve":
     case "reject":
-      return parseAdminId(name, argv.slice(1));
+      return parseAdminId(name, args);
     case "edit":
-      return parseEdit(argv.slice(1));
+      return parseEdit(args);
     case "approve-revision":
-      return parseApproveRevision(argv.slice(1));
+      return parseApproveRevision(args);
     case "add":
-      return parseAddActive(argv.slice(1));
+      return parseAddActive(args);
     default:
       throw usage(`unknown command ${name}`);
   }
@@ -415,59 +422,87 @@ function parseAddActive(args: readonly string[]): ParsedCliCommand {
   };
 }
 
+interface CollectedOptions {
+  readonly booleans: Set<string>;
+  readonly repeated: Map<string, string[]>;
+  readonly values: Map<string, string>;
+}
+
 function parseOptions(
   args: readonly string[],
   definition: OptionDefinition,
 ): ParsedOptions {
-  const allowedBooleans = new Set(definition.booleans ?? []);
-  const allowedRepeated = new Set(definition.repeated ?? []);
-  const allowedValues = new Set(definition.values ?? []);
-  const booleans = new Set<string>();
-  const repeated = new Map<string, string[]>();
-  const values = new Map<string, string>();
+  const parsed: CollectedOptions = {
+    booleans: new Set(),
+    repeated: new Map(),
+    values: new Map(),
+  };
   const positionals: string[] = [];
   let positionalOnly = false;
-
   for (let index = 0; index < args.length; index += 1) {
     const token = args[index]!;
     if (token === "--") {
       positionalOnly = true;
-      continue;
-    }
-    if (positionalOnly || !token.startsWith("--")) {
-      if (token.startsWith("-") && !positionalOnly) {
-        throw usage(`unsupported short option ${token}`);
-      }
+    } else if (positionalOnly || !token.startsWith("--")) {
+      assertPositionalToken(token, positionalOnly);
       positionals.push(token);
-      continue;
+    } else {
+      index += collectOption(args, index, definition, parsed);
     }
-    const equal = token.indexOf("=");
-    const name = token.slice(2, equal < 0 ? undefined : equal);
-    if (name.length === 0) throw usage("empty option name");
-    if (allowedBooleans.has(name)) {
-      if (equal >= 0) throw usage(`--${name} does not accept a value`);
-      if (booleans.has(name)) throw usage(`--${name} was repeated`);
-      booleans.add(name);
-      continue;
-    }
-    if (!allowedValues.has(name) && !allowedRepeated.has(name)) {
-      throw usage(`unknown option --${name}`);
-    }
-    const value =
-      equal >= 0
-        ? token.slice(equal + 1)
-        : requireOptionValue(args, ++index, name);
-    if (value.length === 0) throw usage(`--${name} requires a value`);
-    if (allowedRepeated.has(name)) {
-      const existing = repeated.get(name) ?? [];
-      existing.push(value);
-      repeated.set(name, existing);
-      continue;
-    }
-    if (values.has(name)) throw usage(`--${name} was repeated`);
-    values.set(name, value);
   }
-  return { booleans, positionals, repeated, values };
+  return { ...parsed, positionals };
+}
+
+function assertPositionalToken(token: string, positionalOnly: boolean): void {
+  if (token.startsWith("-") && !positionalOnly) {
+    throw usage(`unsupported short option ${token}`);
+  }
+}
+
+/** Returns the number of additional tokens consumed by this option. */
+function collectOption(
+  args: readonly string[],
+  index: number,
+  definition: OptionDefinition,
+  parsed: CollectedOptions,
+): number {
+  const token = args[index]!;
+  const equal = token.indexOf("=");
+  const name = token.slice(2, equal < 0 ? undefined : equal);
+  if (name.length === 0) throw usage("empty option name");
+  if (definition.booleans?.includes(name)) {
+    if (equal >= 0) throw usage(`--${name} does not accept a value`);
+    if (parsed.booleans.has(name)) throw usage(`--${name} was repeated`);
+    parsed.booleans.add(name);
+    return 0;
+  }
+  const repeated = definition.repeated?.includes(name) === true;
+  if (!repeated && !definition.values?.includes(name)) {
+    throw usage(`unknown option --${name}`);
+  }
+  const value =
+    equal >= 0
+      ? token.slice(equal + 1)
+      : requireOptionValue(args, index + 1, name);
+  if (value.length === 0) throw usage(`--${name} requires a value`);
+  collectOptionValue(parsed, name, value, repeated);
+  return equal >= 0 ? 0 : 1;
+}
+
+function collectOptionValue(
+  parsed: CollectedOptions,
+  name: string,
+  value: string,
+  repeated: boolean,
+): void {
+  if (repeated) {
+    const existing = parsed.repeated.get(name) ?? [];
+    existing.push(value);
+    parsed.repeated.set(name, existing);
+    return;
+  }
+  if (parsed.values.has(name)) throw usage(`--${name} was repeated`);
+  parsed.values.set(name, value);
 }
 
 function requireOptionValue(

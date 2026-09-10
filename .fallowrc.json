@@ -1,0 +1,6 @@
+{
+  "entry": [
+    "test/**/*.test.ts",
+    "test/fixtures/coverage-gate/vitest.config.mjs"
+  ]
+}

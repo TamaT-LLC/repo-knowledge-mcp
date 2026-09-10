@@ -1,3 +1,4 @@
+import type { RunRepoKnowledgeCliOptions } from "../src/cli-types.js";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -169,6 +170,45 @@ describe("repo-knowledge CLI", () => {
     expect(current.stdout()).toContain(
       `repo-knowledge setup ${REPOSITORY} --json`,
     );
+  });
+
+  it("forwards setup prompts and progress to the terminal", async () => {
+    const current = fixture(["setup", REPOSITORY], {
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    });
+    const activity = vi.fn();
+    current.options.io.activity = activity;
+    const confirmation = {
+      defaultValue: false,
+      id: "trust.reviewer",
+      message: "Trust reviewer?",
+    };
+    const input = { id: "transmission.provider-model", message: "Model ID" };
+    const update = {
+      id: "setup.sync",
+      label: "Syncing",
+      state: "started" as const,
+    };
+    current.setup.mockImplementation(async (_request, prompt) => {
+      expect(await prompt.confirm(confirmation)).toBe(false);
+      expect(await prompt.input!(input)).toBe("claude-test");
+      prompt.progress!(update);
+      return setupResult();
+    });
+    expect(await runRepoKnowledgeCli(current.options)).toBe(0);
+    expect(current.options.io.confirm).toHaveBeenCalledWith(confirmation);
+    expect(current.options.io.input).toHaveBeenCalledWith(input);
+    expect(activity).toHaveBeenCalledWith(update);
+  });
+
+  it("routes a TTY rejection to the admin service", async () => {
+    const current = fixture(["reject", KNOWLEDGE_ID], {
+      stdinIsTTY: true,
+      stdoutIsTTY: true,
+    });
+    expect(await runRepoKnowledgeCli(current.options)).toBe(0);
+    expect(current.operations.admin.reject).toHaveBeenCalledWith(KNOWLEDGE_ID);
   });
 
   it("keeps setup machine-readable with explicit --json and no progress events", async () => {
@@ -567,6 +607,77 @@ describe("repo-knowledge CLI", () => {
       scope: ["src/**"],
       severity: "must",
     });
+  });
+
+  it("parses related knowledge IDs on manual active knowledge", () => {
+    expect(
+      parseRepoKnowledgeCliArguments(
+        [
+          "add",
+          "--active",
+          "--category",
+          "architecture",
+          "--detail",
+          "Detail",
+          "--rule",
+          "Rule",
+          "--severity",
+          "must",
+          "--related-id",
+          KNOWLEDGE_ID,
+        ],
+        true,
+      ),
+    ).toMatchObject({
+      kind: "add-active",
+      input: { related_ids: [KNOWLEDGE_ID] },
+    });
+  });
+
+  it("preserves equals in values, repeated scopes, and option terminators", () => {
+    expect(
+      parseRepoKnowledgeCliArguments(
+        [
+          "edit",
+          KNOWLEDGE_ID,
+          "--detail=a=b",
+          "--scope=src/**",
+          "--scope",
+          "test/**",
+        ],
+        true,
+      ),
+    ).toMatchObject({
+      kind: "edit",
+      patch: { detail: "a=b", scope: ["src/**", "test/**"] },
+    });
+    expect(
+      parseRepoKnowledgeCliArguments(["list", "--", REPOSITORY], false),
+    ).toEqual({
+      kind: "list",
+      selection: { repo: REPOSITORY },
+    });
+  });
+
+  it.each([
+    [["setup", "--json=false"], "--json does not accept a value"],
+    [["setup", "--json", "--json"], "--json was repeated"],
+    [
+      ["list", "--repo", REPOSITORY, "--repo", REPOSITORY],
+      "--repo was repeated",
+    ],
+    [["list", "--status="], "--status requires a value"],
+    [["list", "--status"], "--status requires a value"],
+    [["list", "--status", "--repo", REPOSITORY], "--status requires a value"],
+    [["list", "--=active"], "empty option name"],
+    [["list", "-x"], "unsupported short option -x"],
+    [["list", "--", "--status=active"], "repository"],
+    [["help", "extra"], "help does not accept arguments"],
+    [["unknown-command"], "unknown command unknown-command"],
+  ])("rejects invalid option syntax for %j", (argv, message) => {
+    expect(() =>
+      parseRepoKnowledgeCliArguments(argv as string[], false),
+    ).toThrow(message);
   });
 
   it.each([
@@ -1052,7 +1163,9 @@ function fixture(
     ok: true,
     summary: { fail: 0, pass: 0, warn: 0 },
   }));
-  const setup = vi.fn(async () => setupResult());
+  const setup = vi.fn<RunRepoKnowledgeCliOptions["setup"]>(async () =>
+    setupResult(),
+  );
   return {
     doctorRun,
     ingestPullRequest,
