@@ -16,10 +16,7 @@ import {
 
 export {
   findSensitiveContent,
-  SensitiveContentFindingSchema,
-  SensitiveContentKindSchema,
   type SensitiveContentFinding,
-  type SensitiveContentKind,
 } from "./sensitive-content.js";
 
 /** Design §18.3 quality gate floor: the corpus must hold 50+ threads. */

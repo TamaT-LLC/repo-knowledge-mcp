@@ -383,99 +383,7 @@ export function applyDistillationJobRecord(
       throw transition(record, "event recorded_at moved backwards");
     }
 
-    switch (record.record_type) {
-      case DISTILLATION_JOB_LEASED: {
-        const payload = LeasedPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        return applyLeased(current, payload, recordedAt, record);
-      }
-      case DISTILLATION_JOB_LEASE_RENEWED: {
-        const payload = LeaseRenewedPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        return applyLeaseRenewed(current, payload, recordedAt, record);
-      }
-      case DISTILLATION_JOB_LEASE_EXPIRED: {
-        const payload = GenerationPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        return applyLeaseExpired(current, payload, recordedAt, record);
-      }
-      case DISTILLATION_JOB_LEASE_REVOKED: {
-        const payload = GenerationPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        return applyLeaseRevoked(current, payload, recordedAt, record);
-      }
-      case DISTILLATION_JOB_AWAITING_FINALIZE: {
-        const payload = GenerationPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        assertActiveGeneration(current, payload.lease_generation, record);
-        if (current.state !== "processing") {
-          throw transition(record, "only processing jobs can await finalize");
-        }
-        return activeJob(current, "awaiting_finalize", recordedAt);
-      }
-      case DISTILLATION_JOB_SUCCEEDED: {
-        const payload = GenerationPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        assertActiveGeneration(current, payload.lease_generation, record);
-        return terminalJob(current, "done", recordedAt, null, null);
-      }
-      case DISTILLATION_JOB_SKIPPED: {
-        const payload = SkippedPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        assertActiveGeneration(current, payload.lease_generation, record);
-        return terminalJob(
-          current,
-          "skipped",
-          recordedAt,
-          null,
-          payload.skip_reason,
-        );
-      }
-      case DISTILLATION_JOB_FAILED: {
-        const payload = FailedPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        assertActiveGeneration(current, payload.lease_generation, record);
-        return applyFailed(current, payload, recordedAt, record);
-      }
-      case DISTILLATION_JOB_OBSOLETED: {
-        const payload = ObsoletedPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        if (
-          payload.reason === "superseded_context" &&
-          payload.superseded_by_distillation_key === current.distillation_key
-        ) {
-          throw transition(
-            record,
-            "a job cannot be superseded by its own distillation key",
-          );
-        }
-        if (
-          current.state === "done" ||
-          current.state === "skipped" ||
-          current.state === "failed"
-        ) {
-          throw transition(record, "only unfinished jobs can be superseded");
-        }
-        return terminalJob(
-          current,
-          "skipped",
-          recordedAt,
-          null,
-          payload.reason,
-        );
-      }
-      case DISTILLATION_JOB_REDISTILL_REQUESTED: {
-        const payload = RedistillRequestedPayloadSchema.parse(record.payload);
-        assertMatchingJob(current, payload.job_id, record);
-        return applyRedistillRequested(current, payload, recordedAt, record);
-      }
-      default:
-        throw stateError(
-          "DISTILL_JOB_EVENT_INVALID",
-          `unsupported job record type ${record.record_type}`,
-          record,
-        );
-    }
+    return applyExistingJobEvent(current, recordedAt, record);
   } catch (error) {
     if (error instanceof DistillJobStateError) throw error;
     throw stateError(
@@ -484,6 +392,100 @@ export function applyDistillationJobRecord(
       record,
       error,
     );
+  }
+}
+
+function applyExistingJobEvent(
+  current: DistillJob,
+  recordedAt: string,
+  record: CanonicalJsonlRecord,
+): DistillJob {
+  switch (record.record_type) {
+    case DISTILLATION_JOB_LEASED: {
+      const payload = LeasedPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      return applyLeased(current, payload, recordedAt, record);
+    }
+    case DISTILLATION_JOB_LEASE_RENEWED: {
+      const payload = LeaseRenewedPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      return applyLeaseRenewed(current, payload, recordedAt, record);
+    }
+    case DISTILLATION_JOB_LEASE_EXPIRED: {
+      const payload = GenerationPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      return applyLeaseExpired(current, payload, recordedAt, record);
+    }
+    case DISTILLATION_JOB_LEASE_REVOKED: {
+      const payload = GenerationPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      return applyLeaseRevoked(current, payload, recordedAt, record);
+    }
+    case DISTILLATION_JOB_AWAITING_FINALIZE: {
+      const payload = GenerationPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      assertActiveGeneration(current, payload.lease_generation, record);
+      if (current.state !== "processing") {
+        throw transition(record, "only processing jobs can await finalize");
+      }
+      return activeJob(current, "awaiting_finalize", recordedAt);
+    }
+    case DISTILLATION_JOB_SUCCEEDED: {
+      const payload = GenerationPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      assertActiveGeneration(current, payload.lease_generation, record);
+      return terminalJob(current, "done", recordedAt, null, null);
+    }
+    case DISTILLATION_JOB_SKIPPED: {
+      const payload = SkippedPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      assertActiveGeneration(current, payload.lease_generation, record);
+      return terminalJob(
+        current,
+        "skipped",
+        recordedAt,
+        null,
+        payload.skip_reason,
+      );
+    }
+    case DISTILLATION_JOB_FAILED: {
+      const payload = FailedPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      assertActiveGeneration(current, payload.lease_generation, record);
+      return applyFailed(current, payload, recordedAt, record);
+    }
+    case DISTILLATION_JOB_OBSOLETED: {
+      const payload = ObsoletedPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      if (
+        payload.reason === "superseded_context" &&
+        payload.superseded_by_distillation_key === current.distillation_key
+      ) {
+        throw transition(
+          record,
+          "a job cannot be superseded by its own distillation key",
+        );
+      }
+      if (
+        current.state === "done" ||
+        current.state === "skipped" ||
+        current.state === "failed"
+      ) {
+        throw transition(record, "only unfinished jobs can be superseded");
+      }
+      return terminalJob(current, "skipped", recordedAt, null, payload.reason);
+    }
+    case DISTILLATION_JOB_REDISTILL_REQUESTED: {
+      const payload = RedistillRequestedPayloadSchema.parse(record.payload);
+      assertMatchingJob(current, payload.job_id, record);
+      return applyRedistillRequested(current, payload, recordedAt, record);
+    }
+    default:
+      throw stateError(
+        "DISTILL_JOB_EVENT_INVALID",
+        `unsupported job record type ${record.record_type}`,
+        record,
+      );
   }
 }
 

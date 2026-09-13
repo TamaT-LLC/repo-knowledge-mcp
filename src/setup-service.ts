@@ -138,6 +138,21 @@ export class GuidedSetupError extends Error {
   }
 }
 
+interface SetupResolution {
+  readonly repository: RepositoryResolution;
+  readonly stateStore: SetupStateStore;
+  readonly storage: InitializedStorage;
+  readonly state: SetupState | null;
+}
+
+interface SetupTrustConfiguration {
+  readonly candidates: readonly SetupTrustCandidate[];
+  readonly config: RepoKnowledgeConfig;
+  readonly configBeforeTrust: RepoKnowledgeConfig;
+  readonly selected: readonly SetupTrustCandidate[];
+  readonly state: SetupState;
+}
+
 /** Coordinates one safe, resumable personal setup session. */
 export class GuidedSetupService {
   private readonly clock: () => Date;
@@ -150,7 +165,65 @@ export class GuidedSetupService {
     request: GuidedSetupRequest,
     prompt: GuidedSetupPrompt,
   ): Promise<GuidedSetupResult> {
-    const resolution = await runSetupActivity(
+    const resolution = await this.resolve(request, prompt);
+    const resumed = resolution.state !== null;
+    const configured = await this.configure(resolution, request, prompt);
+    const synced = await this.syncInitial(
+      resolution,
+      configured.state,
+      resumed,
+      prompt,
+    );
+    const trust = await this.configureTrust(
+      resolution,
+      configured.config,
+      synced.state,
+      prompt,
+    );
+    const { state, doctor: finalDoctor } = await this.finish(
+      resolution,
+      trust,
+      prompt,
+    );
+    const { repository, stateStore, storage } = resolution;
+    const { config, selected, candidates } = trust;
+    const syncSummary = synced.summary;
+
+    return {
+      config_path: storage.configPath,
+      doctor: finalDoctor.summary,
+      initial_sync: {
+        scope: {
+          mode: state.initial_since === null ? "all-history" : "since",
+          since: state.initial_since,
+        },
+        summary: syncSummary,
+      },
+      repository: {
+        id: repository.repoId,
+        name: repository.currentName,
+        storage_path: repository.absolutePath,
+        workspace_path: repository.workspacePath ?? null,
+      },
+      resumed,
+      state_path: stateStore.path,
+      storage_root: storage.rootPath,
+      transmission: transmissionState(config),
+      trust: {
+        candidates: candidates.length,
+        selected: selected.map((candidate) => ({
+          actor_id: candidate.actorId,
+          login: candidate.login,
+        })),
+      },
+    };
+  }
+
+  private async resolve(
+    request: GuidedSetupRequest,
+    prompt: GuidedSetupPrompt,
+  ): Promise<SetupResolution> {
+    return runSetupActivity(
       prompt,
       "setup.resolve",
       "Resolving repository and private storage",
@@ -166,9 +239,15 @@ export class GuidedSetupService {
         return { repository, state, stateStore, storage };
       },
     );
+  }
+
+  private async configure(
+    resolution: SetupResolution,
+    request: GuidedSetupRequest,
+    prompt: GuidedSetupPrompt,
+  ) {
     const { repository, stateStore, storage } = resolution;
     let state = resolution.state;
-    const resumed = state !== null;
     const initialSince =
       state?.initial_since ?? initialSinceFor(request, this.clock());
     const initialConfig = storage.config;
@@ -178,7 +257,7 @@ export class GuidedSetupService {
         : configuredTransmission(initialConfig);
 
     let configBeforeSetup = initialConfig;
-    let config = await this.dependencies.updateConfig(
+    const config = await this.dependencies.updateConfig(
       storage.configPath,
       (current) => {
         configBeforeSetup = current;
@@ -261,6 +340,15 @@ export class GuidedSetupService {
       updated_at: now,
       workspace_path: repository.workspacePath ?? state.workspace_path,
     });
+    return { config, state };
+  }
+
+  private async syncInitial(
+    { repository, stateStore }: SetupResolution,
+    state: SetupState,
+    resumed: boolean,
+    prompt: GuidedSetupPrompt,
+  ) {
     const configuredState = state;
 
     const syncSummary = await runSetupActivity(
@@ -292,6 +380,15 @@ export class GuidedSetupService {
       updated_at: this.clock().toISOString(),
     });
 
+    return { state, summary: syncSummary };
+  }
+
+  private async configureTrust(
+    { repository, stateStore, storage }: SetupResolution,
+    config: RepoKnowledgeConfig,
+    state: SetupState,
+    prompt: GuidedSetupPrompt,
+  ): Promise<SetupTrustConfiguration> {
     const candidates = await runSetupActivity(
       prompt,
       "setup.trust",
@@ -356,6 +453,14 @@ export class GuidedSetupService {
       );
     }
 
+    return { candidates, config, configBeforeTrust, selected, state };
+  }
+
+  private async finish(
+    { repository, stateStore, storage }: SetupResolution,
+    { config, configBeforeTrust, selected, state }: SetupTrustConfiguration,
+    prompt: GuidedSetupPrompt,
+  ) {
     let finalDoctor: DoctorReport;
     try {
       finalDoctor = await runSetupActivity(
@@ -401,35 +506,7 @@ export class GuidedSetupService {
       phase: "complete",
       updated_at: this.clock().toISOString(),
     });
-
-    return {
-      config_path: storage.configPath,
-      doctor: finalDoctor.summary,
-      initial_sync: {
-        scope: {
-          mode: state.initial_since === null ? "all-history" : "since",
-          since: state.initial_since,
-        },
-        summary: syncSummary,
-      },
-      repository: {
-        id: repository.repoId,
-        name: repository.currentName,
-        storage_path: repository.absolutePath,
-        workspace_path: repository.workspacePath ?? null,
-      },
-      resumed,
-      state_path: stateStore.path,
-      storage_root: storage.rootPath,
-      transmission: transmissionState(config),
-      trust: {
-        candidates: candidates.length,
-        selected: selected.map((candidate) => ({
-          actor_id: candidate.actorId,
-          login: candidate.login,
-        })),
-      },
-    };
+    return { state, doctor: finalDoctor };
   }
 }
 

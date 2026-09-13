@@ -60,6 +60,14 @@ Pull RequestのCIはNode.js 22と24で全gateを再実行します。
 coverageだけを確認する場合は`npm run test:coverage`を実行してください。
 閾値検査そのものの回帰テストは`npm run test:coverage-thresholds`で実行できます。
 
+CLIの引数処理、setup、ジョブの状態遷移、評価・運用用CLIの実行処理には、ファイルごとの最低値も設定しています。
+対象と数値は[coverage.config.mjs](coverage.config.mjs)の`coverageFileThresholds`を参照してください。
+全体のcoverageが基準を満たしていても、対象ファイルのどれかが最低値を下回れば失敗します。
+
+`golden`、`golden-baseline`、`quality-gate`、`pilot-daily-record`のCLIテストは、同じケースをプロセス内とsubprocessで実行します。
+プロセス内では`*-command.ts`の引数検証・出力・終了コードを計測し、subprocessでは実際の起動経路を確認します。
+起動だけを担う`*-cli.ts`もglobal coverageの集計に残します。
+
 対象は`src/**/*.ts`の全ファイルです。
 直接実行されるCLI entry pointも対象に含め、未importのファイルは0%として集計します。
 実行コードを持たない`src/**/*.d.ts`だけを除外します。

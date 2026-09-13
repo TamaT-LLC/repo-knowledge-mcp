@@ -14,14 +14,14 @@ import type { CanonicalInspection } from "./checks-canonical.js";
 import { DoctorReportBuilder, type DoctorCheck } from "./report-builder.js";
 import { errorCode, errorMessage, octal } from "./util.js";
 
-export interface ProjectionDiagnosticContext {
+interface ProjectionDiagnosticContext {
   readonly canonical: CanonicalInspection | null;
   readonly path: string;
   readonly repoId: string;
   readonly repository: string;
 }
 
-export interface ProjectionFileInspection {
+interface ProjectionFileInspection {
   readonly databaseBytes: Buffer;
   readonly pendingWalBytes: number;
   readonly permission: number;
@@ -44,20 +44,20 @@ export interface ProjectionConsistencyContext {
   readonly repoId: string;
 }
 
-export type ProjectionMismatch = Readonly<Record<string, unknown>>;
-export type ProjectionMismatchCheckId =
+type ProjectionMismatch = Readonly<Record<string, unknown>>;
+type ProjectionMismatchCheckId =
   | "derived_counts"
   | "knowledge_consistency"
   | "repository_identity"
   | "schema_meta";
 
-export interface ProjectionMismatchCheck {
+interface ProjectionMismatchCheck {
   readonly id: ProjectionMismatchCheckId;
   inspect(context: ProjectionConsistencyContext): readonly ProjectionMismatch[];
 }
 
 /** Preserves diagnostic insertion order until the complete phase is emitted. */
-export class ProjectionDiagnosticResultBuilder {
+class ProjectionDiagnosticResultBuilder {
   readonly #checks: DoctorCheck[] = [];
 
   add(check: DoctorCheck): void {
@@ -109,7 +109,7 @@ export async function inspectSqliteProjection(
   }
 }
 
-export async function inspectProjectionFile(
+async function inspectProjectionFile(
   context: ProjectionDiagnosticContext,
   results: ProjectionDiagnosticResultBuilder,
 ): Promise<ProjectionFileInspection | null> {
@@ -234,7 +234,7 @@ function addUnreadableProjectionChecks(
   });
 }
 
-export function openProjectionSnapshot(
+function openProjectionSnapshot(
   context: ProjectionDiagnosticContext,
   file: ProjectionFileInspection,
   results: ProjectionDiagnosticResultBuilder,
@@ -278,7 +278,7 @@ export function openProjectionSnapshot(
   }
 }
 
-export function inspectOpenProjection(
+function inspectOpenProjection(
   context: ProjectionDiagnosticContext,
   file: ProjectionFileInspection,
   database: Database.Database,
@@ -308,7 +308,7 @@ export function inspectOpenProjection(
   }
 }
 
-export function inspectProjectionJournal(
+function inspectProjectionJournal(
   context: ProjectionDiagnosticContext,
   file: ProjectionFileInspection,
   quickCheck: string,
@@ -350,7 +350,7 @@ export function inspectProjectionJournal(
       };
 }
 
-export function inspectProjectionComparisonGate(
+function inspectProjectionComparisonGate(
   context: ProjectionDiagnosticContext,
   file: ProjectionFileInspection,
 ): DoctorCheck | null {
@@ -374,7 +374,7 @@ export function inspectProjectionComparisonGate(
   };
 }
 
-export function inspectProjectionConsistency(
+function inspectProjectionConsistency(
   context: ProjectionDiagnosticContext,
   database: Database.Database,
 ): DoctorCheck {
@@ -419,7 +419,7 @@ export function createProjectionConsistencyContext(
   });
 }
 
-export function runProjectionMismatchChecks(
+function runProjectionMismatchChecks(
   context: ProjectionConsistencyContext,
   checks: readonly ProjectionMismatchCheck[] = PROJECTION_MISMATCH_CHECKS,
 ): readonly ProjectionMismatch[] {
