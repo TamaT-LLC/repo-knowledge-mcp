@@ -11,6 +11,11 @@
 外部送信と trusted-human rule の自動 active 化は既定で無効です。
 GitHub token は `gh` CLI が管理し、repo-knowledge-mcp は token を受領または保存しません。
 
+## 紹介動画
+
+PRレビューの取得から、人間の承認を経てAIがルールを再利用するまでを60秒で紹介します。
+日本語テロップ・BGM付きです。
+
 ## 目次
 
 - [できること](#capabilities)
