@@ -18,8 +18,6 @@ PRレビューの取得から、人間の承認を経てAIがルールを再利�
 
 https://github.com/user-attachments/assets/01d59f85-b645-498f-afd9-1995e84aeffb
 
-[動画を開く（60秒）](https://github.com/user-attachments/assets/01d59f85-b645-498f-afd9-1995e84aeffb)
-
 ## 目次
 
 - [できること](#capabilities)
