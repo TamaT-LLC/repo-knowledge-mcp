@@ -122,7 +122,9 @@ thread 正規化時の initial knowledge status は `proposed` に固定する�
 AI reviewer、未知 bot、外部コントリビューター、複数の trust class が混在する thread、severity が `must` の候補は review inbox へ送る。
 
 runtime は eligibility に記録された gate status と現在の trust policy digest を確認し、条件が一致しない候補を proposed にする。
-quality gate の新しい失敗を自動監視する機構はないため、operator は測定失敗時に opt-in を無効にし、設定を再読み込みする。
+quality gate の新しい失敗を自動監視する機構はなく、設定を再読み込みするまでは記録済みの `pass` に基づく自動 active 化が続き得る。
+operator は測定失敗時に稼働中の MCP server と同期・蒸留処理を停止する。
+停止中に opt-in を無効にし、更新した設定を読み込んでから処理を再開する。
 
 停止は既存 active rule の status を変更しない。
 

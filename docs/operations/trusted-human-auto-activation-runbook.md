@@ -106,7 +106,9 @@ report と baseline のファイル本体は operator の管理下にあり、ru
 
 - 有効化後 2 週間は、自動 active になったルールを週次で棚卸しし、
   誤 active（false positive）を記録する
-- 次のいずれかが起きたら **即座に `false` へ戻し**、MCP server を再起動する。
+- 次のいずれかが起きたら、まず稼働中の MCP server と同期・蒸留処理を停止する。
+  停止中に `trust.autoActivateTrustedHuman` を `false` へ戻し、更新した設定を読み込んでから処理を再開する。
+  runtime は新しい測定結果を監視しないため、設定の再読み込み前は記録済みの `pass` に基づく自動 active 化が続き得る。
   この操作は新しい candidate の自動 active 化だけを停止し、既存ルールの status を変更しない:
   - quality gate が指標低下（exit 1）で失敗した
   - 自動 active されたルールに false positive が見つかった

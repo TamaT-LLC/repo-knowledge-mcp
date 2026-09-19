@@ -5,7 +5,7 @@
 
 ## 前提条件
 
-- Node.js 22.13.0 以上の 22.x または 24.x
+- この smoke gate の検証対象は Node.js 22.13.0 以上の 22.x または 24.x（CI と同じ対象系列）
 - `gh auth status` が成功し、manifest のリポジトリを GraphQL で読めること
 - ローカル filesystem 上で実行すること
 - provider 送信を無効のまま実行すること
