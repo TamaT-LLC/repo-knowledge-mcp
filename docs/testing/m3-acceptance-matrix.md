@@ -4,6 +4,8 @@ M3 の個人利用要件を、自動テスト、CI、release workflow、運用�
 
 要件の正本は [repo-knowledge-mcp M3 個人利用要件](../design/repo-knowledge-mcp-v0.3-personal-use.md) とする。
 本表は実装済みの検証と、公開時にだけ実行できる検証を分けて記録する。
+現行 stable の公開結果は [v0.4.1 release report](../operations/m3-release-v0.4.1.md) を参照する。
+M3 は機能要件の識別子であり、npm の version 番号ではない。
 
 ## 検証レイヤー
 
@@ -48,7 +50,7 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 | M3-AC-002 | 外部送信を拒否した setup は provider を呼ばず、raw review と job を保存する | [CLI runtime test](../../test/cli-runtime.test.ts)、[provider distillation test](../../test/provider-distillation-service.test.ts) | 実装済み |
 | M3-AC-003 | pending job がある active rule 未作成 repository は `learning` と次の操作を返す | [readiness MCP E2E](../../test/readiness-mcp-e2e.test.ts)、[package smoke](../../scripts/package-smoke.mjs) | 実装済み |
 | M3-AC-004 | active rule があって検索不一致なら `ready` と空の `rules` を返す | [readiness MCP E2E](../../test/readiness-mcp-e2e.test.ts) | 実装済み |
-| M3-AC-005 | 明示 opt-in と gate 条件を満たす trusted-human non-`must` 候補だけを active 化する | [trusted-human policy matrix](../../test/trusted-human-auto-activation-policy.test.ts)、[submit/finalize service test](../../test/submit-finalize-service.test.ts) | 実装済み、運用 opt-in は pilot 後 |
+| M3-AC-005 | 明示 opt-in と gate 条件を満たす trusted-human non-`must` 候補だけを active 化する | [trusted-human policy matrix](../../test/trusted-human-auto-activation-policy.test.ts)、[submit/finalize service test](../../test/submit-finalize-service.test.ts) | 実装済み。同梱 fixture gate だけでは opt-in 不可 |
 | M3-AC-006 | AI、未知 bot、外部 contributor、mixed trust、`must` は proposed のままにする | [trusted-human policy matrix](../../test/trusted-human-auto-activation-policy.test.ts) | 実装済み |
 | M3-AC-007 | 一つの TTY session で approve、reject、skip、edit、再開を行う | [review CLI PTY E2E](../../test/review-cli-pty-e2e.test.ts) | 実装済み |
 | M3-AC-008 | Node.js 22 / 24 で exact registry package の CLI と stdio MCP を起動する | [release workflow](../../.github/workflows/release.yml) の `registry-smoke`、[registry smoke](../../scripts/registry-smoke.mjs) | `v0.3.0`で確定、releaseごとに再検証 |
@@ -69,7 +71,7 @@ M3 release は、Pull Request CI と Release CI の両方を通過し、公開�
 
 次の項目は source test だけでは完了にできない。
 
-1. [pilot-002最終report](../operations/m2-cron-pilot-report-m2-cron-pilot-002.md)の14日運用gateと、[修正後限定再評価report](../operations/m2-post-fix-revalidation-report-m2-post-fix-revalidation-001.md)のranking gateをreviewし、組み合わせたM2判定を`go`としてIssue `#118`をcloseする。
+1. M2 の完了は、[pilot-002最終report](../operations/m2-cron-pilot-report-m2-cron-pilot-002.md)の14日運用gateと、[修正後限定再評価report](../operations/m2-post-fix-revalidation-report-m2-post-fix-revalidation-001.md)のranking gateを組み合わせた `go` 判定で確定した。後続 release ではこの証跡と変更範囲を確認し、影響する契約を再検証する。
 2. npm organization、license、GitHub repositoryのpublic visibilityを確定する。初回公開では2FA付きorganization memberからinert bootstrap packageだけを公開し、npm trusted publisherを固定した。後続のstable releaseはOIDC provenance、GitHub credential 0件、exact-version registry smokeで判定する。npm package settingsの対話監査は設定変更時、異常検出時、または前回監査から90日以内に実施する。
 3. `package.json` の version、`v<version>` tag、GitHub release、npm registry の exact version を一致させる。
 4. Release CI の Node.js 22 / 24 `verify` と `registry-smoke` を成功させる。

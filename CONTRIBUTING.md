@@ -14,11 +14,13 @@ Issueを作る前に、既存Issueと[READMEのトラブルシュート](./READM
 
 ## 開発環境を準備する
 
-Node.js 22.13以降、またはNode.js 24以降を使用してください。
+Node.js 22.13.0以上の22.x、または24.0.0以上を使用してください。
+CIの検証対象はNode.js 22と24です。許容範囲の正本は[package.json](./package.json)の`engines.node`です。
 依存packageのlifecycle scriptは、registry signatureと既知vulnerabilityを確認してから実行します。
 
 ```console
 npm ci --ignore-scripts
+npm run install-scripts:check
 npm audit --audit-level=high
 npm audit signatures
 npm rebuild
@@ -34,6 +36,9 @@ GitHub連携を含む手動確認では、対象repositoryを読めるaccountで
 
 不具合修正には、修正前に失敗し、修正後に成功するテストを追加してください。
 公開されるinterface、設定、運用手順を変える場合は、READMEまたは該当runbookも更新してください。
+現行ガイドと過去の設計・検証記録は[ドキュメント一覧](./docs/README.md)で区別しています。
+過去のrelease reportやpilot reportの実測値を、現在のテスト結果で上書きしないでください。
+`prompts/distill.md`は実行時に読み込むpromptです。文章だけの修正でも蒸留のdigestとquality gateに影響します。
 
 fixtureには合成データか匿名化済みデータだけを使用してください。
 実際のreview本文、credential、個人情報、private repositoryの識別子をcommitしてはいけません。
@@ -73,10 +78,11 @@ CLIの引数処理、setup、ジョブの状態遷移、評価・運用用CLIの
 実行コードを持たない`src/**/*.d.ts`だけを除外します。
 テスト、fixture、build script、設定ファイルは製品の実行コードではないため対象外です。
 
-2026-08-24にmainの`a1effb66a275d4929dba0d02f84818c8297a20ef`をNode.js 24.19.0で計測したbaselineと閾値は次のとおりです。
-Node.js 22と24で安定して通る余白を残すため、実測値の小数点以下を切り捨てた整数を初期閾値にしました。
+現在のglobal閾値は次のとおりです。正本は[coverage.config.mjs](./coverage.config.mjs)の`coverageThresholds`です。
+比較用の初期baselineは、2026-08-24にmainの`a1effb66a275d4929dba0d02f84818c8297a20ef`をNode.js 24.19.0で測定した値です。
+最新のcoverageは、対象commitで`npm run test:coverage`を実行して確認してください。
 
-| 指標 | baseline | 閾値 |
+| 指標 | 初期baseline（2026-08-24） | 現在の閾値 |
 | --- | ---: | ---: |
 | Lines | 84.60% | 84% |
 | Branches | 73.60% | 73% |

@@ -1,6 +1,8 @@
 # trusted-human auto activation runbook
 
-`trust.autoActivateTrustedHuman` を個人用ローカルストアで有効化するときの手順を定める。
+`trust.autoActivateTrustedHuman` は `v0.4.1` でも既定で無効であり、通常は TTY の `review` で候補を承認する。
+同梱 threshold は `fixture_replay` のため、同梱 gate の成功だけでは自動 active 化を有効にできない。
+以下は operator が live measurement を含む前提条件を満たした場合の手順である。
 
 設計上の背景は、[M3 個人利用要件](../design/repo-knowledge-mcp-v0.3-personal-use.md)の M3-FR-004 と M3-FR-005、および [repo-knowledge-mcp v0.3 設計書](../design/repo-knowledge-mcp-v0.3.md)の Mutation Path §2.3 を参照する。
 
@@ -104,7 +106,9 @@ report と baseline のファイル本体は operator の管理下にあり、ru
 
 - 有効化後 2 週間は、自動 active になったルールを週次で棚卸しし、
   誤 active（false positive）を記録する
-- 次のいずれかが起きたら **即座に `false` へ戻し**、MCP server を再起動する。
+- 次のいずれかが起きたら、まず稼働中の MCP server と同期・蒸留処理を停止する。
+  停止中に `trust.autoActivateTrustedHuman` を `false` へ戻し、更新した設定を読み込んでから処理を再開する。
+  runtime は新しい測定結果を監視しないため、設定の再読み込み前は記録済みの `pass` に基づく自動 active 化が続き得る。
   この操作は新しい candidate の自動 active 化だけを停止し、既存ルールの status を変更しない:
   - quality gate が指標低下（exit 1）で失敗した
   - 自動 active されたルールに false positive が見つかった

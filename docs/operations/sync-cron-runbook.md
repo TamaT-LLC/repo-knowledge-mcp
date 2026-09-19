@@ -1,17 +1,21 @@
 # sync cron 運用 runbook
 
-`repo-knowledge sync [repo] [--since]` を cron から非対話で継続実行するための手順書。
+`v0.4.1` の `repo-knowledge sync [repo] [--since <iso>]` は、cron から非対話で継続実行できる。
 MCP の `sync_repo` tool と CLI `sync` は同一の同期サービスを共有し、同じ summary schema
 `{ discovered, ingested, unchanged, jobs_created, failed, failures[], next_cursor }` を返す。
 設計上の背景は [repo-knowledge-mcp v0.3 設計書](../design/repo-knowledge-mcp-v0.3.md) の §16（CLI）と §19 M2 を参照。
 
 ## 前提条件
 
-- Node.js 22 または 24 と `gh` CLI が実行ユーザーの PATH 上にあること
+- Node.js 22.13.0 以上の 22.x または 24.x と `gh` CLI が実行ユーザーの PATH 上にあること
 - 実行ユーザーで `gh auth status` が成功し、対象リポジトリを GraphQL で読めること
 - `~/.repo-knowledge/`（または `REPO_KNOWLEDGE_HOME`）が実行ユーザー所有・パーミッション 700 であること
 - provider 送信（`llm.allowCloudTransmission`）は cron 運用では無効のままを推奨
 - 初回導入時は `repo-knowledge doctor <owner/name>` が pass すること
+
+Provider Adapter が有効な場合、sync は取得後の蒸留で review content と取得済み diff を外部送信し得る。
+取得だけを定期実行する場合は `llm.mode: disabled` にするか、対象 repository の `allowCloudTransmission` を `false` にする。
+host-assisted は同期だけでは起動せず、MCP client が `prepare_distillation` を呼んだときに処理する。
 
 ## 境界規則（checkpoint と --since）
 
@@ -95,7 +99,7 @@ MCP `sync_repo` との同時実行は片方が lock 待ちになり、既定 5 �
 
 PR を `updatedAt` 順に複数ページ走査している間に更新が入ると、ページ間の重複や順序退行を
 検知して不安定な列挙結果を破棄する。`sync` / `sync_repo` は同じ checkpoint 境界から列挙全体を
-最大 3 回まで自動再試行し、安定した一覧を得た場合だけ ingest と checkpoint 更新へ進む。
+初回を含めて最大 3 回試行し、安定した一覧を得た場合だけ ingest と checkpoint 更新へ進む。
 
 3 回とも `PULL_REQUEST_LIST_CHANGED` になった場合、checkpoint は変更されない。MCP 応答は
 `retryable: true` と同じ引数での再実行を案内するため、呼び出し側は境界を変更せずに再試行する。

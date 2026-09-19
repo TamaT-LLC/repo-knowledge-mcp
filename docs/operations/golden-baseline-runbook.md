@@ -1,9 +1,9 @@
 # provider golden baseline 測定 runbook
 
-匿名化 corpus を実 provider に送って golden baseline を実測し、M2 quality gate の
-閾値（[m2-quality-thresholds.json](../../test/fixtures/golden/m2-quality-thresholds.json)）を
-確定・更新するための手順書。設計上の背景は
-[repo-knowledge-mcp v0.3 設計書](../design/repo-knowledge-mcp-v0.3.md) の §18（テスト方針）と §19 M2 を参照。
+通常の品質検証は、source checkout に同梱した fixture をオフラインで再生する。
+`v0.4.1` の [threshold](../../test/fixtures/golden/m2-quality-thresholds.json) は `source: fixture_replay` であり、実 provider の live 測定値ではない。
+live measurement へ更新する場合だけ、以下の送信同意と review 手順を適用する。
+設計上の背景は [統合仕様書 v0.3](../design/repo-knowledge-mcp-v0.3.md) の Architecture 内「テスト方針」と「マイルストーン」を参照。
 
 ## 全体像
 
@@ -14,12 +14,15 @@
 | 出力           | `test/fixtures/golden/m2-provider-baseline.json`    | prediction から組み立てた golden fixture + model/prompt/schema/policy provenance                               |
 | 出力           | `test/fixtures/golden/m2-quality-thresholds.json`   | metric ごとの下限閾値（review 済み・version 付き）                                                             |
 
-baseline artifact は「期待値のコピー」ではなく **provider prediction の記録**である。
-metric report は artifact 内の記録済み prediction だけから決定的に再計算できるため、
-同じ artifact からは常に同じ report が得られる。
+baseline artifact は、記録済み prediction とその provenance を保持する。
+現行の同梱 prediction は `provider: fixture-replay` の合成データで、実 provider が生成した応答ではない。
+metric report は artifact の prediction と期待ラベルから決定的に再計算でき、同じ artifact からは同じ report が得られる。
+固定 corpus の合格を、未知の repository や現在の provider の品質保証として扱わないこと。
 
 ## 前提条件と同意モデル
 
+- 以下の command は source checkout のルートで実行する。`node dist/...` の直接実行前には `npm run build` を済ませる
+- golden の `--live` はログイン済み Claude Code を使う。通常利用の Provider Adapter が対応する他 provider へ切り替える option はない
 - 実測（`--live`）は operator がローカル端末で行う。**CI からは絶対に実行しない**。
   CLI は `CI` / `GITHUB_ACTIONS` 環境変数を検出すると
   `BASELINE_LIVE_CAPTURE_BLOCKED_IN_CI` で拒否する（fail-closed）
@@ -105,8 +108,9 @@ $ node dist/quality-gate-cli.js \
     --prompt prompts/distill.md
 ```
 
-gate は次を 1 コマンドで検証し、結果を必ず**機械可読 JSON report**として
+`quality-gate-cli.js` は次を検証し、結果を**機械可読 JSON report**として
 stdout に出力する（`report_kind: "m2_quality_gate_report"`）。
+JSON をファイルへ保存する場合は、build と直接実行を分け、`node dist/quality-gate-cli.js > /tmp/m2-quality-gate.json` とする。
 
 | 検証                                                                                                               | 失敗時の failure code                                   | exit |
 | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- | ---- |

@@ -2,9 +2,10 @@
 
 - Version: 0.3
 - Date: 2026-08-06
-- Status: M1-A 完了、v0.2 本体・補遺 3 本・Errata の統合完了
+- Status: 統合設計基準。M1-A 時点の実装記録を含み、M2 / M3 の追加仕様は後続文書を参照
 - 対応 Issue: RKM-ERRATA-023-TASK-007
 - M3 要件: [個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md)
+- 現行 package: v0.4.1（設計書の Version とは別）。[現行ガイドと検証記録](../README.md)
 
 <a id="reading-rules"></a>
 
@@ -27,6 +28,17 @@
 
 M3 のスコープ、利用者モデル、受け入れ条件には、[M3 個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md)を適用する。
 同文書は、本書に残る「ルール本文 export」「リポジトリ内 `.repo-knowledge/` mode」「Git 共有」を M3 の対象とする記述を差し替える。
+
+`v0.4.1` の公開 interface と運用には、次の後続文書も適用する。
+下位層に残る過去の設定例や未実装表記より、ここで示す対象の現行ガイドを優先する。
+
+| 対象 | 現行の基準 |
+| --- | --- |
+| Node.js 対応範囲、導入、MCP 登録 | [README](../../README.md) |
+| CLI、subscription CLI を使う provider、host-assisted、outcome、stats | [利用と運用の詳細ガイド](../operations/usage-reference.md) |
+| 外部送信と承認・自動 active 化の境界 | [Security policy](../../SECURITY.md)と [M3 個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md) |
+| stable root の縮小と experimental subpath | [Node API と公開境界](../operations/node-api.md) |
+| 同期・検索・品質評価と M3 の実装確認 | [M2 acceptance matrix](../testing/m2-acceptance-matrix.md)と [M3 acceptance matrix](../testing/m3-acceptance-matrix.md) |
 
 1. 本書 5 節の実装・テスト事実
 2. 本書 4 節の Errata

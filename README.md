@@ -1,9 +1,8 @@
 # repo-knowledge-mcp
 
-> **公開状況**
->
-> 現行の stable release は `v0.4.1` です。
-> npm registry では `@tamat-llc/repo-knowledge-mcp@0.4.1` を利用できます。
+現行の stable release は **`v0.4.1`** です。
+npm registry では `@tamat-llc/repo-knowledge-mcp@0.4.1` を利用できます。
+変更内容と公開時の検証結果は [v0.4.1 release report](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/m3-release-v0.4.1.md)、現行ガイドと過去の記録は[ドキュメント一覧](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/README.md)から参照できます。
 
 **repo-knowledge-mcp** は、Pull Request のレビューから得た知見を個人用ローカルストアへ保存し、Codex、Claude Code、Cursor から再利用できる rule に変換する stdio MCP server です。
 人間と複数の AI reviewer が残した指摘を GitHub から取得し、根拠を追跡できる Markdown として管理します。
@@ -53,19 +52,19 @@ Codex、Claude Code、Cursor
 - **Local-first**：canonical data を `~/.repo-knowledge/` に保存します。
 - **Vendor-neutral**：特定の reviewer や coding agent に知識を閉じません。
 - **追跡可能な根拠**：rule から元の review comment と Pull Request を確認できます。
-- **明示的な承認**：MCP tool から knowledge を active に変更できません。
-- **安全な既定値**：外部送信、diff hunk の送信、trusted-human の自動 active 化は個別に opt-in します。
+- **明示的な承認**：承認・却下を直接行う MCP tool は公開せず、既定では人間が TTY で候補を確認します。
+- **安全な既定値**：Provider Adapter、host-assisted distillation、trusted-human の自動 active 化は明示的に opt-in します。
 
-Serena memory が agent の探索結果と作業記憶を残すのに対し、repo-knowledge-mcp は Pull Request の review evidence を再利用可能な rule に変換します。
-Bugbot learned rules が Bugbot 自身の review を改善するのに対し、repo-knowledge-mcp は同じ rule を複数の MCP client へ提供します。
+過去のレビュー方針を引き継ぐときや、複数の coding agent から同じローカル知識を使いたいときに利用できます。
+チーム共通のルール配布やクラウド同期は提供しません。
 
 <a id="supported-environments"></a>
 
 ## 対応環境
 
-| 項目 | v0.4 の保証範囲 |
+| 項目 | v0.4.1 の対応範囲 |
 | --- | --- |
-| Node.js | Node 22.13 以降、または Node 24 以降 |
+| Node.js | 22.13.0 以上の 22.x、または 24.0.0 以上。CI は 22 / 24 |
 | OS | macOS、Linux |
 | storage | ローカル filesystem |
 | transport | stdio |
@@ -150,7 +149,32 @@ npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 export owner/repository --bootstrap
 出力された一文を `AGENTS.md`、`CLAUDE.md`、または `.cursor/rules` 配下の rule に追加してください。
 この一文は knowledge 本文を埋め込まず、変更対象の file と task を添えて `get_rules` を呼ぶよう agent へ指示します。
 
-### 5. repository の状態を確認する
+### 5. 最初のルールを有効にする
+
+初回同期でレビューを取得し、外部送信が無効なら蒸留 job は pending のまま残ります。
+`learning` の場合は、選択した送信方法で候補を生成してから承認します。
+
+Provider Adapter を有効にした場合は、残っている job を次の command で処理します。
+
+```console
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 distill owner/repository
+```
+
+host-assisted distillation を有効にした場合は、接続中の coding agent に依頼します。
+
+> repo-knowledge MCP の `prepare_distillation` で owner/repository の pending job を一件取得し、返された手順と schema に従って `submit_distillation` まで進めてください。
+
+どちらも無効の場合は、[蒸留方法と送信対象](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md#distillation)を確認してから設定してください。
+候補が生成されたら、実 TTY で内容と根拠を確認します。
+
+```console
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 review owner/repository
+```
+
+既定では人間が承認した候補だけが active になります。
+再利用できる候補がない場合は、次のレビューを同期するまでルールは増えません。
+
+### 6. repository の状態を確認する
 
 coding agent へ次のように依頼します。
 
@@ -162,7 +186,7 @@ coding agent へ次のように依頼します。
 | `readiness.state` | 状態 | 次の操作 |
 | --- | --- | --- |
 | `setup_required` | 初期設定または初回同期が未完了 | `repo-knowledge setup` |
-| `learning` | pending job または proposed knowledge が存在 | 蒸留を実行して `repo-knowledge review` |
+| `learning` | active rule がなく、処理待ちの job または候補が存在 | 蒸留を実行して `repo-knowledge review` |
 | `ready` | active rule が存在 | 返された rule を使う |
 | `empty` | 同期済みだが再利用できる候補がない | 新しい review の後に `repo-knowledge sync` |
 
@@ -281,7 +305,9 @@ canonical data は利用者ごとの private storage に保存します。
 
 review content を LLM へ渡す方法は、Provider Adapter と host-assisted distillation の二つです。
 どちらも明示的な opt-in がない限り送信しません。
-diff hunk の送信には別の opt-in が必要です。
+Provider Adapter は、送信を許可すると取得済み diff hunk も入力に含み得ます。
+host-assisted だけに適用される `includeDiffHunk` は既定で `false` です。
+diff を送らずレビュー本文だけで蒸留する場合は、Provider Adapter を無効にし、host-assisted の `includeDiffHunk: false` を使います。
 
 | 方法 | 送信先 | 既定 |
 | --- | --- | --- |
@@ -326,8 +352,8 @@ Codex や Claude Code は、変更前に `get_rules` を呼び、実装・検証
 同じ request の retry は二重記録されません。
 判定基準、privacy、誤記録時の扱いは[outcome 記録ガイド](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md#outcome-とランキング)を参照してください。
 
-MCP plane から status を active または rejected に変更する tool は公開しません。
-承認と却下は実 TTY を必要とする admin CLI だけが行います。
+MCP plane には承認・却下を直接指示する tool を公開しません。
+人間による承認と却下は実 TTY を必要とする admin CLI で行い、蒸留時の自動 active 化は前述の trust policy で判定します。
 
 主な CLI commands は次のとおりです。
 
@@ -335,6 +361,7 @@ MCP plane から status を active または rejected に変更する tool は�
 | --- | --- |
 | `setup [repo]` | private storage、privacy、trust、初回同期を設定 |
 | `sync [repo]` | 更新された Pull Request を増分同期 |
+| `distill [repo]` | Provider Adapter で pending job を処理 |
 | `review [repo]` | proposed knowledge を一つの TTY session で処理 |
 | `list [repo]` | canonical knowledge を列挙 |
 | `stats [repo]` | versioned aggregate を JSON で出力 |
@@ -342,7 +369,8 @@ MCP plane から status を active または rejected に変更する tool は�
 | `export [repo] --bootstrap` | agent bootstrap の一文を出力 |
 | `serve` | stdio MCP server を明示起動 |
 
-すべての command と option は `repo-knowledge --help` で確認できます。
+command と主要 option は `repo-knowledge --help` と [CLI 操作一覧](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md#cli-commands)で確認できます。
+`record_outcome` は MCP tool です。同名の CLI command はありません。
 定期同期、outcome、stats、storage の詳細は[利用と運用の詳細ガイド](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md)にあります。
 
 <a id="node-api"></a>
@@ -370,7 +398,7 @@ process.exitCode = await runDefaultRepoKnowledgeCli({ argv: ["--help"] });
 | 症状 | 確認と対処 |
 | --- | --- |
 | `npm ERR! E404` | package 名と指定した exact version が npm registry に存在するか確認する |
-| Node.js version error | Node 22.13 以降、または Node 24 以降へ変更する |
+| Node.js version error | 22.13.0 以上の 22.x、または 24.0.0 以上へ変更する |
 | GitHub repository を読めない | `gh auth status` と対象アカウントの repository 権限を確認する |
 | Provider subscription を使えない | 選択した provider に応じて `claude auth status --json`、`codex login status`、または `GROK_DISABLE_API_KEY_AUTH=1 grok models` を確認し、必要なら login command を再実行する |
 | `setup` または `review` が TTY error で停止する | pipe や redirect の外で、stdin と stdout が実 TTY の terminal から実行する |
@@ -412,6 +440,7 @@ source checkout から試す場合は、lifecycle script を止めて依存関�
 
 ```console
 npm ci --ignore-scripts
+npm run install-scripts:check
 npm audit --audit-level=high
 npm audit signatures
 npm rebuild
