@@ -8,14 +8,15 @@ repo-knowledge-mcp は PR review という untrusted input を永続的な rule 
 security issue は public issue に詳細を書かず、GitHub の [private vulnerability report](https://github.com/TamaT-LLC/repo-knowledge-mcp/security/advisories/new) から報告してください。
 再現手順、影響範囲、対象 version、可能なら最小 fixture を含め、実 token、review 本文、個人情報は添付しないでください。
 
-初回公開後の security update 対象は最新の `0.3.x` です。
+security update 対象は最新の stable release（現在は `v0.4.1`）です。
 未 release の main branch は best effort で修正します。
 
 ## Security boundary
 
-MCP plane と admin plane の分離は、MCP tool 経由の承認、拒否、active 化、canonical 本文改稿を防ぐ運用境界です。
-MCP tool は新規 knowledge と更新を proposal としてしか保存できず、admin operation は実 input/output TTY を要求します。
-M1 は非対話承認用の `--yes` を提供しません。
+MCP plane と admin plane の分離は、モデルが承認や拒否を直接指示できないようにする運用境界です。
+`add_knowledge` と `update_knowledge` は proposal を保存し、人間による承認と本文編集は実 input/output TTY を必要とします。
+蒸留結果の自動 active 化は、後述の独立した trust policy が条件を満たす場合にだけ許可します。
+非対話承認用の `--yes` は提供しません。
 
 この分離は、同一 OS user として任意の shell command を実行できる process や agent に対する security boundary ではありません。
 同じ user は admin CLI を起動し、`~/.repo-knowledge` を直接編集し、process environment を読めます。
@@ -39,11 +40,12 @@ repo-knowledge-mcp が防ぐ対象は次です。
 
 ## Knowledge poisoning
 
-手動 `add --active` を除き、蒸留結果はすべて `proposed` として作成されます。
+蒸留結果は既定で `proposed` として作成されます。
+手動 `add --active` と、条件を満たして明示的に有効化した trusted-human auto activation は例外です。
 未知 bot は raw-only、外部 contributor は既定で raw-only です。
 設定済み AI reviewer も自動 active にはなりません。
 
-### Auto activation の条件（M2）
+### Auto activation の条件
 
 `trust.autoActivateTrustedHuman` の出荷既定値は `false` で、テストで固定されています。
 リポジトリ・パッケージ・設定例のどこにも `true` を既定として置きません。
@@ -54,8 +56,10 @@ repo-knowledge-mcp が防ぐ対象は次です。
 - 実 PR 由来の proposed rule を人間が確認し、trusted human 由来 candidate の precision が十分であること
 - cron 同期での 2 週間運用を経て、未解決の品質回帰がないこと
 
-有効化後も auto active の対象は trusted human のコメントを evidence に含む candidate に限定され、
-未知 bot・外部 contributor 由来は自動 active になりません。
+有効化後も、originator と thread 内の全 comment が trusted human で、severity が `must` ではない candidate だけが対象です。
+AI reviewer、未知 bot、外部 contributor、mixed trust、`must` candidate は自動 active になりません。
+runtime は operator-local eligibility と現在の trust policy digest を照合します。
+report の真正性や新しい測定結果を自動監視するものではありません。
 gate 失敗や false positive の検出時は設定 1 行で即座に `false` へ戻します。
 前提条件の詳細、合意手続き、rollback は
 [trusted-human auto activation runbook](./docs/operations/trusted-human-auto-activation-runbook.md) を参照してください。
@@ -101,6 +105,7 @@ LLM への外部送信は二つの独立経路があります。
 両経路は既定で無効です。
 Provider Adapter は review comment、actor metadata、path、取得済み diff context、repository context、candidate、possible knowledge match を送信し得ます。
 host-assisted は comment と actor metadata を返し、`includeDiffHunk: true` のときだけ diff hunk を含めます。
+`includeDiffHunk` は host-assisted 専用です。Provider Adapter の送信から diff を除外する設定ではありません。
 
 両経路は外部送信の直前に同じ sensitive-content scanner（機密情報検査）を実行します。
 Provider Adapter では review body、diff hunk、actor、path、repository context、candidate、possible match を検査します。
@@ -123,17 +128,18 @@ scanner は既知形式の deny-list であり、すべての機密情報を検�
 credential を review、diff、config へ貼らない運用は引き続き必要です。
 機密 repository では provider と host-assisted の両方を無効のまま使用してください。
 
-## Sync / outcome / provider 測定の data boundary（M2）
+## Sync / outcome / provider 測定の data boundary
 
-M2 で追加された経路が扱う data の境界は次のとおりです。
+同期、利用結果の記録、品質測定では、次の data boundary を適用します。
 
 - **sync（CLI `sync` / MCP `sync_repo`）**: GitHub への read は ingest と同じ
   認証済み `gh` process へ委譲され、token は保存しません。checkpoint
   （`sync/checkpoint.json`）が持つのは PR 番号と `updatedAt` の resume 境界だけです。
   stdout の summary JSON は件数と PR 番号のみで、review 本文を含みません。
   cron のログにも review content は出ないため、summary をそのまま JSONL として
-  保存できます。sync 自体は取得済み content を LLM へ送信しません。
-  蒸留の外部送信可否は引き続き上記 opt-in だけで決まります。
+  保存できます。Provider Adapter が有効な場合は、同期中の ingest に続いて蒸留が実行され、許可された content が LLM へ送られます。
+  GitHub からの取得だけを行う場合は Provider Adapter を無効にしてください。
+  host-assisted は `prepare_distillation` を呼ぶまで content を返しません。
 - **record_outcome**: agent が提出した outcome（種別、任意の note、file path、
   task ID、PR 番号）は canonical event としてローカルに永続化され、外部へ
   送信されません。note と context は監査ログとして残るため、secret や
@@ -155,7 +161,7 @@ canonical data は既定で `~/.repo-knowledge` に保存され、review 本文�
 storage root は mode 700、config と data file は mode 600 に矯正されます。
 Git repository へ誤って追加したり、広い user group と backup を共有したりしないでください。
 
-M1 が保証するのは macOS / Linux のローカル filesystem だけです。
+保証対象は macOS / Linux のローカル filesystem だけです。
 Windows、NFS、SMB、Dropbox、iCloud Drive、その他の network mount や同期領域では、permission、PID lock、atomic rename、append、fsync の前提が成立しないため使用しないでください。
 symlink 化した config、canonical target、storage escape は拒否されます。
 

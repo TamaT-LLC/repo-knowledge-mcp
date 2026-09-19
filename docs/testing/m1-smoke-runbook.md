@@ -5,7 +5,7 @@
 
 ## 前提条件
 
-- Node.js 22 または 24
+- Node.js 22.13.0 以上の 22.x または 24.x
 - `gh auth status` が成功し、manifest のリポジトリを GraphQL で読めること
 - ローカル filesystem 上で実行すること
 - provider 送信を無効のまま実行すること
@@ -20,8 +20,9 @@ npm run install-scripts:check
 npm audit --audit-level=high
 npm audit signatures
 npm rebuild
+npm run build
 gh auth status
-npm run --silent smoke:m1 -- \
+node dist/m1-smoke-cli.js \
   --manifest docs/testing/m1-smoke-manifest.json \
   --commit "$(git rev-parse HEAD)" \
   > /tmp/m1-smoke-results.json
@@ -29,6 +30,8 @@ npm run --silent smoke:m1 -- \
 
 保存先を省略すると一時ディレクトリを作成し、終了時に削除する。
 再実行間で同じ canonical store を確認するときだけ `--storage <local-path>` を追加する。
+保存済みの結果は、その report に記録された commit と実行環境の証跡である。
+別 commit で再実行した結果を過去の report と同じ測定として扱わないこと。
 
 ## 判定と結果形式
 

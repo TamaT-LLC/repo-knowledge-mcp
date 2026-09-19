@@ -1,12 +1,60 @@
 # repo-knowledge-mcp 利用と運用の詳細ガイド
 
-この文書は、初期設定後の knowledge 処理、privacy 設定、定期同期、stats、ローカルストレージを扱います。
+`v0.4.1` では、レビューを取得し、許可した経路で蒸留し、人間が承認したルールを coding agent へ提供します。
 最初に動かす手順は [README](../../README.md#quick-start) を参照してください。
+文書の対象と検証記録は[ドキュメント一覧](../README.md)にまとめています。
+
+<a id="cli-commands"></a>
+
+## CLI 操作一覧
+
+通常の操作は次の command で行います。`[repo]` は `owner/repository` 形式で、省略時は workspace mapping または既定 repository から解決します。
+明示指定には `--repo <owner/name>` または `--workspace <path>` も使えます。
+repository を位置引数と `--repo` の両方で指定しないでください。
+
+| command | 用途・主要 option |
+| --- | --- |
+| `setup [repo]` | 対話設定と初回同期。`--since <iso>` または `--all-history`、機械可読出力には `--json` |
+| `doctor [repo]` | 認証、設定、storage、canonical data、projection の診断 |
+| `sync [repo]` | 増分同期。`--since <iso>` の境界規則は後述 |
+| `ingest [repo] <pr>` | PR 番号を指定して一件取得 |
+| `distill [repo]` | Provider Adapter が許可された pending job の処理 |
+| `list [repo]` | knowledge の一覧。`--status proposed` などで絞り込み |
+| `review [repo]` | 候補と変更提案を一つの TTY session で確認 |
+| `stats [repo]` | JSON 集計。`--bucket total` または `--bucket day --since <iso> --until <iso>` |
+| `export [repo] --bootstrap` | `get_rules` の呼び出しを促す一文を出力。ルール本文の一括 export は未対応 |
+| `serve` | stdio MCP server を起動。repository は `--repo` または `--workspace` で指定 |
+| `reindex [repo]` | canonical data から `index.sqlite` を再構築 |
+| `redistill [repo] <selector>` | `--all`、`--author <login>`、`--prompt-version <version>`、`--failed`、`--outdated` の一つで再処理対象を選択 |
+| `reconcile [repo] --write-derived-metadata` | 導出した metadata を明示的に保存 |
+
+`redistill --outdated` は現在の prompt、schema、trust policy に対応する job がない thread だけを対象にします。
+既存 job の強制リセットには使えません。
+再処理待ちの job は、選択した Provider Adapter または host-assisted の経路で処理してください。
+
+管理操作には実 input/output TTY が必要です。repository は `--repo` または `--workspace` で指定します。
+
+| command | 用途 |
+| --- | --- |
+| `approve <knowledge-id>` | proposed または stale な候補を承認 |
+| `reject <knowledge-id>` | proposed または stale な候補を却下 |
+| `edit <knowledge-id> <patch options>` | 本文や scope などを変更 |
+| `approve-revision <proposal-id>` | 既存ルールへの変更提案を承認 |
+| `add --active <fields>` | 手動ルールを active として追加 |
+
+`edit` の patch options は `--rule`、`--detail`、`--category`、`--severity`、繰り返し指定できる `--scope` です。
+`add --active` では `--rule`、`--detail`、`--category`、`--severity` が必須で、`--scope` と `--related-id` は任意です。
+通常は ID を指定する管理 command より、内容をまとめて確認できる `review` を使います。
+
+`record_outcome` は MCP tool であり、同名の CLI command は提供しません。
+`--json` は `setup` 専用です。`sync` と `stats` は既定で JSON を出力します。
 
 ## repository の解決と設定
 
 既定の config は `~/.repo-knowledge/config.json` です。
 JSON は strict に検証され、未知 key、無効な repository 名、矛盾する provider 設定を拒否します。
+以下の全体例と、後続の節にある部分例は区別してください。
+部分例は既存 config の該当項目へ反映し、`workspaceMappings` や trust 設定を消さないようにします。
 
 ```json
 {
@@ -61,13 +109,16 @@ export REPO_KNOWLEDGE_HOME="$HOME/.repo-knowledge"
 repo-knowledge doctor owner/repository
 ```
 
+<a id="distillation"></a>
+
 ## 初回同期後の knowledge 処理
 
 guided setup は review thread を raw evidence として保存し、蒸留が必要な thread に job を作ります。
 外部送信を許可しない場合、job は pending のままローカルに残ります。
 
 蒸留方法は Provider Adapter と host-assisted distillation の二つです。
-どちらの方法でも、抽出結果は検証を通過してから proposed knowledge になります。
+どちらの方法でも、抽出結果は検証を通過してから、既定では proposed knowledge になります。
+条件を満たして明示的に有効化した trusted-human auto activation だけが例外です。
 
 proposed knowledge は一つの TTY session で確認できます。
 
@@ -171,10 +222,13 @@ repo-knowledge distill owner/repository
 ```
 
 repository 単位の `repoPolicies.<owner/name>.allowCloudTransmission: false` は global opt-in より優先されます。
-MCP の `ingest_pr` と `sync_repo` も同じ Provider Adapter を使います。
+CLI の `ingest` / `sync` と MCP の `ingest_pr` / `sync_repo` は、Provider Adapter が有効なら取得後に蒸留も実行します。
+GitHub からの取得だけを行う場合は、Provider Adapter を無効にしてください。
 MCP server 起動後に `llm` 設定を変えた場合は、client から server を再接続して config を読み直してください。
 
 Provider Adapter が送る data には、comment ID、本文、時刻、actor と trust の metadata、path、取得済み diff hunk、repository context、candidate、既存 rule の要約が含まれます。
+host-assisted 用の `includeDiffHunk: false` は、この経路の diff を除外しません。
+diff を送らずに蒸留したい場合は、Provider Adapter を無効にし、次の host-assisted 設定を使います。
 これらの field は provider CLI を起動する前に sensitive-content scanner で検査されます。
 検出時は `SENSITIVE_CONTENT_DETECTED` で処理を止め、provider process へ payload を渡しません。
 error には検出値を含めず、field path と kind だけを返します。
@@ -200,7 +254,8 @@ Provider CLI は起動せず、`llm.mode` は `disabled` のままにします�
 }
 ```
 
-設定後、Claude Code または Codex へ次のように依頼します。
+起動済みの MCP server には再接続し、変更した config を読み込ませてください。
+その後、Claude Code または Codex へ次のように依頼します。
 
 > repo-knowledge MCP の `prepare_distillation` でこの repository の pending job を一件取得し、返された schema に従って抽出と照合を行い、`submit_distillation` まで進めてください。
 
@@ -236,7 +291,9 @@ AI reviewer、未知 bot、外部 contributor、mixed trust、`must` candidate �
 ## 定期同期
 
 `repo-knowledge sync` は保存済み checkpoint の直後から、更新された Pull Request だけを取り込みます。
-初回だけ `--since` で開始境界を指定でき、以後は引数なしで増分同期を続けます。
+初回は `--since` で開始境界を指定でき、以後は引数なしで増分同期を続けます。
+保存済み checkpoint より厳密に古い `--since` を指定した履歴 replay も可能です。
+checkpoint と同じ時刻または新しい時刻を指定すると、未同期 PR のスキップを防ぐため拒否されます。
 
 cron へ登録する前に、同じ OS user と環境変数で非対話実行を確認してください。
 
@@ -263,7 +320,8 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin
 部分失敗時は最初に失敗した Pull Request で停止します。
 checkpoint は最後に連続成功した Pull Request に留まるため、失敗より新しい Pull Request が先に取り込まれることはありません。
 
-複数ページの列挙中に Pull Request 一覧が変化した場合は、不安定な結果を破棄して同じ checkpoint から最大 3 回まで自動再試行します。
+複数ページの列挙中に Pull Request 一覧が変化した場合は、不安定な結果を破棄して同じ checkpoint から再試行します。
+試行は初回を含めて最大 3 回です。
 それでも安定しない場合、MCP の `sync_repo` は `PULL_REQUEST_LIST_CHANGED` を `retryable: true` で返すため、同じ引数で再実行してください。
 
 境界規則、最小権限、lock contention、再試行は [sync cron 運用 runbook](./sync-cron-runbook.md) を参照してください。
@@ -393,6 +451,11 @@ exit code は、成功が0、read failure が1、usage error が2です。
 
 抽出、分類、merge、検索の品質は、匿名化 corpus と記録済み provider prediction から再計算します。
 通常の quality gate は network と provider login を使いません。
+同梱 threshold の `source` は `fixture_replay` です。
+gate の成功は記録済み fixture の回帰検証を意味し、実 provider の現在の精度や、レビュー工数の削減を証明しません。
+trusted-human auto activation の前提となる live measurement は別途必要です。
+
+次の開発用 command は source checkout のルートで実行します。npm の公開 package には評価 fixture を含めません。
 
 ```console
 npm run golden
@@ -435,7 +498,10 @@ storage root は mode 700、config、canonical file、SQLite は mode 600 に矯
 stdout は MCP 接続中の JSON-RPC 専用で、diagnostic と provider log は stderr に出力します。
 
 knowledge Markdown を直接削除すると検索結果から消えますが、evidence event は残ります。
-履歴を保つ場合は削除せず、admin CLI で `rejected` に変更してください。
+proposed / stale な候補を取り下げる場合は、削除せず `review` または `reject` で却下してください。
+`reject` は active rule には使えません。
+既存 active rule を廃止する場合は、writer を停止して store 全体を backup した上で、対象 Markdown の frontmatter を `status: deprecated` に変更します。
+変更後は `doctor` で整合性を確認してください。
 
 tool 経由の更新は YAML frontmatter を再構成するため、comment、key 順、quote style を保持しません。
 直接編集は command 実行中を避けてください。

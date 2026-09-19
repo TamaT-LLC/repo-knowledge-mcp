@@ -2,6 +2,7 @@
 
 `@tamat-llc/repo-knowledge-mcp` の package root は、CLI を Node.js から実行するための最小 API だけを安定公開します。
 MCP server と CLI の通常利用では Node API を import せず、`repo-knowledge` command または stdio MCP command を使います。
+対象は `v0.4.1` です。`v0.4.0` で縮小した stable root の公開境界を維持しています。
 
 ## 公開 entry point
 
@@ -13,7 +14,7 @@ MCP server と CLI の通常利用では Node API を import せず、`repo-know
 | その他の package subpath | repository 内部 | internal | package の `exports` で import を拒否 |
 
 package root の inventory は次の二つで固定します。
-正本は `scripts/public-api-inventory.mjs` であり、artifact gate が runtime と declaration の両方を照合します。
+正本は [scripts/public-api-inventory.mjs](../../scripts/public-api-inventory.mjs) であり、artifact gate が runtime と declaration の両方を照合します。
 
 | symbol | kind | 利用者と用途 | repository 内 consumer |
 | --- | --- | --- | --- |

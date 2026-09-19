@@ -4,9 +4,9 @@
 - Layer: L2
 - Feature: personal-knowledge
 - Scope: global
-- Status: Draft
+- Status: Implemented（M3 初回公開は v0.3.0、現行 stable は v0.4.1）
 - Open Questions: 0
-- Updated: 2026-08-09
+- Updated: 2026-09-19
 - Upstream: [repo-knowledge-mcp 統合仕様書 v0.3](./repo-knowledge-mcp-v0.3.md)
 
 ## 概要
@@ -23,11 +23,12 @@ M3 はチーム共通のルール台帳を構築しない。
 
 M3 の主な利用者は、対象リポジトリの過去のレビュー方針を把握していない開発者である。
 
-利用者は個々のルールの正しさを事前に判断するのではなく、信頼するレビュアーと外部送信の可否を設定する。
+setup では信頼するレビュアーと外部送信の可否を設定し、ルールごとの内容確認は候補の生成後に行う。
 
-通常の利用では `get_rules` が適用可能な active rule を返し、利用者は承認操作を行わない。
+既定では、利用者が review inbox で候補を確認し、承認したルールを `get_rules` から利用する。
 
-候補の由来または内容が自動 active 化の条件を満たさない場合だけ、review inbox を使用する。
+自動 active 化の前提を満たして明示的に有効化した場合だけ、対象の trusted-human 候補について個別承認を省略できる。
+同梱の品質 threshold は `fixture_replay` のため、その gate が成功しただけでは自動 active 化の前提を満たさない。
 
 ## スコープ
 
@@ -120,7 +121,8 @@ thread 正規化時の initial knowledge status は `proposed` に固定する�
 
 AI reviewer、未知 bot、外部コントリビューター、複数の trust class が混在する thread、severity が `must` の候補は review inbox へ送る。
 
-quality gate の失敗または trust policy generation の変更を検出した場合、新しい候補の自動 active 化を停止する。
+runtime は eligibility に記録された gate status と現在の trust policy digest を確認し、条件が一致しない候補を proposed にする。
+quality gate の新しい失敗を自動監視する機構はないため、operator は測定失敗時に opt-in を無効にし、設定を再読み込みする。
 
 停止は既存 active rule の status を変更しない。
 
@@ -146,7 +148,8 @@ review の表示は、session の pending / resolved / edited / skipped、rule �
 inbox 読み込みと approve / reject / edit の更新中は、setup と同じ stderr progress を表示する。
 外部由来の rule、detail、scope、login、URL、ID、metadata は terminal control sequence を無害化してから表示する。
 
-MCP plane は status を active または rejected へ変更しない。
+MCP plane は active または rejected への変更を直接指定する承認 tool を公開しない。
+蒸留結果の自動 active 化は M3-FR-005 の policy で判定する。
 
 ### M3-FR-008 npm 配布
 
@@ -179,6 +182,8 @@ publish 後は registry の exact version から CLI と stdio MCP server を再
 GitHub token は保存せず、GitHub へのアクセスは `gh` CLI の認証へ委譲する。
 
 review content と diff を LLM へ送る処理は、経路ごとの明示的な opt-in がない限り実行しない。
+Provider Adapter の opt-in は取得済み diff を含む入力に適用する。
+host-assisted は別途 `includeDiffHunk: true` を指定した場合だけ diff を含める。
 
 ### M3-NFR-002 後方互換性
 
@@ -194,7 +199,8 @@ CLI と MCP は、初期設定不足、蒸留待ち、候補なし、検索不�
 
 ### M3-NFR-004 対応環境
 
-保証範囲は、Node.js 22 または 24 を使う macOS と Linux のローカル filesystem とする。
+CI の検証対象は Node.js 22 と 24、保証範囲は macOS と Linux のローカル filesystem とする。
+package が許容する Node.js は 22.13.0 以上の 22.x、または 24.0.0 以上とする。
 
 Windows、network filesystem、同期フォルダは引き続き保証対象外とする。
 
@@ -208,7 +214,7 @@ progress と prompt は stderr、人間向けまたは JSON の最終結果は s
 ## 制約
 
 - MCP server instructions だけでは、クライアントが必ず `get_rules` を呼ぶとは限らない。
-- provider を無効にした利用者は raw review と pending job まで利用できるが、蒸留済みルールは生成されない。
+- Provider Adapter と host-assisted の両方を無効にした場合、取得した review は raw data と pending job まで保存される。既存 active rule の参照や手動ルールの追加は可能だが、新たな蒸留は実行されない。
 - 個人利用モデルでは、異なる利用者の trust policy、蒸留結果、outcome によってルール集合と順位が異なり得る。
 - admin plane は MCP tool 経由の偶発的な権限昇格を防ぐ運用境界であり、同じ OS user で任意 shell を実行できるプロセスに対するセキュリティ境界ではない。
 
@@ -250,6 +256,8 @@ progress と prompt は stderr、人間向けまたは JSON の最終結果は s
 
 ## 関連ドキュメント
 
+- [現行ガイドと検証記録の一覧](../README.md)
+- [v0.4.1 release report](../operations/m3-release-v0.4.1.md)
 - [repo-knowledge-mcp 統合仕様書 v0.3](./repo-knowledge-mcp-v0.3.md)
 - [M2 受け入れ matrix](../testing/m2-acceptance-matrix.md)
 - [trusted-human auto activation runbook](../operations/trusted-human-auto-activation-runbook.md)

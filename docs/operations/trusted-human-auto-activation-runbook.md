@@ -1,6 +1,8 @@
 # trusted-human auto activation runbook
 
-`trust.autoActivateTrustedHuman` を個人用ローカルストアで有効化するときの手順を定める。
+`trust.autoActivateTrustedHuman` は `v0.4.1` でも既定で無効であり、通常は TTY の `review` で候補を承認する。
+同梱 threshold は `fixture_replay` のため、同梱 gate の成功だけでは自動 active 化を有効にできない。
+以下は operator が live measurement を含む前提条件を満たした場合の手順である。
 
 設計上の背景は、[M3 個人利用要件](../design/repo-knowledge-mcp-v0.3-personal-use.md)の M3-FR-004 と M3-FR-005、および [repo-knowledge-mcp v0.3 設計書](../design/repo-knowledge-mcp-v0.3.md)の Mutation Path §2.3 を参照する。
 

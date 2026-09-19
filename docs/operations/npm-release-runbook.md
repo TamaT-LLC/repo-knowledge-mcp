@@ -1,8 +1,7 @@
 # npm release runbook
 
-本 runbook は、`@tamat-llc/repo-knowledge-mcp` を public npm package として公開するための準備、実行、検証、rollback を定義する。
-
-通常の公開は GitHub Actions と npm trusted publishing を使い、長期 npm credential を repository secret に保存しない。
+`@tamat-llc/repo-knowledge-mcp` の通常公開は、GitHub Actions と npm trusted publishing を使う。
+長期 npm credential を repository secret に保存しない。
 
 各 stable release の実測値と公開後の完了判定は`m3-release-v<version>.md`へ記録する。
 最新の完了記録は[M3 v0.4.1 release report](./m3-release-v0.4.1.md)である。
@@ -22,7 +21,7 @@
 | release branch | tag の commit が `origin/main` に含まれること |
 | repository visibility | public |
 | 対応 Node.js | 22、24 |
-| publish runtime | Node.js 24、npm 11.5.1 以上 |
+| publish runtime | Node.js 24、npm 12.0.2（[release workflow](../../.github/workflows/release.yml) の `RELEASE_NPM_VERSION`） |
 | 通常認証 | GitHub Actions OIDC による npm trusted publishing |
 | provenance | trusted publishing と `npm publish --provenance` で生成 |
 
@@ -201,9 +200,11 @@ bootstrapとtrusted publisher設定後、stable `0.3.0`を通常のrelease workf
 10. 公開対象 commit の security review が完了し、CodeQL、secret scanning、依存関係監査に未解決の critical または high finding がない。
 
 version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。
+次の command は、次回公開する未使用 version を `package.json` と lockfile に設定し、その変更を main へ merge した後に実行する。
+公開済みの `0.4.1` を再公開する手順ではない。
 
 ```console
-RELEASE_VERSION=0.4.1
+RELEASE_VERSION="$(node -p 'require("./package.json").version')"
 RELEASE_COMMIT="$(git rev-parse HEAD)"
 npm ci --ignore-scripts
 npm run install-scripts:check
@@ -259,6 +260,7 @@ publish 後は registry 反映を待ち、exact version の `npm exec` と同じ
 workflow の artifact から `package-artifact-report.json` を取得し、release report の name、version、commit、tarball integrity と照合する。
 
 手元で再確認する場合も `latest` を使わず exact version を指定する。
+次の `0.4.1` は現行 stable の再確認例であり、新しい release では対象の公開 version に置き換える。
 
 ```console
 RELEASE_VERSION=0.4.1
