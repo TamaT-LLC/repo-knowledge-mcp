@@ -28,6 +28,7 @@ import {
   type GhRunnerLike,
   type KnowledgeEvidence,
   type LlmSubscriptionInspectorLike,
+  type ResolvedTypeSafeCredential,
 } from "../src/experimental.js";
 import { inspectCanonicalState } from "../src/doctor/checks-canonical.js";
 import {
@@ -344,6 +345,60 @@ describe("RepoKnowledgeDoctor", () => {
     expect(
       check(hostResult, "config.host_assisted_transmission"),
     ).toMatchObject({ status: "warn" });
+  });
+
+  it("requires TYPESAFE_API_KEY only when Jev transmission is enabled", async () => {
+    const fixture = await createFixture({
+      mergeClassifier: {
+        allowCloudTransmission: true,
+        mode: "jev",
+        model: "jev-latest",
+      },
+    });
+
+    const missing = await fixture
+      .doctor({ environment: {} })
+      .run({ repo: REPOSITORY });
+    expect(
+      check(missing, "config.merge_classifier_transmission"),
+    ).toMatchObject({
+      remedy: expect.stringContaining("TYPESAFE_API_KEY"),
+      status: "fail",
+    });
+
+    const available = await fixture
+      .doctor({ environment: { TYPESAFE_API_KEY: "fixture-key" } })
+      .run({ repo: REPOSITORY });
+    expect(
+      check(available, "config.merge_classifier_transmission"),
+    ).toMatchObject({
+      details: {
+        credential: "environment",
+        minimum_same_confidence: 0.9,
+        model: "jev-latest",
+      },
+      status: "pass",
+    });
+
+    const persisted = await fixture
+      .doctor({
+        environment: {},
+        typesafeCredential: {
+          apiKey: "fixture-key",
+          source: "macos-keychain",
+        },
+      })
+      .run({ repo: REPOSITORY });
+    expect(
+      check(persisted, "config.merge_classifier_transmission"),
+    ).toMatchObject({
+      details: {
+        credential: "macos-keychain",
+        minimum_same_confidence: 0.9,
+        model: "jev-latest",
+      },
+      status: "pass",
+    });
   });
 
   it.each([
@@ -676,9 +731,11 @@ describe("RepoKnowledgeDoctor", () => {
 
 interface Fixture {
   readonly doctor: (overrides?: {
+    readonly environment?: Readonly<Record<string, string | undefined>>;
     readonly filesystemType?: number;
     readonly gh?: GhRunnerLike;
     readonly subscription?: LlmSubscriptionInspectorLike;
+    readonly typesafeCredential?: ResolvedTypeSafeCredential | null;
   }) => RepoKnowledgeDoctor;
   readonly knowledgePath: string;
   readonly repositoryRoot: string;
@@ -719,6 +776,9 @@ async function createFixture(
   return {
     doctor(overrides = {}) {
       return new RepoKnowledgeDoctor({
+        ...(overrides.environment === undefined
+          ? { environment: {} }
+          : { environment: overrides.environment }),
         filesystemTypeReader: async () =>
           overrides.filesystemType ?? 0x0000_ef53,
         ghRunner: overrides.gh ?? new FakeGhRunner(),
@@ -732,6 +792,9 @@ async function createFixture(
         nodeVersion: "24.4.0",
         platform: "linux",
         storageRoot,
+        ...(overrides.typesafeCredential === undefined
+          ? {}
+          : { typesafeCredential: overrides.typesafeCredential }),
       });
     },
     knowledgePath,

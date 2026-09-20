@@ -31,6 +31,10 @@ import {
 import { ExecaGitRemoteReader, type GitRemoteReader } from "./git-remote.js";
 import type { GhRunnerLike } from "./gh-runner.js";
 import {
+  resolveTypeSafeCredential,
+  type ResolvedTypeSafeCredential,
+} from "./jev-client.js";
+import {
   CliLlmSubscriptionInspector,
   type LlmSubscriptionInspectorLike,
 } from "./subscription-cli-provider.js";
@@ -56,11 +60,13 @@ export interface RepoKnowledgeDoctorOptions {
   readonly nodeVersion?: string;
   readonly platform?: NodeJS.Platform;
   readonly storageRoot: string;
+  readonly typesafeCredential?: ResolvedTypeSafeCredential | null;
 }
 
 /** Runs read-only installation, GitHub, canonical-state, and projection checks. */
 export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
   private readonly cwd: string;
+  private readonly environment: Readonly<Record<string, string | undefined>>;
   private readonly filesystemTypeReader: (
     path: string,
   ) => Promise<bigint | number>;
@@ -70,9 +76,21 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
   private readonly nodeVersion: string;
   private readonly platform: NodeJS.Platform;
   private readonly storageRoot: string;
+  private readonly typesafeCredential: ResolvedTypeSafeCredential | null;
 
   constructor(options: RepoKnowledgeDoctorOptions) {
     this.cwd = resolve(options.cwd ?? process.cwd());
+    this.environment = options.environment ?? process.env;
+    this.platform = options.platform ?? process.platform;
+    this.typesafeCredential =
+      options.typesafeCredential !== undefined
+        ? options.typesafeCredential
+        : resolveTypeSafeCredential({
+            environment: this.environment,
+            ...(options.environment === undefined
+              ? { platform: this.platform }
+              : { platform: "linux" }),
+          });
     this.filesystemTypeReader =
       options.filesystemTypeReader ??
       (async (path) => (await statfs(path, { bigint: true })).type);
@@ -87,7 +105,6 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
           : { environment: options.environment }),
       });
     this.nodeVersion = options.nodeVersion ?? process.versions.node;
-    this.platform = options.platform ?? process.platform;
     this.storageRoot = resolve(options.storageRoot);
   }
 
@@ -106,6 +123,7 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
       report,
       config,
       this.llmSubscriptionInspector,
+      this.typesafeCredential,
     );
     await inspectSqliteFeatures(report);
     const github = await inspectGithub(report, this.ghRunner);

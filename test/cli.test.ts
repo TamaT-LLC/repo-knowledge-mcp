@@ -163,7 +163,9 @@ describe("repo-knowledge CLI", () => {
     expect(current.stdout()).toContain(
       "2 found · 2 imported · 0 unchanged · 2 job(s) queued",
     );
-    expect(current.stdout()).toContain("provider off · host-assisted off");
+    expect(current.stdout()).toContain(
+      "provider off · Jev off · host-assisted off",
+    );
     expect(current.stdout()).toContain(
       "no model transmission route is enabled",
     );
@@ -1214,7 +1216,11 @@ function setupResult(): GuidedSetupResult {
     resumed: false,
     state_path: "/storage/repos/R_repository/setup-state.json",
     storage_root: "/storage",
-    transmission: { host_assisted: false, provider: false },
+    transmission: {
+      host_assisted: false,
+      merge_classifier: false,
+      provider: false,
+    },
     trust: { candidates: 0, selected: [] },
   };
 }

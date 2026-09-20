@@ -235,7 +235,9 @@ async function main() {
     assert(
       humanSetup.stdout.includes("Setup complete") &&
         humanSetup.stdout.includes(`Repository  ${smokeRepository}`) &&
-        humanSetup.stdout.includes("provider off · host-assisted off") &&
+        humanSetup.stdout.includes(
+          "provider off · Jev off · host-assisted off",
+        ) &&
         humanSetup.stdout.includes("Next"),
       `installed guided setup returned no human summary: ${humanSetup.stdout}`,
     );

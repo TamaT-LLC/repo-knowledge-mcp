@@ -14,6 +14,7 @@ import {
   getLlmProviderDefinition,
   type EnabledLlmProviderMode,
 } from "./llm-provider-config.js";
+import { resolveTypeSafeCredential } from "./jev-client.js";
 import type { RepositoryResolution } from "./repository-resolver.js";
 import type { SetupState, SetupStateStore } from "./setup-state-store.js";
 import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
@@ -76,6 +77,7 @@ export interface GuidedSetupResult {
   readonly storage_root: string;
   readonly transmission: {
     readonly host_assisted: boolean;
+    readonly merge_classifier: boolean;
     readonly provider: boolean;
   };
   readonly trust: {
@@ -113,6 +115,7 @@ export interface GuidedSetupDependencies {
     configPath: string,
     update: (current: RepoKnowledgeConfig) => unknown,
   ): Promise<RepoKnowledgeConfig>;
+  typesafeApiKeyAvailable?(): boolean;
 }
 
 export type GuidedSetupErrorCode =
@@ -253,7 +256,12 @@ export class GuidedSetupService {
     const initialConfig = storage.config;
     const transmission =
       state === null
-        ? await chooseTransmission(initialConfig, prompt)
+        ? await chooseTransmission(
+            initialConfig,
+            prompt,
+            this.dependencies.typesafeApiKeyAvailable?.() ??
+              resolveTypeSafeCredential() !== null,
+          )
         : configuredTransmission(initialConfig);
 
     let configBeforeSetup = initialConfig;
@@ -645,8 +653,10 @@ function initialSyncRequest(
 async function chooseTransmission(
   config: RepoKnowledgeConfig,
   prompt: GuidedSetupPrompt,
+  typesafeApiKeyAvailable: boolean,
 ): Promise<{
   readonly hostAssisted: boolean;
+  readonly mergeClassifier: boolean;
   readonly provider: boolean;
   readonly providerMode: EnabledLlmProviderMode | null;
   readonly providerModel: string | null;
@@ -672,6 +682,16 @@ async function chooseTransmission(
     ? (configuredModel ??
       (await readProviderModel(prompt, requiredProviderMode(providerMode))))
     : config.llm.model;
+  const mergeClassifier =
+    current.mergeClassifier ||
+    (provider &&
+      typesafeApiKeyAvailable &&
+      (await prompt.confirm({
+        defaultValue: false,
+        id: "transmission.merge-classifier",
+        message:
+          "Use TypeSafe Jev for merge classification? Candidate and possible-match rule summaries will be sent to TypeSafe.",
+      })));
   const hostAssisted =
     current.hostAssisted ||
     (await prompt.confirm({
@@ -680,7 +700,13 @@ async function chooseTransmission(
       message:
         "Host-assisted route returns review comment bodies to the connected MCP host model. Enable it?",
     }));
-  return { hostAssisted, provider, providerMode, providerModel };
+  return {
+    hostAssisted,
+    mergeClassifier,
+    provider,
+    providerMode,
+    providerModel,
+  };
 }
 
 async function readProviderMode(
@@ -735,6 +761,7 @@ function setupConfig(
   repository: RepositoryResolution,
   transmission: {
     readonly hostAssisted: boolean;
+    readonly mergeClassifier: boolean;
     readonly provider: boolean;
     readonly providerMode?: EnabledLlmProviderMode | null;
     readonly providerModel?: string | null;
@@ -774,6 +801,12 @@ function setupConfig(
           }
         : {}),
     },
+    mergeClassifier: {
+      ...current.mergeClassifier,
+      ...(transmission.mergeClassifier
+        ? { allowCloudTransmission: true, mode: "jev" as const }
+        : {}),
+    },
     repos: sortAndDedupeStrings([...current.repos, repository.currentName]),
     workspaceMappings:
       workspacePath === undefined
@@ -787,6 +820,7 @@ function setupConfig(
 
 function configuredTransmission(config: RepoKnowledgeConfig): {
   readonly hostAssisted: boolean;
+  readonly mergeClassifier: boolean;
   readonly provider: boolean;
   readonly providerMode: EnabledLlmProviderMode | null;
 } {
@@ -794,6 +828,9 @@ function configuredTransmission(config: RepoKnowledgeConfig): {
     hostAssisted:
       config.hostAssistedDistillation.enabled &&
       config.hostAssistedDistillation.allowReviewContentTransmission,
+    mergeClassifier:
+      config.mergeClassifier.mode === "jev" &&
+      config.mergeClassifier.allowCloudTransmission,
     provider:
       config.llm.mode !== "disabled" && config.llm.allowCloudTransmission,
     providerMode: enabledProviderMode(config.llm),
@@ -817,11 +854,13 @@ function requiredProviderMode(
 
 function transmissionState(config: RepoKnowledgeConfig): {
   readonly host_assisted: boolean;
+  readonly merge_classifier: boolean;
   readonly provider: boolean;
 } {
   const transmission = configuredTransmission(config);
   return {
     host_assisted: transmission.hostAssisted,
+    merge_classifier: transmission.mergeClassifier,
     provider: transmission.provider,
   };
 }

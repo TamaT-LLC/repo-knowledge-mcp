@@ -9,6 +9,7 @@ import {
   loadRepoKnowledgeConfig,
 } from "../config.js";
 import type { RepoKnowledgeConfig } from "../domain-schemas.js";
+import type { ResolvedTypeSafeCredential } from "../jev-client.js";
 import { getLlmProviderDefinition } from "../llm-provider-config.js";
 import type { LlmSubscriptionInspectorLike } from "../subscription-cli-provider.js";
 import { DoctorReportBuilder } from "./report-builder.js";
@@ -76,10 +77,12 @@ export async function checkTransmissionConfiguration(
   report: DoctorReportBuilder,
   config: RepoKnowledgeConfig | null,
   subscriptionInspector: LlmSubscriptionInspectorLike,
+  typesafeCredential: ResolvedTypeSafeCredential | null = null,
 ): Promise<void> {
   if (config === null) {
     for (const id of [
       "config.provider_transmission",
+      "config.merge_classifier_transmission",
       "config.host_assisted_transmission",
     ]) {
       report.add({
@@ -91,6 +94,58 @@ export async function checkTransmissionConfiguration(
     }
     return;
   }
+  const mergeClassifier = config.mergeClassifier;
+  if (
+    mergeClassifier.mode === "provider" &&
+    mergeClassifier.allowCloudTransmission
+  ) {
+    report.add({
+      id: "config.merge_classifier_transmission",
+      message:
+        "Jev cloud consent is true while the provider merge classifier is selected.",
+      remedy:
+        "Set mergeClassifier.allowCloudTransmission to false, or select Jev intentionally.",
+      status: "warn",
+    });
+  } else if (
+    mergeClassifier.mode === "jev" &&
+    !mergeClassifier.allowCloudTransmission
+  ) {
+    report.add({
+      id: "config.merge_classifier_transmission",
+      message:
+        "Jev merge classification is configured but cloud transmission consent is false.",
+      remedy:
+        "Use provider mode, or explicitly enable mergeClassifier.allowCloudTransmission after reviewing data disclosure.",
+      status: "warn",
+    });
+  } else if (mergeClassifier.mode === "jev" && typesafeCredential === null) {
+    report.add({
+      id: "config.merge_classifier_transmission",
+      message: "Jev merge classification has no TypeSafe API credential.",
+      remedy:
+        "Set TYPESAFE_API_KEY or save the credential in the macOS Keychain, then rerun doctor.",
+      status: "fail",
+    });
+  } else {
+    report.add({
+      details:
+        mergeClassifier.mode === "jev"
+          ? {
+              credential: typesafeCredential?.source,
+              minimum_same_confidence: mergeClassifier.minimumSameConfidence,
+              model: mergeClassifier.model,
+            }
+          : { mode: "provider" },
+      id: "config.merge_classifier_transmission",
+      message:
+        mergeClassifier.mode === "jev"
+          ? "Jev merge classification has explicit consent, model, and API credential."
+          : "Jev merge classification is safely disabled.",
+      status: "pass",
+    });
+  }
+
   const provider = config.llm;
   if (provider.mode === "disabled" && provider.allowCloudTransmission) {
     report.add({

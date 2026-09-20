@@ -26,6 +26,8 @@ import { GitHubPullRequestEnumerator } from "./github-pull-request-enumerator.js
 import type { GhRunnerLike } from "./gh-runner.js";
 import { HostAssistedDistillationService } from "./host-assisted-distillation-service.js";
 import { IngestPrMutationService } from "./ingest-pr-mutation-service.js";
+import { type JevClient, resolveTypeSafeCredential } from "./jev-client.js";
+import { JevMergeRelationClassifier } from "./jev-merge-classifier.js";
 import type { LlmProviderAdapter } from "./llm-provider.js";
 import { OpenAiProviderAdapter } from "./openai-provider.js";
 import {
@@ -34,7 +36,11 @@ import {
   type RepositoryMutationPipelineOperations,
 } from "./mcp-mutation-tools.js";
 import { MergeCandidateSearchService } from "./merge-candidate-service.js";
-import { ProviderMergeRelationClassifier } from "./merge-classifier.js";
+import {
+  FallbackMergeRelationClassifier,
+  ProviderMergeRelationClassifier,
+  type MergeRelationClassifier,
+} from "./merge-classifier.js";
 import { ProviderDistillationPipeline } from "./provider-distillation-pipeline.js";
 import { ProviderDistillationService } from "./provider-distillation-service.js";
 import { CanonicalProviderPostIngestRunner } from "./provider-post-ingest-runner.js";
@@ -58,7 +64,9 @@ export interface RepositoryApplicationFactoryOptions {
   readonly adapter?: LlmProviderAdapter;
   readonly config: RepoKnowledgeConfig;
   readonly enumerator?: SyncPullRequestEnumerator;
+  readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly ghRunner?: GhRunnerLike;
+  readonly jevClient?: JevClient;
   readonly prompt: DistillationPromptTemplate;
   readonly repositoryContext?: unknown;
   readonly snapshotClient?: CompleteSnapshotFetcher;
@@ -90,9 +98,11 @@ export class DefaultRepositoryApplicationFactory
   private readonly applications = new Map<string, CachedApplication>();
   private readonly config: RepoKnowledgeConfig;
   private readonly enumerator: SyncPullRequestEnumerator;
+  private readonly jevClient: JevClient | undefined;
   private readonly prompt: DistillationPromptTemplate;
   private readonly repositoryContext: unknown;
   private readonly snapshotClient: CompleteSnapshotFetcher;
+  private readonly typesafeApiKey: string | undefined;
 
   constructor(options: RepositoryApplicationFactoryOptions) {
     this.config = RepoKnowledgeConfigSchema.parse(options.config);
@@ -100,6 +110,11 @@ export class DefaultRepositoryApplicationFactory
     this.repositoryContext = JSON.parse(
       canonicalizeJson(options.repositoryContext ?? {}),
     ) as unknown;
+    this.typesafeApiKey = resolveTypeSafeCredential({
+      environment: options.environment ?? process.env,
+      ...(options.environment === undefined ? {} : { platform: "linux" }),
+    })?.apiKey;
+    this.jevClient = options.jevClient;
     this.adapter =
       options.adapter ?? createConfiguredProviderAdapter(this.config);
     this.snapshotClient =
@@ -183,11 +198,30 @@ export class DefaultRepositoryApplicationFactory
       prompt: this.prompt,
       repository,
     });
-    const classifier = new ProviderMergeRelationClassifier({
+    const providerClassifier = new ProviderMergeRelationClassifier({
       adapter: this.adapter,
       config: this.config,
       repository,
     });
+    const classifier: MergeRelationClassifier =
+      this.config.mergeClassifier.mode === "jev"
+        ? new FallbackMergeRelationClassifier({
+            fallback: providerClassifier,
+            minimumSameConfidence:
+              this.config.mergeClassifier.minimumSameConfidence,
+            primary: new JevMergeRelationClassifier({
+              ...(this.typesafeApiKey === undefined
+                ? {}
+                : { apiKey: this.typesafeApiKey }),
+              ...(this.jevClient === undefined
+                ? {}
+                : { client: this.jevClient }),
+              config: this.config,
+              repository,
+            }),
+            primaryProvider: "typesafe",
+          })
+        : providerClassifier;
     const autoActivationPolicy = new TrustedHumanAutoActivationPolicy({
       config: this.config,
     });

@@ -426,6 +426,7 @@ export {
   KnowledgeRevisionProposalStatusSchema,
   KnowledgeStatusSchema,
   LlmConfigSchema,
+  MergeClassifierConfigSchema,
   MergeDecisionRequiredStableResponseSchema,
   MergeDecisionSchema,
   MergeRelationSchema,
@@ -477,6 +478,7 @@ export {
   type KnowledgeRevisionProposalStatus,
   type KnowledgeStatus,
   type LlmConfig,
+  type MergeClassifierConfig,
   type MergeDecision,
   type MergeDecisionRequiredStableResponse,
   type PullRequestObservation,
@@ -687,6 +689,11 @@ export {
   type ProviderTransmissionDeniedReason,
 } from "./provider-distillation-service.js";
 export {
+  evaluateMergeClassifierTransmission,
+  type MergeClassifierTransmissionDecision,
+  type MergeClassifierTransmissionDeniedReason,
+} from "./provider-transmission.js";
+export {
   CanonicalJsonlError,
   canonicalJsonlLineSha256,
   parseCanonicalJsonlLine,
@@ -811,16 +818,41 @@ export {
   MERGE_CLASSIFIER_OUTPUT_SCHEMA_VERSION,
   MERGE_CLASSIFIER_SYSTEM_PROMPT,
   MergeClassifierError,
+  FallbackMergeRelationClassifier,
   ProviderMergeRelationClassifier,
   buildMergeClassifierInput,
   parseProviderMergeDecisions,
+  normalizeClassificationContext,
   validateMergeDecisions,
   type MergeClassificationRequest,
   type MergeClassificationResult,
   type MergeClassifierErrorCode,
+  type MergeDecisionMetadata,
   type MergeRelationClassifier,
+  type FallbackMergeRelationClassifierOptions,
   type ProviderMergeRelationClassifierOptions,
 } from "./merge-classifier.js";
+export {
+  TYPESAFE_API_BASE_URL,
+  TYPESAFE_API_KEY_ENVIRONMENT_VARIABLE,
+  TYPESAFE_MACOS_KEYCHAIN_ACCOUNT,
+  TYPESAFE_MACOS_KEYCHAIN_SERVICE,
+  TypeSafeJevClient,
+  resolveTypeSafeApiKey,
+  resolveTypeSafeCredential,
+  type JevChoiceQuestion,
+  type JevClient,
+  type JevClientRequest,
+  type JevClientResponse,
+  type ResolvedTypeSafeCredential,
+  type ResolveTypeSafeCredentialOptions,
+  type TypeSafeCredentialSource,
+  type TypeSafeJevClientOptions,
+} from "./jev-client.js";
+export {
+  JevMergeRelationClassifier,
+  type JevMergeRelationClassifierOptions,
+} from "./jev-merge-classifier.js";
 export {
   ProjectionStaleError,
   buildKnowledgeProjection,
