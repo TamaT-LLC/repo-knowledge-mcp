@@ -46,6 +46,7 @@ export class RepoKnowledgeConfigError extends Error {
 
 export interface EffectiveRepositoryPolicy {
   readonly allowCloudTransmission: boolean;
+  readonly allowCloudMergeClassification: boolean;
 }
 
 export interface InitializedStorage {
@@ -132,6 +133,10 @@ export function resolveRepositoryPolicy(
   const normalizedConfig = RepoKnowledgeConfigSchema.parse(config);
   const normalizedRepository = RepositoryNameSchema.parse(repository);
   return {
+    allowCloudMergeClassification:
+      normalizedConfig.repoPolicies[normalizedRepository]
+        ?.allowCloudMergeClassification ??
+      normalizedConfig.mergeClassifier.allowCloudTransmission,
     allowCloudTransmission:
       normalizedConfig.repoPolicies[normalizedRepository]
         ?.allowCloudTransmission ?? normalizedConfig.llm.allowCloudTransmission,

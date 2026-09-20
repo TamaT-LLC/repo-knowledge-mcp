@@ -61,6 +61,7 @@
   "homepage": "https://github.com/TamaT-LLC/repo-knowledge-mcp#readme",
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
+    "@typesafe-ai/sdk": "^0.6.0",
     "better-sqlite3": "^13.0.3",
     "execa": "^10.0.1",
     "picomatch": "^4.0.5",

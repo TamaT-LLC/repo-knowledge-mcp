@@ -280,6 +280,44 @@ describe("guided setup service", () => {
     },
   );
 
+  it("offers Jev during provider setup when TYPESAFE_API_KEY is available", async () => {
+    const current = await fixture({ typesafeApiKeyAvailable: true });
+    const confirmations: string[] = [];
+    const input = vi
+      .fn()
+      .mockResolvedValueOnce("anthropic")
+      .mockResolvedValueOnce("claude-test");
+
+    const result = await current.service.run(
+      { repo: REPOSITORY },
+      {
+        async confirm(request) {
+          confirmations.push(request.id);
+          return (
+            request.id === "transmission.provider" ||
+            request.id === "transmission.merge-classifier"
+          );
+        },
+        input,
+      },
+    );
+
+    expect(confirmations).toEqual([
+      "transmission.provider",
+      "transmission.merge-classifier",
+      "transmission.host-assisted",
+    ]);
+    expect(result.transmission.merge_classifier).toBe(true);
+    expect(await loadRepoKnowledgeConfig(current.configPath)).toMatchObject({
+      mergeClassifier: {
+        allowCloudTransmission: true,
+        minimumSameConfidence: 0.9,
+        mode: "jev",
+        model: "jev-latest",
+      },
+    });
+  });
+
   it("rolls config back when doctor fails before the initial sync", async () => {
     const current = await fixture();
     const before = await loadRepoKnowledgeConfig(current.configPath);
@@ -509,6 +547,7 @@ describe("setup trust candidates", () => {
 interface FixtureOverrides {
   readonly candidates?: readonly SetupTrustCandidate[];
   readonly mappedRepository?: string;
+  readonly typesafeApiKeyAvailable?: boolean;
 }
 
 async function fixture(overrides: FixtureOverrides = {}) {
@@ -569,6 +608,7 @@ async function fixture(overrides: FixtureOverrides = {}) {
     runDoctor,
     stateStore: () => stateStore,
     sync,
+    typesafeApiKeyAvailable: () => overrides.typesafeApiKeyAvailable ?? false,
     updateConfig: (configPath, update) =>
       updateRepoKnowledgeConfig(configPath, update),
   };

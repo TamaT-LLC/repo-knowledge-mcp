@@ -108,6 +108,7 @@ export function renderGuidedSetupSummary(result: GuidedSetupResult): string {
   const sync = result.initial_sync.summary;
   const routes = [
     result.transmission.provider ? "provider on" : "provider off",
+    result.transmission.merge_classifier ? "Jev on" : "Jev off",
     result.transmission.host_assisted
       ? "host-assisted on"
       : "host-assisted off",

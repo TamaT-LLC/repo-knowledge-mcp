@@ -4,6 +4,7 @@ export const SENSITIVE_CONTENT_DETECTED = "SENSITIVE_CONTENT_DETECTED";
 
 export const SensitiveContentBoundarySchema = z.enum([
   "host_assisted_payload",
+  "jev_merge_payload",
   "provider_distillation_payload",
   "provider_merge_payload",
 ]);

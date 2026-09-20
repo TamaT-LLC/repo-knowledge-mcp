@@ -68,6 +68,12 @@ JSON は strict に検証され、未知 key、無効な repository 名、矛盾
     "allowCloudTransmission": false,
     "model": null
   },
+  "mergeClassifier": {
+    "mode": "provider",
+    "allowCloudTransmission": false,
+    "minimumSameConfidence": 0.9,
+    "model": "jev-latest"
+  },
   "repoPolicies": {},
   "hostAssistedDistillation": {
     "enabled": false,
@@ -232,6 +238,74 @@ diff を送らずに蒸留したい場合は、Provider Adapter を無効にし�
 これらの field は provider CLI を起動する前に sensitive-content scanner で検査されます。
 検出時は `SENSITIVE_CONTENT_DETECTED` で処理を止め、provider process へ payload を渡しません。
 error には検出値を含めず、field path と kind だけを返します。
+
+## TypeSafe Jev でマージ判定する
+
+Jev は蒸留を置き換えず、candidate と既存 knowledge の `same`、`overlaps`、`different` 判定だけを担当します。
+Jev が失敗した場合は、現在選択している Provider Adapter の分類へ戻ります。
+
+API key は config や CLI argument に書きません。
+`TYPESAFE_API_KEY` があればそれを使い、macOSでは未設定時に専用のキーチェーン項目へフォールバックします。
+一時的に試す場合は同じ shell で key を非表示入力し、guided setup を実行します。
+
+```console
+read -s TYPESAFE_API_KEY
+export TYPESAFE_API_KEY
+repo-knowledge setup owner/repository
+```
+
+macOSで永続化する場合は、同じ値を専用のキーチェーン項目へ保存します。
+
+```console
+security add-generic-password -U \
+  -a default \
+  -s com.tamat.repo-knowledge-mcp.typesafe-api-key \
+  -w "$TYPESAFE_API_KEY"
+unset TYPESAFE_API_KEY
+```
+
+キーチェーンのserviceは `com.tamat.repo-knowledge-mcp.typesafe-api-key`、accountは `default` 固定です。
+Linuxでは環境変数を利用します。
+
+Provider Adapter を有効にした後、Jev の質問に `Yes` と答えると次の設定になります。
+setup 済みの repository では、既存 config の `mergeClassifier` だけを同じ内容へ変更します。
+
+```json
+{
+  "mergeClassifier": {
+    "mode": "jev",
+    "allowCloudTransmission": true,
+    "minimumSameConfidence": 0.9,
+    "model": "jev-latest"
+  }
+}
+```
+
+Jev へ送るのは candidate と possible match の `rule`、`detail`、`scope`、`category`、`severity`、対応用 ID です。
+raw review comment、diff hunk、evidence comment ID、ETag は Jev の request に含めません。
+sensitive-content scanner が一致した場合は Jev を呼び出さず、既存 provider へも切り替えません。
+
+`same` の信頼度が `minimumSameConfidence` 未満の場合、その candidate だけを現在の Provider Adapter で再判定します。
+既定値は `0.9` です。
+`overlaps` と `different` は新規または関連 knowledge として人間の review 対象に残るため、信頼度だけを理由に Provider Adapter へ再送しません。
+
+SDK の送信先は `https://api.typesafe.ai`、model は config の値、log level は `off` に固定します。
+`TYPESAFE_BASE_URL`、`TYPESAFE_DEFAULT_MODEL`、`TYPESAFE_LOG_LEVEL` はこの経路では採用しません。
+
+repository 単位で拒否する場合は、global opt-in より次の設定を優先します。
+
+```json
+{
+  "repoPolicies": {
+    "owner/private-repository": {
+      "allowCloudMergeClassification": false
+    }
+  }
+}
+```
+
+MCP server で利用する場合、macOSでは同じユーザーのキーチェーン、Linuxではserver processの `TYPESAFE_API_KEY` が必要です。
+credentialを変更した後は MCP client から server を再接続してください。
 
 ## host-assisted distillation を使う
 

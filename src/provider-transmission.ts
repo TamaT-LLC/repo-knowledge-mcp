@@ -22,6 +22,21 @@ export type ProviderTransmissionDecision =
       readonly model: string | null;
     };
 
+export type MergeClassifierTransmissionDeniedReason =
+  | "cloud_transmission_disabled"
+  | "mode_disabled"
+  | "repository_policy_denied";
+
+export type MergeClassifierTransmissionDecision =
+  | {
+      readonly allowed: false;
+      readonly reason: MergeClassifierTransmissionDeniedReason;
+    }
+  | {
+      readonly allowed: true;
+      readonly model: string;
+    };
+
 /** Evaluates mode and the effective per-repository transmission opt-in. */
 export function evaluateProviderTransmission(
   config: RepoKnowledgeConfig,
@@ -47,5 +62,32 @@ export function evaluateProviderTransmission(
     allowed: true,
     mode: parsed.llm.mode,
     model: parsed.llm.model,
+  };
+}
+
+/** Evaluates the independent Jev merge-classification transmission opt-in. */
+export function evaluateMergeClassifierTransmission(
+  config: RepoKnowledgeConfig,
+  repository: string,
+): MergeClassifierTransmissionDecision {
+  const parsed = RepoKnowledgeConfigSchema.parse(config);
+  const normalizedRepository = RepositoryNameSchema.parse(repository);
+  if (parsed.mergeClassifier.mode !== "jev") {
+    return { allowed: false, reason: "mode_disabled" };
+  }
+  const policy = resolveRepositoryPolicy(parsed, normalizedRepository);
+  if (!policy.allowCloudMergeClassification) {
+    return {
+      allowed: false,
+      reason:
+        parsed.repoPolicies[normalizedRepository]
+          ?.allowCloudMergeClassification === false
+          ? "repository_policy_denied"
+          : "cloud_transmission_disabled",
+    };
+  }
+  return {
+    allowed: true,
+    model: parsed.mergeClassifier.model,
   };
 }

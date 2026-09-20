@@ -304,7 +304,8 @@ canonical data は利用者ごとの private storage に保存します。
 同じ repository でも、利用者が選ぶ trust policy と利用結果によって active rule と順位は異なります。
 
 review content を LLM へ渡す方法は、Provider Adapter と host-assisted distillation の二つです。
-どちらも明示的な opt-in がない限り送信しません。
+マージ判定だけを TypeSafe Jev へ送る任意経路もあります。
+いずれも明示的な opt-in がない限り送信しません。
 Provider Adapter は、送信を許可すると取得済み diff hunk も入力に含み得ます。
 host-assisted だけに適用される `includeDiffHunk` は既定で `false` です。
 diff を送らずレビュー本文だけで蒸留する場合は、Provider Adapter を無効にし、host-assisted の `includeDiffHunk: false` を使います。
@@ -312,12 +313,19 @@ diff を送らずレビュー本文だけで蒸留する場合は、Provider Ada
 | 方法 | 送信先 | 既定 |
 | --- | --- | --- |
 | Provider Adapter | ログイン済みの Claude Code、Codex、または Grok CLI が使う cloud model | 無効 |
+| Jev merge classification | TypeSafe API | 無効 |
 | host-assisted distillation | 接続中の MCP client が使う host model | 無効 |
 
 Provider Adapter の `llm.mode` は `anthropic`、`openai`、`xai` に対応します。
 認証には `claude auth login`、`codex login`、`grok login` で作成したサブスクリプション session を使います。
 Provider API key は設定せず、子 CLI process へ渡す環境変数も実行・locale・proxy / custom CA・provider subscription 認証に必要な allowlist に限定します。
 GitHub token、cloud credential、その他の任意の親 process 環境変数は引き継ぎません。
+
+Jev は蒸留後の candidate と既存 rule の候補だけを分類します。
+利用する場合は `TYPESAFE_API_KEY` を設定するか、macOSキーチェーンへ保存してから guided setup を実行してください。
+setup で Provider Adapter を有効にすると、Jev を使うか追加で確認します。
+API key は `config.json` に保存しません。環境変数がある場合はキーチェーンより優先します。
+`same` の信頼度が既定の `0.9` 未満なら、その candidate だけを選択中の Provider Adapter で再判定します。
 
 `trust.autoActivateTrustedHuman` も既定では `false` です。
 この値を有効にしても、pilot、quality gate、trust policy の条件を満たす trusted-human non-`must` candidate だけが対象になります。
@@ -401,6 +409,7 @@ process.exitCode = await runDefaultRepoKnowledgeCli({ argv: ["--help"] });
 | Node.js version error | 22.13.0 以上の 22.x、または 24.0.0 以上へ変更する |
 | GitHub repository を読めない | `gh auth status` と対象アカウントの repository 権限を確認する |
 | Provider subscription を使えない | 選択した provider に応じて `claude auth status --json`、`codex login status`、または `GROK_DISABLE_API_KEY_AUTH=1 grok models` を確認し、必要なら login command を再実行する |
+| Jev が使われない | `TYPESAFE_API_KEY` を設定し、`repo-knowledge doctor owner/repository` で `config.merge_classifier_transmission` を確認してから MCP server を再接続する |
 | `setup` または `review` が TTY error で停止する | pipe や redirect の外で、stdin と stdout が実 TTY の terminal から実行する |
 | `readiness.state` が `setup_required` | `repo-knowledge setup owner/repository` を実行する |
 | `readiness.state` が `learning` | 外部送信の選択を確認し、蒸留後に `repo-knowledge review owner/repository` を実行する |

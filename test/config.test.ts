@@ -51,6 +51,12 @@ describe("repo knowledge config", () => {
         mode: "disabled",
         model: null,
       },
+      mergeClassifier: {
+        allowCloudTransmission: false,
+        minimumSameConfidence: 0.9,
+        mode: "provider",
+        model: "jev-latest",
+      },
       repoPolicies: {},
       repos: [],
       trust: {
@@ -101,6 +107,44 @@ describe("repo knowledge config", () => {
         mode,
         model: "test-model",
       });
+    },
+  );
+
+  it("accepts an independently opted-in Jev merge classifier", () => {
+    const config = parseRepoKnowledgeConfig({
+      mergeClassifier: {
+        allowCloudTransmission: true,
+        minimumSameConfidence: 0.95,
+        mode: "jev",
+        model: "jev-latest",
+      },
+      repoPolicies: {
+        "tamat/private": { allowCloudMergeClassification: false },
+      },
+    });
+
+    expect(config.mergeClassifier).toEqual({
+      allowCloudTransmission: true,
+      minimumSameConfidence: 0.95,
+      mode: "jev",
+      model: "jev-latest",
+    });
+    expect(resolveRepositoryPolicy(config, "tamat/public")).toMatchObject({
+      allowCloudMergeClassification: true,
+    });
+    expect(resolveRepositoryPolicy(config, "tamat/private")).toMatchObject({
+      allowCloudMergeClassification: false,
+    });
+  });
+
+  it.each([-0.01, 1.01, Number.POSITIVE_INFINITY])(
+    "rejects an invalid Jev same-confidence threshold: %s",
+    (minimumSameConfidence) => {
+      expect(() =>
+        parseRepoKnowledgeConfig({
+          mergeClassifier: { minimumSameConfidence },
+        }),
+      ).toThrow();
     },
   );
 
@@ -168,9 +212,11 @@ describe("repo knowledge config", () => {
     });
 
     expect(resolveRepositoryPolicy(config, "tamat/public")).toEqual({
+      allowCloudMergeClassification: false,
       allowCloudTransmission: true,
     });
     expect(resolveRepositoryPolicy(config, "tamat/private")).toEqual({
+      allowCloudMergeClassification: false,
       allowCloudTransmission: false,
     });
     expect(() => resolveRepositoryPolicy(config, "../private")).toThrow();

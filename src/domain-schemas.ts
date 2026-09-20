@@ -89,9 +89,19 @@ export const LlmConfigSchema = z
   })
   .strict();
 
+export const MergeClassifierConfigSchema = z
+  .object({
+    allowCloudTransmission: z.boolean().default(false),
+    minimumSameConfidence: z.number().min(0).max(1).default(0.9),
+    mode: z.enum(["provider", "jev"]).default("provider"),
+    model: NonEmptyStringSchema.default("jev-latest"),
+  })
+  .strict();
+
 export const RepositoryPolicySchema = z
   .object({
     allowCloudTransmission: z.boolean().optional(),
+    allowCloudMergeClassification: z.boolean().optional(),
   })
   .strict();
 
@@ -169,6 +179,12 @@ export const RepoKnowledgeConfigSchema = z
       allowCloudTransmission: false,
       mode: "disabled",
       model: null,
+    }),
+    mergeClassifier: MergeClassifierConfigSchema.default({
+      allowCloudTransmission: false,
+      minimumSameConfidence: 0.9,
+      mode: "provider",
+      model: "jev-latest",
     }),
     repoPolicies: z
       .record(RepositoryNameSchema, RepositoryPolicySchema)
@@ -677,6 +693,7 @@ export type RepositoryReadinessState = z.infer<
   typeof RepositoryReadinessStateSchema
 >;
 export type LlmConfig = z.infer<typeof LlmConfigSchema>;
+export type MergeClassifierConfig = z.infer<typeof MergeClassifierConfigSchema>;
 export type RepositoryPolicy = z.infer<typeof RepositoryPolicySchema>;
 export type TrustConfig = z.infer<typeof TrustConfigSchema>;
 export type TrustedHumanAutoActivationEligibility = z.infer<
