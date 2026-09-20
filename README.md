@@ -12,7 +12,7 @@ GitHub token は `gh` CLI が管理し、repo-knowledge-mcp は token を受領�
 
 ## 紹介動画
 
-PRレビューの取得から、人間の承認を経てAIがルールを再利用するまでを60秒で紹介します。
+PRレビューの取得から、人間の承認を経てAIがルールを再利用するまでを42秒で紹介します。
 日本語テロップ・BGM付きです。
 
 https://github.com/user-attachments/assets/01d59f85-b645-498f-afd9-1995e84aeffb
