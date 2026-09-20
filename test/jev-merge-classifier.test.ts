@@ -140,6 +140,20 @@ describe("JevMergeRelationClassifier", () => {
     expect(client.requests).toEqual([]);
   });
 
+  it("requires an API key before contacting Jev", async () => {
+    const classifier = new JevMergeRelationClassifier({
+      config: enabledConfig(),
+      repository: { currentName: REPOSITORY },
+    });
+
+    await expect(
+      classifier.classify({
+        candidates: [candidate(CANDIDATE_A, "Rule A")],
+        possible_matches: [matchSet(CANDIDATE_A, [KNOWLEDGE_A])],
+      }),
+    ).rejects.toMatchObject({ code: "JEV_API_KEY_MISSING" });
+  });
+
   it("rejects sensitive state before calling Jev", async () => {
     const client = new FakeJevClient({ answers: {}, model: "jev-latest" });
     const classifier = new JevMergeRelationClassifier({
@@ -408,6 +422,49 @@ describe("Jev client and fallback", () => {
     expect(fallback).not.toHaveBeenCalled();
   });
 
+  it("keeps the primary result when the confidence-gate provider is unavailable", async () => {
+    const expected = {
+      decision_metadata: [
+        {
+          candidate_id: CANDIDATE_A,
+          confidence: 0.7,
+          probabilities: { different: 0.1, same_0: 0.9 },
+          selected_probability: 0.9,
+          source: "jev" as const,
+        },
+      ],
+      decisions: [
+        {
+          candidate_id: CANDIDATE_A,
+          relation: "same" as const,
+          target_id: KNOWLEDGE_A,
+        },
+      ],
+      model: "jev-1.13.0",
+      provider: "typesafe",
+    };
+    const fallback = vi.fn(async () => {
+      throw new MergeClassifierError(
+        "MERGE_CLASSIFIER_TRANSMISSION_DENIED",
+        "provider is disabled",
+      );
+    });
+    const classifier = new FallbackMergeRelationClassifier({
+      fallback: { classify: fallback },
+      minimumSameConfidence: 0.9,
+      primary: { classify: async () => expected },
+      primaryProvider: "typesafe",
+    });
+
+    await expect(
+      classifier.classify({
+        candidates: [candidate(CANDIDATE_A, "Rule A")],
+        possible_matches: [matchSet(CANDIDATE_A, [KNOWLEDGE_A])],
+      }),
+    ).resolves.toBe(expected);
+    expect(fallback).toHaveBeenCalledOnce();
+  });
+
   it("does not fall back after sensitive content is detected", async () => {
     const sensitive = new SensitiveContentTransmissionError(
       "jev_merge_payload",
@@ -462,6 +519,19 @@ describe("Jev client and fallback", () => {
         readMacOsKeychain: readKeychain,
       }),
     ).toEqual({ apiKey: "persisted-key", source: "macos-keychain" });
+    expect(readKeychain).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a null result from an injected macOS Keychain reader", () => {
+    const readKeychain = vi.fn(() => null);
+
+    expect(
+      resolveTypeSafeCredential({
+        environment: {},
+        platform: "darwin",
+        readMacOsKeychain: readKeychain,
+      }),
+    ).toBeNull();
     expect(readKeychain).toHaveBeenCalledOnce();
   });
 

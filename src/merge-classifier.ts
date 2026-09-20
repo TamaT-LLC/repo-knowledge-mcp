@@ -208,11 +208,22 @@ export class FallbackMergeRelationClassifier
     const possibleMatches = request.possible_matches.filter((set) =>
       selected.has(set.candidate_id),
     );
-    const fallbackResult = await this.fallback.classify({
-      candidates,
-      possible_matches: possibleMatches,
-      ...(request.signal === undefined ? {} : { signal: request.signal }),
-    });
+    let fallbackResult: MergeClassificationResult;
+    try {
+      fallbackResult = await this.fallback.classify({
+        candidates,
+        possible_matches: possibleMatches,
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+      });
+    } catch (error) {
+      if (
+        request.signal?.aborted === true ||
+        errorCode(error) === "SENSITIVE_CONTENT_DETECTED"
+      ) {
+        throw error;
+      }
+      return primaryResult;
+    }
     const decisions = validateMergeDecisions(
       [
         ...primaryResult.decisions.filter(

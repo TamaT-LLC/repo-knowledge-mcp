@@ -409,7 +409,7 @@ process.exitCode = await runDefaultRepoKnowledgeCli({ argv: ["--help"] });
 | Node.js version error | 22.13.0 以上の 22.x、または 24.0.0 以上へ変更する |
 | GitHub repository を読めない | `gh auth status` と対象アカウントの repository 権限を確認する |
 | Provider subscription を使えない | 選択した provider に応じて `claude auth status --json`、`codex login status`、または `GROK_DISABLE_API_KEY_AUTH=1 grok models` を確認し、必要なら login command を再実行する |
-| Jev が使われない | `TYPESAFE_API_KEY` を設定し、`repo-knowledge doctor owner/repository` で `config.merge_classifier_transmission` を確認してから MCP server を再接続する |
+| Jev が使われない | `TYPESAFE_API_KEY` を設定し、`repo-knowledge setup owner/repository` で Jev と cloud transmission を有効化する。`mergeClassifier.mode: "jev"` と global または repository policy の `allowCloudTransmission: true` を確認し、`repo-knowledge doctor owner/repository` の後に MCP server を再接続する。既定の `provider` mode や `mergeClassifier.allowCloudTransmission: false` では Jev は使われない |
 | `setup` または `review` が TTY error で停止する | pipe や redirect の外で、stdin と stdout が実 TTY の terminal から実行する |
 | `readiness.state` が `setup_required` | `repo-knowledge setup owner/repository` を実行する |
 | `readiness.state` が `learning` | 外部送信の選択を確認し、蒸留後に `repo-knowledge review owner/repository` を実行する |

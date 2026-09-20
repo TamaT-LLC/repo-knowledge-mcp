@@ -114,8 +114,9 @@ export function resolveTypeSafeCredential(
 
   let persisted: string | null;
   try {
-    persisted =
-      options.readMacOsKeychain?.() ?? readTypeSafeApiKeyFromMacOsKeychain();
+    const read =
+      options.readMacOsKeychain ?? readTypeSafeApiKeyFromMacOsKeychain;
+    persisted = read();
   } catch {
     return null;
   }

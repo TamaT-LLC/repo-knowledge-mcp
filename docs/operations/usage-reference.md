@@ -254,13 +254,14 @@ export TYPESAFE_API_KEY
 repo-knowledge setup owner/repository
 ```
 
-macOSで永続化する場合は、同じ値を専用のキーチェーン項目へ保存します。
+macOSで永続化する場合は、専用のキーチェーン項目へ保存します。
+`-w` を最後の引数にして対話入力し、API key を process の引数へ含めないでください。
 
 ```console
 security add-generic-password -U \
   -a default \
   -s com.tamat.repo-knowledge-mcp.typesafe-api-key \
-  -w "$TYPESAFE_API_KEY"
+  -w
 unset TYPESAFE_API_KEY
 ```
 
