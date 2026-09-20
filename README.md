@@ -1,7 +1,7 @@
 # repo-knowledge-mcp
 
-現行の stable release は **`v0.4.1`** です。
-npm registry では `@tamat-llc/repo-knowledge-mcp@0.4.1` を利用できます。
+この source の release version は **`v0.4.2`** です。
+npm registry への反映前は `@tamat-llc/repo-knowledge-mcp@0.4.1` を利用してください。
 変更内容と公開時の検証結果は [v0.4.1 release report](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/m3-release-v0.4.1.md)、現行ガイドと過去の記録は[ドキュメント一覧](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/README.md)から参照できます。
 
 **repo-knowledge-mcp** は、Pull Request のレビューから得た知見を個人用ローカルストアへ保存し、Codex、Claude Code、Cursor から再利用できる rule に変換する stdio MCP server です。
@@ -62,7 +62,7 @@ Codex、Claude Code、Cursor
 
 ## 対応環境
 
-| 項目 | v0.4.1 の対応範囲 |
+| 項目 | v0.4.2 の対応範囲 |
 | --- | --- |
 | Node.js | 22.13.0 以上の 22.x、または 24.0.0 以上。CI は 22 / 24 |
 | OS | macOS、Linux |
@@ -78,7 +78,8 @@ Windows、NFS、SMB、Dropbox、iCloud Drive などの同期領域は保証対�
 ## 最短セットアップ
 
 以下の package コマンドは npm registry の exact version を使います。
-最初に `npm view @tamat-llc/repo-knowledge-mcp@0.4.1 version` が `0.4.1` を返すことを確認してください。
+最初に `npm view @tamat-llc/repo-knowledge-mcp@0.4.2 version` が `0.4.2` を返すことを確認してください。
+`E404` の間は各例の `0.4.2` を `0.4.1` に置き換えます。
 source checkout から試す手順は[開発と release gate](#development-and-release)にあります。
 
 ### 1. GitHub と Node.js を準備する
@@ -97,19 +98,19 @@ private repository を対象にする場合は、その repository を読める 
 
 ```console
 cd /absolute/path/to/repository
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 setup
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.2 setup
 ```
 
 workspace の外から実行する場合は repository 名を指定します。
 
 ```console
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 setup owner/repository
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.2 setup owner/repository
 ```
 
 継続して CLI を使う場合は global install も選べます。
 
 ```console
-npm install --global @tamat-llc/repo-knowledge-mcp@0.4.1
+npm install --global @tamat-llc/repo-knowledge-mcp@0.4.2
 repo-knowledge --help
 ```
 
@@ -126,7 +127,7 @@ guided setup は repository の解決、private storage の作成、外部送信
 ### 3. installation を診断する
 
 ```console
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 doctor owner/repository
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.2 doctor owner/repository
 ```
 
 `doctor` は runtime、GitHub 認証、config、storage、canonical data、検索用 projection を変更せずに検査します。
@@ -136,14 +137,14 @@ npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 doctor owner/repository
 Codex を使う場合は次の command で登録します。
 
 ```console
-codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
+codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.2
 codex mcp list
 ```
 
 続いて、agent が変更前に `get_rules` を呼ぶための一文を出力します。
 
 ```console
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 export owner/repository --bootstrap
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.2 export owner/repository --bootstrap
 ```
 
 出力された一文を `AGENTS.md`、`CLAUDE.md`、または `.cursor/rules` 配下の rule に追加してください。
@@ -157,7 +158,7 @@ npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 export owner/repository --bootstrap
 Provider Adapter を有効にした場合は、残っている job を次の command で処理します。
 
 ```console
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 distill owner/repository
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.2 distill owner/repository
 ```
 
 host-assisted distillation を有効にした場合は、接続中の coding agent に依頼します。
@@ -168,7 +169,7 @@ host-assisted distillation を有効にした場合は、接続中の coding age
 候補が生成されたら、実 TTY で内容と根拠を確認します。
 
 ```console
-npx -y @tamat-llc/repo-knowledge-mcp@0.4.1 review owner/repository
+npx -y @tamat-llc/repo-knowledge-mcp@0.4.2 review owner/repository
 ```
 
 既定では人間が承認した候補だけが active になります。
@@ -247,7 +248,7 @@ rule の detail、コード例、paginated evidence を確認する場合は `ge
 ### Codex
 
 ```console
-codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
+codex mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.2
 codex mcp get repo-knowledge
 ```
 
@@ -256,7 +257,7 @@ codex mcp get repo-knowledge
 ```console
 codex mcp add repo-knowledge \
   --env REPO_KNOWLEDGE_HOME=/absolute/private/path \
-  -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
+  -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.2
 ```
 
 設定方法は [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) を参照してください。
@@ -264,14 +265,14 @@ codex mcp add repo-knowledge \
 ### Claude Code
 
 ```console
-claude mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
+claude mcp add repo-knowledge -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.2
 claude mcp get repo-knowledge
 ```
 
 ```console
 claude mcp add repo-knowledge \
   --env REPO_KNOWLEDGE_HOME=/absolute/private/path \
-  -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.1
+  -- npx -y @tamat-llc/repo-knowledge-mcp@0.4.2
 ```
 
 設定方法は [Claude Code MCP documentation](https://docs.anthropic.com/en/docs/claude-code/mcp) を参照してください。
@@ -285,7 +286,7 @@ project 単位では `.cursor/mcp.json`、全 project 共通では `~/.cursor/mc
   "mcpServers": {
     "repo-knowledge": {
       "command": "npx",
-      "args": ["-y", "@tamat-llc/repo-knowledge-mcp@0.4.1"],
+      "args": ["-y", "@tamat-llc/repo-knowledge-mcp@0.4.2"],
       "env": {
         "REPO_KNOWLEDGE_HOME": "/absolute/private/path"
       }
