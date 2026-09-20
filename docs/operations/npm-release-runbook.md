@@ -4,7 +4,7 @@
 長期 npm credential を repository secret に保存しない。
 
 各 stable release の実測値と公開後の完了判定は`m3-release-v<version>.md`へ記録する。
-最新の完了記録は[M3 v0.4.1 release report](./m3-release-v0.4.1.md)である。
+最新の完了記録は[M3 v0.4.2 release report](./m3-release-v0.4.2.md)である。
 
 公開境界の差分レビューは[2026-08-24のM3 npm公開方式セキュリティレビュー](./m3-npm-release-security-review-2026-08-24.md)を正本とする。
 
@@ -25,20 +25,20 @@
 | 通常認証 | GitHub Actions OIDC による npm trusted publishing |
 | provenance | trusted publishing と `npm publish --provenance` で生成 |
 
-2026-08-26（JST）時点の公開状況は次のとおりである。
+2026-09-20（JST）時点の公開状況は次のとおりである。
 
 | 項目 | 状態 |
 | --- | --- |
-| npm registry | `@tamat-llc/repo-knowledge-mcp@0.4.1` を`latest`として公開済み |
+| npm registry | `@tamat-llc/repo-knowledge-mcp@0.4.2`を`latest`として公開済み |
 | npm package owner | npm organization `tamat-llc`。GitHub Actions trusted publisherを設定済み |
 | local npm認証 | stable releaseでは使用せず、GitHub Actions OIDCだけを使う |
 | GitHub repository | public |
-| package version | `0.4.1` |
+| package version | `0.4.2` |
 | license | `package.json` はMIT、rootに`LICENSE`あり |
 | GitHub `npm` environment | required reviewer、self-review禁止、`v*` tag deployment policyを設定済み |
 | `main` protection | Pull Request、owner review、Node.js 22と24のCI、CodeQLを必須化済み |
 | version tag protection | `v*`の更新と削除を禁止済み |
-| release artifact | `v0.4.1`のtag、GitHub Release、npm package、provenance、registry smokeを確認済み |
+| release artifact | `v0.4.2`のtag、GitHub Release、npm package、provenance、registry smokeを確認済み |
 | M2 release gate | pilot-002の14日運用gateと修正後のranking human評価を組み合わせてgo。Issue `#118`はclosed |
 | bootstrap設定 | `0.0.0-bootstrap.0`を公開、deprecate済み。stable releaseはOIDC trusted publishingを使用 |
 
@@ -201,7 +201,7 @@ bootstrapとtrusted publisher設定後、stable `0.3.0`を通常のrelease workf
 
 version、tag、commit、working tree、Node.js、npm、registry の重複、repository visibility、`package.json` の明示 license、空でない通常ファイルの `LICENSE` / `LICENSE.md` は `release:verify` が fail-closed で検査する。
 次の command は、次回公開する未使用 version を `package.json` と lockfile に設定し、その変更を main へ merge した後に実行する。
-公開済みの `0.4.1` を再公開する手順ではない。
+公開済みの `0.4.2` を再公開する手順ではない。
 
 ```console
 RELEASE_VERSION="$(node -p 'require("./package.json").version')"
@@ -260,7 +260,7 @@ publish 後は registry 反映を待ち、exact version の `npm exec` と同じ
 workflow の artifact から `package-artifact-report.json` を取得し、release report の name、version、commit、tarball integrity と照合する。
 
 手元で再確認する場合も `latest` を使わず exact version を指定する。
-次の `0.4.2` は公開後の再確認例であり、registryへの公開前には実行しない。
+次のcommandは、現在の`latest`である`0.4.2`をexact versionで再確認する例である。
 
 ```console
 RELEASE_VERSION=0.4.2
