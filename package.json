@@ -1,6 +1,6 @@
 {
   "name": "@tamat-llc/repo-knowledge-mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Local-first MCP server that turns pull-request review knowledge into reusable repository rules",
   "license": "MIT",
   "type": "module",
