@@ -97,7 +97,7 @@ dependency auditとsignature auditの後にだけlifecycle scriptを実行した
 | `npm run golden` | 0 | M1、M2 outcome ranking、provider baseline | pass |
 | `npm run quality:gate` | 0 | 全10 metricsがthreshold以上 | pass |
 | `npm run package:smoke` | 0 | 255 files、11 MCP tools、CLI / stdio / Node API | pass |
-| `npm run --silent release:verify -- --tag v0.4.2 --commit 037fc508 --repository-visibility public` | 0 | schema 2、license MIT、registry available | pass |
+| `npm run --silent release:verify -- --tag v0.4.2 --commit 037fc5082fed2fb3d90a968a30a288f1f72b9534 --repository-visibility public` | 0 | schema 2、license MIT、registry available | pass |
 
 Coverageはstatements 88.69%、branches 78.79%、functions 94.11%、lines 89.45%だった。
 
@@ -242,7 +242,8 @@ OIDC publishとprovenanceは公開後に確定する。
 | M2 pilot gate | go | §3 |
 | Local verification | go | §4 |
 | Pull Request / main CI Node.js 22 / 24 | go | §5 |
-| M3-AC-001〜011 | pending | M3-AC-008を公開後に確定する |
+| M3-AC-001〜007、009〜011 | go | §6。10件すべてpass |
+| M3-AC-008 | pending | 公開後のNode.js 22 / 24 registry smokeで確定する |
 | package artifact | pre-release go | §7。Release CI artifactはpending |
 | npm publishとregistry smoke Node.js 22 / 24 | pending | §8 |
 | tokenless OIDC publishing boundary | pending | credential 0件はpass。OIDC / provenanceは公開後に確認 |
