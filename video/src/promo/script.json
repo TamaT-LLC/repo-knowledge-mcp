@@ -1,0 +1,115 @@
+{
+  "title": "一行のレビューが、ルールになるまで｜repo-knowledge-mcp",
+  "fps": 30,
+  "palette": {
+    "bg": "#0B1020",
+    "fg": "#EEF2F8",
+    "muted": "#8B95AD",
+    "accent": "#FF5A4E",
+    "accent2": "#6CC8FF"
+  },
+  "scenes": [
+    {
+      "id": "s01-hook",
+      "estimatedSeconds": 6.1,
+      "narration": "PRに残った、一行のレビュー。その指摘を、次の実装の前に。",
+      "ttsText": "ピーアールに残った、いちぎょうのレビュー。その指摘を、次の実装の前に。",
+      "captions": [
+        "PRに残った、一行のレビュー。",
+        "その指摘を、次の実装の前に。"
+      ],
+      "headline": "一行のレビューが、ルールになるまで。",
+      "visual": "【共通】インク地（bg）に細いキャレット（accent2）が点滅して始まる。0.0s 小ラベル『PULL REQUEST · REVIEW COMMENT』（Space Grotesk 500・大文字・字間0.12em・muted）。0.4–1.8s 主役のレビューコメント『GitHub API の応答は、保存する前に strict schema で検証し、未知 key を拒否してください。』を1フレーム1文字でタイプ（fg）。2.0–2.6s コメントの下からthread（accent2・2px・不透明度55%）が次のステーション方向へ描かれ、起点ノード『PR』が点灯。c2開始（約2.7s）で見出しをthread方向のマスクワイプで表示。右下に注記『説明用の例（README のサンプル）』。【16:9】見出し88px・左上（x=120, y≈170–270）。ラベル y≈330、コメント52px・最大幅1500pxで2行（y≈370–510）。threadは y=780 を左→右へ。【9:16】threadは x=96 を上→下へ。見出し76pxを『一行のレビューが、』『ルールになるまで。』の2行（x=156–1008, y≈280–460）。ラベル y≈540、コメント48pxで4行（y≈580–860）。"
+    },
+    {
+      "id": "s02-product",
+      "estimatedSeconds": 6.7,
+      "narration": "repo-knowledge-mcpは、レビューの知見を、AIが使えるルールに変えます。",
+      "ttsText": "レポ ナレッジ エムシーピーは、レビューの知見を、エーアイが使えるルールに変えます。",
+      "captions": [
+        "repo-knowledge-mcpは、",
+        "レビューの知見を、",
+        "AIが使えるルールに変えます。"
+      ],
+      "headline": "repo-knowledge-mcp",
+      "visual": "【共通】0.0–0.3s カメラがthreadに沿って次のステーションへ移動（シーン境界をまたぐ18フレーム）。コメント本体は起点『PR』に残り、先頭語『GitHub API の応答は…』を載せた主役トークン（accent2の1px枠のピル）が画面の焦点位置に付いて移動する。0.3s 見出しとしてワードマーク『repo-knowledge-mcp』（Space Grotesk 700・fg）をマスクワイプで表示。c2開始でサブ『stdio MCP server｜Codex・Claude Code・Cursor から利用』（muted）。c3開始でthread上に今後の経路をルートマップとして順に点灯：『gh CLI』『~/.repo-knowledge/』『distill』『human review』『get_rules』（3フレーム間隔、muted→fg）。【16:9】ワードマーク120px（y≈300–420）、サブ32px（y≈470）、ルートマップは y=780 のthread上に等間隔で圧縮表示（x=120–1800）。【9:16】ワードマーク80pxで1行（幅約800px, y≈300–400）、サブ30pxで2行（y≈450–540）、ルートマップは縦threadの右に5段で縦並び（y≈640–1240）。"
+    },
+    {
+      "id": "s03-local",
+      "estimatedSeconds": 5.9,
+      "narration": "レビューはgh CLIで取得し、根拠として手元に保存します。",
+      "ttsText": "レビューはジーエイチ シーエルアイで取得し、根拠として手元に保存します。",
+      "captions": [
+        "レビューはgh CLIで取得し、",
+        "根拠として手元に保存します。"
+      ],
+      "headline": "根拠は、手元に。",
+      "visual": "【共通】0.0–0.3s カメラ移動。移動中、thread上の『gh』バッジ（accent2の線囲み角丸・Space Grotesk）を主役トークンが通過し、バッジが一度だけ明滅する（取得の表現）。0.3s 見出し『根拠は、手元に。』。c2開始で、ステーション『LOCAL』にパス『~/.repo-knowledge/』（Space Grotesk 500、『~/』のみaccent2）が現れ、主役トークンがパスの下にドッキングしてタグ『raw evidence』（muted枠）が付く。c2開始+1.0sで小テロップ『GitHub token は gh CLI が管理。repo-knowledge-mcp は受け取らず、保存もしません。』（muted）。【16:9】見出し88px・左上。パス44px（y≈380）、トークン＋タグ（y≈460）、テロップ26px・1行（y≈600）。【9:16】見出し76px・1行。パス40px（y≈560）、トークン＋タグ（y≈650）、テロップ28px・2行（y≈760–840）。"
+    },
+    {
+      "id": "s04-optin",
+      "estimatedSeconds": 6.2,
+      "narration": "ルール候補づくりは、明示的に許可した方法だけ。外部送信は、既定で無効です。",
+      "ttsText": "ルール候補づくりは、明示的に許可した方法だけ。外部送信は、既定で無効です。",
+      "captions": [
+        "ルール候補づくりは、",
+        "明示的に許可した方法だけ。",
+        "外部送信は、既定で無効です。"
+      ],
+      "headline": "送るかどうかは、自分で決める。",
+      "visual": "【共通】0.0–0.3s カメラ移動。0.3s 見出し『送るかどうかは、自分で決める。』。c1中に『外部送信』リストを表示（カードではなく細い区切り線だけの3行）：『Provider Adapter』『host-assisted distillation』『Jev merge classification』。各行の右端にトグル（OFF=muted枠）と『既定：無効』。c2の『許可した』付近（約2.3s）でポインタが蒸留経路の1行（例：host-assisted distillation）のトグルをONにし、トグルがaccent（朱）で塗られる。直後（約2.5–3.7s）主役トークンがコメント全文に展開し、文字単位のdiffモーフで候補文へ変形：共通部分は位置を保ち、削除部分（『保存』『し、未知 key を拒否してください。』）は朱の取り消し線→収縮、追加部分（『永続化』『する』）はタイプ。完成文『GitHub API の応答は、永続化する前に strict schema で検証する』にタグ『proposed』（accent2枠）と小ラベル『distill（蒸留）』。c3開始+0.5sで、OFFのままの2行の『既定：無効』が一度だけfgまで明るくなる。注記『説明用の例』。【16:9】見出し88px・1行。リスト x=120–900・行高72px（y≈340–560）、変形文は x=1000–1800 に44pxで2行（y≈380–480）。【9:16】見出し76pxを『送るかどうかは、』『自分で決める。』の2行。リストは全幅（x=156–1008）で各行を名前／既定値の2段に（y≈520–900）、変形文はその下に44pxで3行（y≈960–1160）。"
+    },
+    {
+      "id": "s05-approval",
+      "estimatedSeconds": 6.5,
+      "narration": "ルールになるのは、既定では、人間がターミナルで根拠を確かめて承認した候補だけ。",
+      "ttsText": "ルールになるのは、既定では、人間がターミナルで根拠を確かめて承認した候補だけ。",
+      "captions": [
+        "ルールになるのは、既定では、",
+        "人間がターミナルで根拠を確かめて",
+        "承認した候補だけ。"
+      ],
+      "headline": "決めるのは、人間。",
+      "visual": "【共通】0.0–0.3s カメラ移動。0.3s 見出し『決めるのは、人間。』。0.5s以降、TTYフレーム（1px線・角丸16px・左上ラベル『TTY』。ウィンドウの丸ボタンは描かない）に行を順に表示：『$ repo-knowledge review owner/repository』→候補文『GitHub API の応答は、永続化する前に strict schema で検証する』→『evidence: review comment · Pull Request』→選択肢『approve』『reject』。c2開始で小テロップ『承認・却下を行う MCP tool は公開していません』（muted）をフレーム下に表示し、c2の『根拠』付近で evidence 行を一度ハイライト。c3開始（約4.8s）でカーソルが approve に移って確定し、approve がaccent（朱）で塗られ、フレーム外周に朱のリングが1回だけ広がる（判子のような一拍、12フレーム）。+0.3sで状態タグが『proposed』→『active』（accent2塗り・bg色の文字）に切り替わる。注記『説明用の簡略表示』。【16:9】フレーム x=120–1320・y≈330–700、コード36px。フレーム右（x=1380–1800）に状態遷移『proposed → active』を縦に表示。小テロップは y≈740。【9:16】フレームは全幅（x=156–1008, y≈500–1100）、コマンドは『$ repo-knowledge review』『owner/repository』の2行、状態遷移はフレーム下（y≈1150）、小テロップは y≈1240。"
+    },
+    {
+      "id": "s06-rules",
+      "estimatedSeconds": 7.3,
+      "narration": "エージェントが変更前に、get_rulesを呼ぶと、ファイルとタスクに合うルールが返ります。",
+      "ttsText": "エージェントが変更前に、ゲット ルールズを呼ぶと、ファイルとタスクに合うルールが返ります。",
+      "captions": [
+        "エージェントが変更前に、",
+        "get_rulesを呼ぶと、",
+        "ファイルとタスクに合うルールが返ります。"
+      ],
+      "headline": "変更の前に、get_rules。",
+      "visual": "【共通】0.0–0.3s カメラ移動。0.3s 見出し『変更の前に、get_rules。』（get_rules は Space Grotesk・accent2）。c1中にリクエスト側を表示：汎用記号『›_』と『coding agent』、呼び出し名『get_rules』、キー／値の行『file_paths｜src/github/client.ts』『task｜API 応答の保存処理を変更』。c2開始で光がthreadを request→response 方向へ走る。c3開始からレスポンス側の行を3フレーム間隔で表示：『readiness.state｜ready』『rule｜GitHub API の応答は、永続化する前に strict schema で検証する』『severity｜should』『match｜src/github/**/*.ts（scope）』『evidence_count｜2』。c3開始+0.6sで主役トークン（active）が rule 行へ滑り込み、文字列が一致して重なる。JSONは空白揃えにせず、キー列（accent2）と値列（fg）の2列グリッドで組み、記号類はmuted。注記『README の例をもとにした簡略表示』。【16:9】リクエスト x=120–760、レスポンス x=860–1800（y≈330–700）。両者は y=780 のthreadで結ばれ、左から右へ流れる。【9:16】リクエスト（y≈500–720）の下にレスポンス（y≈780–1300）を積み、縦threadの右側に配置。rule 行は2行で折り返す。"
+    },
+    {
+      "id": "s07-agents",
+      "estimatedSeconds": 7.1,
+      "narration": "Codex、Claude Code、Cursorで、同じ知見を。元のレビューまで、たどれます。",
+      "ttsText": "コーデックス、クロード コード、カーソルで、同じ知見を。もとのレビューまで、たどれます。",
+      "captions": [
+        "Codex、Claude Code、Cursorで、",
+        "同じ知見を。",
+        "元のレビューまで、たどれます。"
+      ],
+      "headline": "ひとつの知見を、3つのエージェントで。",
+      "visual": "【共通】0.0–0.3s カメラ移動。0.3s 見出し『ひとつの知見を、3つのエージェントで。』。c1で製品名の読み上げに合わせ、3行の見出し語を順に表示：『Codex』『Claude Code』『Cursor』（Space Grotesk 500。ロゴは使わず文字のみ）。c2開始（『同じ知見を』）で、3行すべてに同じrule文『GitHub API の応答は、永続化する前に strict schema で検証する』を同時にマスクワイプし、完全に同じ位置揃えで並べて『同じ』であることを見せる。c3開始でカメラを引く：実スケールで縮小せず、ステーション間隔を補間で縮めて全行程（PR → repo-knowledge-mcp → LOCAL → DISTILL → HUMAN REVIEW → get_rules → AGENTS）を一画面に収めるoverviewへモーフ（24フレーム）。同時に3行はフェードアウト。光のパルスがthreadを逆向きに走り、起点『PR』のコメントが再点灯する（ルールから元のレビューへたどれることの表現）。【16:9】見出し88px・1行。3行は x=120–1560・y≈340–620（行間96px、製品名28px＋rule文34px）。overviewは横threadが画面幅いっぱい、ステーション名20px。【9:16】見出し76pxを『ひとつの知見を、』『3つのエージェントで。』の2行。3行は y≈500–1150（各行：製品名1段＋rule文2段）。overviewは縦threadにステーション名を縦に並べる（y≈300–1300）。"
+    },
+    {
+      "id": "s08-cta",
+      "estimatedSeconds": 7.0,
+      "narration": "repo-knowledge-mcp。まずは対象のリポジトリで、セットアップから。",
+      "ttsText": "レポ ナレッジ エムシーピー。まずは対象のリポジトリで、セットアップから。",
+      "captions": [
+        "repo-knowledge-mcp。",
+        "まずは対象のリポジトリで、",
+        "セットアップから。"
+      ],
+      "headline": "一行のレビューから、はじめる。",
+      "visual": "【共通】0.0–0.3s overviewから最後のステーション『SETUP』へ寄る。0.3s 見出し『一行のレビューから、はじめる。』。0.5s ワードマーク『repo-knowledge-mcp』（Space Grotesk 700）。0.8s コマンド『$ npx -y @tamat-llc/repo-knowledge-mcp@latest setup』（Space Grotesk 500。『$』と『setup』はaccent2、他はfg。1px線囲みの帯）。threadはこのコマンド行のプロンプト『$』に接続して終わり、行末でキャレットが点滅する（冒頭のキャレットと呼応）。1.0s URL『github.com/TamaT-LLC/repo-knowledge-mcp』（accent2）。1.1s 要件『macOS / Linux · Node.js 22.13+（22.x）または 24+ · gh CLI · MIT License』（muted）。1.2s以降はキャレット以外を静止させ、約5.8秒の読み取り時間を確保する。c3（『セットアップから』）で『setup』の下に下線が1回だけ走る。【16:9】見出し88px（y≈170–270）、ワードマーク64px（y≈360）、コマンド帯 x=120–1420・y≈450–540（40px・1行、幅約1150px）、URL 36px（y≈620）、要件22px（y≈690）。【9:16】見出し76pxを『一行のレビューから、』『はじめる。』の2行、ワードマーク64px。コマンド帯は x=72–1008 に広げ、36px（収まらない場合は34pxまで縮小可）で『$ npx -y \\』『@tamat-llc/repo-knowledge-mcp@latest \\』『setup』の3行（バックスラッシュ継続で有効なシェル表記を保つ）。URL 32px・1行、要件22px・2行。すべて y≈280–1300 に収める。"
+    }
+  ]
+}

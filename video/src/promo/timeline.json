@@ -1,0 +1,226 @@
+{
+  "fps": 30,
+  "totalFrames": 1621,
+  "voice": {
+    "model": "seed_audio",
+    "voiceId": "ceee41dc-0ee8-59a7-b3e8-2744116fcb5e",
+    "voiceName": "Ken",
+    "speechRate": 8
+  },
+  "scenes": [
+    {
+      "id": "s01-hook",
+      "startFrame": 0,
+      "durationFrames": 180,
+      "narration": {
+        "file": "audio/promo/narration/s01-hook.m4a",
+        "startFrame": 12,
+        "durationFrames": 159
+      },
+      "captions": [
+        {
+          "text": "PRに残った、一行のレビュー。",
+          "startFrame": 12,
+          "endFrame": 82
+        },
+        {
+          "text": "その指摘を、次の実装の前に。",
+          "startFrame": 101,
+          "endFrame": 171
+        }
+      ],
+      "captionTiming": "silence"
+    },
+    {
+      "id": "s02-product",
+      "startFrame": 180,
+      "durationFrames": 180,
+      "narration": {
+        "file": "audio/promo/narration/s02-product.m4a",
+        "startFrame": 6,
+        "durationFrames": 165
+      },
+      "captions": [
+        {
+          "text": "repo-knowledge-mcpは、",
+          "startFrame": 6,
+          "endFrame": 63
+        },
+        {
+          "text": "レビューの知見を、",
+          "startFrame": 73,
+          "endFrame": 101
+        },
+        {
+          "text": "AIが使えるルールに変えます。",
+          "startFrame": 108,
+          "endFrame": 171
+        }
+      ],
+      "captionTiming": "silence"
+    },
+    {
+      "id": "s03-local",
+      "startFrame": 360,
+      "durationFrames": 191,
+      "narration": {
+        "file": "audio/promo/narration/s03-local.m4a",
+        "startFrame": 6,
+        "durationFrames": 176
+      },
+      "captions": [
+        {
+          "text": "レビューはgh CLIで取得し、",
+          "startFrame": 6,
+          "endFrame": 106
+        },
+        {
+          "text": "根拠として手元に保存します。",
+          "startFrame": 116,
+          "endFrame": 182
+        }
+      ],
+      "captionTiming": "silence"
+    },
+    {
+      "id": "s04-optin",
+      "startFrame": 551,
+      "durationFrames": 237,
+      "narration": {
+        "file": "audio/promo/narration/s04-optin.m4a",
+        "startFrame": 6,
+        "durationFrames": 222
+      },
+      "captions": [
+        {
+          "text": "ルール候補づくりは、",
+          "startFrame": 6,
+          "endFrame": 47
+        },
+        {
+          "text": "明示的に許可した方法だけ。",
+          "startFrame": 64,
+          "endFrame": 122
+        },
+        {
+          "text": "外部送信は、既定で無効です。",
+          "startFrame": 140,
+          "endFrame": 228
+        }
+      ],
+      "captionTiming": "silence"
+    },
+    {
+      "id": "s05-approval",
+      "startFrame": 788,
+      "durationFrames": 221,
+      "narration": {
+        "file": "audio/promo/narration/s05-approval.m4a",
+        "startFrame": 6,
+        "durationFrames": 206
+      },
+      "captions": [
+        {
+          "text": "ルールになるのは、既定では、",
+          "startFrame": 6,
+          "endFrame": 67
+        },
+        {
+          "text": "人間がターミナルで根拠を確かめて",
+          "startFrame": 81,
+          "endFrame": 164
+        },
+        {
+          "text": "承認した候補だけ。",
+          "startFrame": 164,
+          "endFrame": 212
+        }
+      ],
+      "captionTiming": "ratio"
+    },
+    {
+      "id": "s06-rules",
+      "startFrame": 1009,
+      "durationFrames": 198,
+      "narration": {
+        "file": "audio/promo/narration/s06-rules.m4a",
+        "startFrame": 6,
+        "durationFrames": 183
+      },
+      "captions": [
+        {
+          "text": "エージェントが変更前に、",
+          "startFrame": 6,
+          "endFrame": 55
+        },
+        {
+          "text": "get_rulesを呼ぶと、",
+          "startFrame": 64,
+          "endFrame": 102
+        },
+        {
+          "text": "ファイルとタスクに合うルールが返ります。",
+          "startFrame": 112,
+          "endFrame": 189
+        }
+      ],
+      "captionTiming": "silence"
+    },
+    {
+      "id": "s07-agents",
+      "startFrame": 1207,
+      "durationFrames": 204,
+      "narration": {
+        "file": "audio/promo/narration/s07-agents.m4a",
+        "startFrame": 6,
+        "durationFrames": 189
+      },
+      "captions": [
+        {
+          "text": "Codex、Claude Code、Cursorで、",
+          "startFrame": 6,
+          "endFrame": 82
+        },
+        {
+          "text": "同じ知見を。",
+          "startFrame": 90,
+          "endFrame": 118
+        },
+        {
+          "text": "元のレビューまで、たどれます。",
+          "startFrame": 135,
+          "endFrame": 195
+        }
+      ],
+      "captionTiming": "silence"
+    },
+    {
+      "id": "s08-cta",
+      "startFrame": 1411,
+      "durationFrames": 210,
+      "narration": {
+        "file": "audio/promo/narration/s08-cta.m4a",
+        "startFrame": 6,
+        "durationFrames": 153
+      },
+      "captions": [
+        {
+          "text": "repo-knowledge-mcp。",
+          "startFrame": 6,
+          "endFrame": 46
+        },
+        {
+          "text": "まずは対象のリポジトリで、",
+          "startFrame": 70,
+          "endFrame": 124
+        },
+        {
+          "text": "セットアップから。",
+          "startFrame": 132,
+          "endFrame": 159
+        }
+      ],
+      "captionTiming": "silence"
+    }
+  ]
+}
