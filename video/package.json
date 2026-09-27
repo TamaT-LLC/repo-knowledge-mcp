@@ -1,0 +1,32 @@
+{
+  "name": "repo-knowledge-intro-video",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts RepoKnowledgeIntro out/repo-knowledge-intro.mp4",
+    "render:quick": "remotion render src/index.ts RepoKnowledgeIntroQuick out/repo-knowledge-intro-quick.mp4",
+    "poster": "remotion still src/index.ts RepoKnowledgeIntro out/poster.png --frame=110",
+    "poster:quick": "remotion still src/index.ts RepoKnowledgeIntroQuick out/poster-quick.png --frame=90",
+    "check": "tsc --noEmit",
+    "stills": "node scripts/render-stills.mjs",
+    "stills:quick": "node scripts/render-stills.mjs quick",
+    "audio": "python3 scripts/generate-audio.py",
+    "audio:quick": "python3 scripts/generate-audio.py --edition quick"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.526",
+    "@remotion/fonts": "4.0.526",
+    "@remotion/bundler": "4.0.526",
+    "@remotion/renderer": "4.0.526",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.526"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "5.9.3"
+  }
+}

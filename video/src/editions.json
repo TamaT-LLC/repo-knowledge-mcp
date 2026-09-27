@@ -1,0 +1,16 @@
+{
+  "original": {
+    "frames": [210, 210, 270, 360, 240, 240, 270],
+    "overlap": 18,
+    "motionRate": 1,
+    "bpm": 120,
+    "audio": "audio/review-loop.m4a"
+  },
+  "quick": {
+    "frames": [135, 135, 180, 240, 180, 180, 210],
+    "overlap": 12,
+    "motionRate": 1.5,
+    "bpm": 132,
+    "audio": "audio/review-loop-quick.m4a"
+  }
+}
