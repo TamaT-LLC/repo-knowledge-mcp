@@ -12,8 +12,15 @@
     "check": "tsc --noEmit",
     "stills": "node scripts/render-stills.mjs",
     "stills:quick": "node scripts/render-stills.mjs quick",
+    "render:promo": "remotion render src/index.ts RepoKnowledgePromo out/repo-knowledge-promo.mp4",
+    "render:promo:vertical": "remotion render src/index.ts RepoKnowledgePromoVertical out/repo-knowledge-promo-vertical.mp4",
+    "poster:promo": "remotion still src/index.ts RepoKnowledgePromo out/poster-promo.png --frame=122",
+    "poster:promo:vertical": "remotion still src/index.ts RepoKnowledgePromoVertical out/poster-promo-vertical.png --frame=122",
+    "stills:promo": "node scripts/render-promo-stills.mjs",
     "audio": "python3 scripts/generate-audio.py",
-    "audio:quick": "python3 scripts/generate-audio.py --edition quick"
+    "audio:quick": "python3 scripts/generate-audio.py --edition quick",
+    "audio:promo": "python3 scripts/generate-promo-audio.py",
+    "timeline:promo": "node scripts/build-promo-timeline.mjs"
   },
   "dependencies": {
     "@remotion/cli": "4.0.526",
