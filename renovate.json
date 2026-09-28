@@ -49,18 +49,6 @@
       "groupName": "GitHub Actions"
     },
     {
-      "description": "Group lockstep Remotion updates for the intro video",
-      "matchFileNames": ["video/package.json"],
-      "matchPackageNames": ["remotion", "@remotion/**"],
-      "groupName": "Remotion",
-      "automerge": false
-    },
-    {
-      "description": "Never automerge video/ dependencies (CI does not build or test video/)",
-      "matchFileNames": ["video/package.json"],
-      "automerge": false
-    },
-    {
       "description": "Require Dependency Dashboard approval for major updates",
       "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": true
