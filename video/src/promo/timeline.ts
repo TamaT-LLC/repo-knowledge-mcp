@@ -27,9 +27,22 @@ export type TimelineScene = {
   readonly captionTiming: string;
 };
 
+/** TTS voice the narration was generated with. Metadata only. */
+export type TimelineVoice = {
+  /** Higgsfield model id, e.g. "text2speech_v2". */
+  readonly model: string;
+  /** Engine behind the model (e.g. "elevenlabs"); null if it has none. */
+  readonly variant: string | null;
+  readonly voiceId: string;
+  readonly voiceName: string;
+  /** Speech-rate parameter passed to the TTS; null when none was applied. */
+  readonly speechRate: number | null;
+};
+
 export type Timeline = {
   readonly fps: number;
   readonly totalFrames: number;
+  readonly voice: TimelineVoice;
   readonly scenes: readonly TimelineScene[];
 };
 
@@ -64,6 +77,33 @@ function readRecord(record: JsonRecord, key: string, where: string) {
     throw new Error(`timeline.json: ${where}.${key} must be an object`);
   }
   return value;
+}
+
+function readNullableString(
+  record: JsonRecord,
+  key: string,
+  where: string,
+): string | null {
+  return record[key] === null ? null : readString(record, key, where);
+}
+
+function readNullableNumber(
+  record: JsonRecord,
+  key: string,
+  where: string,
+): number | null {
+  return record[key] === null ? null : readNumber(record, key, where);
+}
+
+function parseVoice(value: JsonRecord): TimelineVoice {
+  const where = "voice";
+  return {
+    model: readString(value, "model", where),
+    variant: readNullableString(value, "variant", where),
+    voiceId: readString(value, "voiceId", where),
+    voiceName: readString(value, "voiceName", where),
+    speechRate: readNullableNumber(value, "speechRate", where),
+  };
 }
 
 function parseCaption(value: unknown, where: string): TimelineCaption {
@@ -114,6 +154,7 @@ export function parseTimeline(value: unknown): Timeline {
   return {
     fps: readNumber(value, "fps", "root"),
     totalFrames: readNumber(value, "totalFrames", "root"),
+    voice: parseVoice(readRecord(value, "voice", "root")),
     scenes: scenes.map(parseScene),
   };
 }

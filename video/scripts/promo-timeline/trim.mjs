@@ -2,7 +2,7 @@
 // Edge blips shorter than minEdgeSegment (clicks after the last word) are
 // dropped, and so are short detached bursts (TTS artifacts) that sit behind a
 // long silence. Speech that runs into the file end is reported as a probable
-// cut-off ending (Seed Audio sometimes truncates the last mora).
+// cut-off ending (TTS takes sometimes truncate the last mora).
 export const TRIM = {
   noiseDb: -50,
   minSilence: 0.05,

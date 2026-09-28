@@ -20,39 +20,53 @@ import {
 } from "./promo-timeline/paths.mjs";
 import { buildScene, logScene, processScene } from "./promo-timeline/scene.mjs";
 
+const USAGE =
+  "Usage: node scripts/build-promo-timeline.mjs --raw <dir> " +
+  "[--out-dir <dir>] [--model <model>] [--variant <engine>] " +
+  "[--voice-id <id>] [--voice-name <name>] [--speech-rate <n>]";
+
+// Voice metadata recorded in timeline.json. Each field falls back to
+// DEFAULT_VOICE on its own, except variant: it belongs to the default model,
+// so another --model records null unless --variant is given. speechRate stays
+// null (no rate applied) unless --speech-rate is given.
+function readVoice(values) {
+  const speechRate = values["speech-rate"];
+  if (speechRate !== undefined && !Number.isFinite(Number(speechRate))) {
+    throw new Error(`--speech-rate must be a number, got "${speechRate}"`);
+  }
+  const model = values.model ?? DEFAULT_VOICE.model;
+  const defaultVariant =
+    model === DEFAULT_VOICE.model ? DEFAULT_VOICE.variant : null;
+  return {
+    model,
+    variant: values.variant ?? defaultVariant,
+    voiceId: values["voice-id"] ?? DEFAULT_VOICE.voiceId,
+    voiceName: values["voice-name"] ?? DEFAULT_VOICE.voiceName,
+    speechRate:
+      speechRate === undefined ? DEFAULT_VOICE.speechRate : Number(speechRate),
+  };
+}
+
 function readOptions() {
   const { values } = parseArgs({
     options: {
       raw: { type: "string" },
       "out-dir": { type: "string" },
+      model: { type: "string" },
+      variant: { type: "string" },
       "voice-id": { type: "string" },
       "voice-name": { type: "string" },
       "speech-rate": { type: "string" },
     },
   });
-  if (!values.raw) {
-    throw new Error(
-      "Usage: node scripts/build-promo-timeline.mjs --raw <dir> " +
-        "[--out-dir <dir>] [--voice-id <id>] [--voice-name <name>] " +
-        "[--speech-rate <n>]",
-    );
-  }
-  const speechRate = values["speech-rate"];
+  if (!values.raw) throw new Error(USAGE);
   return {
     rawDir: path.resolve(values.raw),
     // Redirects narration output and timeline.json under one directory,
     // instead of public/ and src/promo/timeline.json, for dry runs (e.g.
     // verifying a refactor never touches the checked-in files).
     outDir: values["out-dir"] ? path.resolve(values["out-dir"]) : null,
-    voice: {
-      model: DEFAULT_VOICE.model,
-      voiceId: values["voice-id"] ?? DEFAULT_VOICE.voiceId,
-      voiceName: values["voice-name"] ?? DEFAULT_VOICE.voiceName,
-      speechRate:
-        speechRate === undefined
-          ? DEFAULT_VOICE.speechRate
-          : Number(speechRate),
-    },
+    voice: readVoice(values),
   };
 }
 
