@@ -2,9 +2,9 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
-import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { runJsonRpcOverStdio } from "./helpers/stdio-jsonrpc-client.js";
 import {
   GetRulesOutputSchema,
   RepositoryRegistry,
@@ -151,17 +151,14 @@ async function getRules(environment: ReadinessEnvironment): Promise<{
       name: "get_rules",
     }),
   ];
-  const result = await execa(process.execPath, ["dist/bin.js", "serve"], {
+  const { replies, stderr } = await runJsonRpcOverStdio({
+    args: ["dist/bin.js", "serve"],
+    command: process.execPath,
     cwd: process.cwd(),
     env: environment.env,
-    input: `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
-    reject: false,
+    messages,
   });
-  expect(result.stderr).toBe("");
-  const replies = result.stdout
-    .split(/\r?\n/u)
-    .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as JsonRpcReply);
+  expect(stderr).toBe("");
   const reply = replies.find((candidate) => candidate.id === 2);
   expect(reply).toBeDefined();
   expect(reply).not.toHaveProperty("error");
@@ -180,12 +177,6 @@ async function getRules(environment: ReadinessEnvironment): Promise<{
     output: GetRulesOutputSchema.parse(toolResult.structuredContent),
     summary: text as string,
   };
-}
-
-interface JsonRpcReply {
-  readonly error?: unknown;
-  readonly id?: number;
-  readonly result?: unknown;
 }
 
 function request(
