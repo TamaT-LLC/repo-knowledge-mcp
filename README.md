@@ -17,6 +17,13 @@ PRレビューの取得から、人間の承認を経てAIがルールを再利�
 
 https://github.com/user-attachments/assets/dd352e65-1111-4697-b694-24eb7e8bc1e7
 
+約52秒のナレーション付き紹介動画も、横型と縦型で収録しています。
+日本語のAIナレーション・BGM・テロップ付きです。
+ナレーションの音声は「AivisSpeech: コハク」で生成しています。
+
+- [横型 16:9・1920×1080](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/assets/video/repo-knowledge-promo.mp4)
+- [縦型 9:16・1080×1920](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/assets/video/repo-knowledge-promo-vertical.mp4)
+
 ## 目次
 
 - [できること](#capabilities)
