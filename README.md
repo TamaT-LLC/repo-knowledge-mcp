@@ -12,17 +12,12 @@ GitHub token は `gh` CLI が管理し、repo-knowledge-mcp は token を受領�
 
 ## 紹介動画
 
-PRレビューの取得から、人間の承認を経てAIがルールを再利用するまでを42秒で紹介します。
-日本語テロップ・BGM付きで、セットアップ例には `@latest` を使います。
+PRレビューの取得から、人間の承認を経てAIがルールを再利用するまでを約52秒で紹介します。
+日本語のAIナレーション（AivisSpeech: コハク）・BGM・テロップ付きです。
 
-https://github.com/user-attachments/assets/dd352e65-1111-4697-b694-24eb7e8bc1e7
+https://github.com/user-attachments/assets/c5a3a8e6-2b2c-4212-bd67-246ba9ad7135
 
-約52秒のナレーション付き紹介動画も、横型と縦型で収録しています。
-日本語のAIナレーション・BGM・テロップ付きです。
-ナレーションの音声は「AivisSpeech: コハク」で生成しています。
-
-- [横型 16:9・1920×1080](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/assets/video/repo-knowledge-promo.mp4)
-- [縦型 9:16・1080×1920](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/assets/video/repo-knowledge-promo-vertical.mp4)
+縦型（9:16）は[こちら](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/assets/video/repo-knowledge-promo-vertical.mp4)から見られます。
 
 ## 目次
 
