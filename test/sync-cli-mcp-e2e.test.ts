@@ -29,7 +29,7 @@ const E2E_TIMEOUT_MS = 120_000;
 
 interface JsonRpcReply {
   readonly error?: unknown;
-  readonly id?: number;
+  readonly id?: number | string;
   readonly result?: unknown;
 }
 

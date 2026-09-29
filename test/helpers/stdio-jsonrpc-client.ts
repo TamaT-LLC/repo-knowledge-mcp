@@ -14,9 +14,12 @@ import { spawn } from "node:child_process";
  * process can exit.
  */
 
+/** JSON-RPC 2.0 allows either a number or a string for request/response ids. */
+export type JsonRpcId = number | string;
+
 export interface JsonRpcFrame {
   readonly error?: unknown;
-  readonly id?: number;
+  readonly id?: JsonRpcId;
   readonly method?: string;
   readonly result?: unknown;
 }
@@ -41,15 +44,21 @@ const EXIT_GRACE_MS = 5_000;
 export async function runJsonRpcOverStdio(
   options: RunJsonRpcOverStdioOptions,
 ): Promise<RunJsonRpcOverStdioResult> {
+  const isJsonRpcId = (value: unknown): value is JsonRpcId =>
+    typeof value === "number" || typeof value === "string";
   const expectedIds = new Set(
-    options.messages
-      .map((message) => message.id)
-      .filter((id): id is number => typeof id === "number"),
+    options.messages.map((message) => message.id).filter(isJsonRpcId),
   );
+  if (expectedIds.size === 0) {
+    throw new Error(
+      "messages must contain at least one request with a numeric or string id; " +
+        "an empty or notification-only batch would otherwise wait for a reply that never arrives",
+    );
+  }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const replies: JsonRpcFrame[] = [];
-  const seenIds = new Set<number>();
+  const seenIds = new Set<JsonRpcId>();
   let stdoutBuffer = "";
   let stderr = "";
   let forcedKill = false;
@@ -131,7 +140,7 @@ export async function runJsonRpcOverStdio(
             return;
           }
           replies.push(frame);
-          if (typeof frame.id === "number") seenIds.add(frame.id);
+          if (isJsonRpcId(frame.id)) seenIds.add(frame.id);
         }
         newlineIndex = stdoutBuffer.indexOf("\n");
       }
@@ -190,15 +199,16 @@ export async function runJsonRpcOverStdio(
   });
   if (child.exitCode === null && child.signalCode === null) {
     child.stdin.end();
-    await Promise.race([
-      closed,
-      new Promise<void>((resolve) => {
-        setTimeout(() => {
-          killIfRunning("SIGKILL");
-          resolve();
-        }, EXIT_GRACE_MS);
-      }),
-    ]);
+    await new Promise<void>((resolve) => {
+      const graceTimer = setTimeout(() => {
+        killIfRunning("SIGKILL");
+        resolve();
+      }, EXIT_GRACE_MS);
+      void closed.then(() => {
+        clearTimeout(graceTimer);
+        resolve();
+      });
+    });
   }
 
   const { code, signal } = await closed;
