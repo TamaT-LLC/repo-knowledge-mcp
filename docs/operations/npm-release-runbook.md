@@ -260,10 +260,10 @@ publish 後は registry 反映を待ち、exact version の `npm exec` と同じ
 workflow の artifact から `package-artifact-report.json` を取得し、release report の name、version、commit、tarball integrity と照合する。
 
 手元で再確認する場合も `latest` を使わず exact version を指定する。
-次のcommandは、現在の`latest`である`0.4.2`をexact versionで再確認する例である。
+次の `0.4.3` は公開後の再確認例であり、registryへの公開前には実行しない。
 
 ```console
-RELEASE_VERSION=0.4.2
+RELEASE_VERSION=0.4.3
 npx --yes --package="@tamat-llc/repo-knowledge-mcp@${RELEASE_VERSION}" -- repo-knowledge --help
 npm run --silent registry:smoke -- \
   --name @tamat-llc/repo-knowledge-mcp \
