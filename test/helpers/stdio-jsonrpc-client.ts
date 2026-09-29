@@ -46,10 +46,13 @@ export async function runJsonRpcOverStdio(
       .map((message) => message.id)
       .filter((id): id is number => typeof id === "number"),
   );
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
   const replies: JsonRpcFrame[] = [];
   const seenIds = new Set<number>();
-  let stdout = "";
+  let stdoutBuffer = "";
   let stderr = "";
+  let forcedKill = false;
 
   const child = spawn(options.command, [...options.args], {
     cwd: options.cwd,
@@ -59,113 +62,157 @@ export async function runJsonRpcOverStdio(
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
 
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  function hasAllReplies(): boolean {
+    for (const id of expectedIds) {
+      if (!seenIds.has(id)) return false;
+    }
+    return true;
+  }
+
+  function killIfRunning(signal: NodeJS.Signals): void {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (signal === "SIGKILL") forcedKill = true;
+    child.kill(signal);
+  }
+
+  // `close` (unlike `exit`) fires only once the stdio streams have finished
+  // draining, so it is the only safe point to decide whether every reply
+  // has actually been observed.
+  const closed = new Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }>((resolve) => {
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
 
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    function settle(action: () => void): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      action();
+    }
+
     const timer = setTimeout(() => {
-      cleanup();
-      reject(
-        new Error(
-          `timed out after ${String(timeoutMs)}ms waiting for replies to ids [${[
-            ...expectedIds,
-          ].join(", ")}]; seen ids [${[...seenIds].join(", ")}]`,
-        ),
-      );
+      settle(() => {
+        killIfRunning("SIGTERM");
+        reject(
+          new Error(
+            `timed out after ${String(timeoutMs)}ms waiting for replies to ids [${[
+              ...expectedIds,
+            ].join(", ")}]; seen ids [${[...seenIds].join(", ")}]`,
+          ),
+        );
+      });
     }, timeoutMs);
 
-    function cleanup(): void {
-      clearTimeout(timer);
-      child.stdout.removeListener("data", onStdoutData);
-      child.stderr.removeListener("data", onStderrData);
-      child.removeListener("exit", onExit);
-      child.removeListener("error", onError);
-    }
-
-    function checkComplete(): void {
-      for (const id of expectedIds) {
-        if (!seenIds.has(id)) return;
-      }
-      cleanup();
-      resolve();
-    }
-
-    function onStdoutData(chunk: string): void {
-      stdout += chunk;
-      let newlineIndex = stdout.indexOf("\n");
+    child.stdout.on("data", (chunk: string) => {
+      stdoutBuffer += chunk;
+      let newlineIndex = stdoutBuffer.indexOf("\n");
       while (newlineIndex >= 0) {
-        const line = stdout.slice(0, newlineIndex).replace(/\r$/u, "");
-        stdout = stdout.slice(newlineIndex + 1);
+        const line = stdoutBuffer.slice(0, newlineIndex).replace(/\r$/u, "");
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
         if (line.length > 0) {
-          const frame = JSON.parse(line) as JsonRpcFrame;
+          let frame: JsonRpcFrame;
+          try {
+            frame = JSON.parse(line) as JsonRpcFrame;
+          } catch (error) {
+            settle(() => {
+              killIfRunning("SIGTERM");
+              reject(
+                new Error(
+                  `failed to parse stdout JSON-RPC frame as JSON: ${line}`,
+                  { cause: error },
+                ),
+              );
+            });
+            return;
+          }
           replies.push(frame);
           if (typeof frame.id === "number") seenIds.add(frame.id);
         }
-        newlineIndex = stdout.indexOf("\n");
+        newlineIndex = stdoutBuffer.indexOf("\n");
       }
-      checkComplete();
-    }
+      if (hasAllReplies()) settle(resolve);
+    });
 
-    function onStderrData(chunk: string): void {
+    child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
-    }
+    });
 
-    function onExit(code: number | null, signal: string | null): void {
-      cleanup();
-      if (expectedIds.size > 0 && seenIds.size < expectedIds.size) {
+    // A stream's `error` event has no default handler: leaving it
+    // unobserved turns e.g. an EPIPE while writing into an uncaught
+    // exception that crashes the whole test worker. `child`'s own `error`
+    // listener does not cover its stdin stream.
+    child.stdin.once("error", (error: Error) => {
+      settle(() => {
+        killIfRunning("SIGTERM");
+        reject(
+          new Error(`stdio client stdin error: ${error.message}`, {
+            cause: error,
+          }),
+        );
+      });
+    });
+
+    child.once("close", (code, signal) => {
+      settle(() => {
         reject(
           new Error(
-            `stdio process exited early (code=${String(code)}, signal=${String(signal)}) before every reply arrived`,
+            `stdio process closed early (code=${String(code)}, signal=${String(signal)}) before every reply arrived; seen ids [${[
+              ...seenIds,
+            ].join(", ")}]`,
           ),
         );
-        return;
-      }
-      resolve();
-    }
+      });
+    });
 
-    function onError(error: Error): void {
-      cleanup();
-      reject(error);
-    }
-
-    child.stdout.on("data", onStdoutData);
-    child.stderr.on("data", onStderrData);
-    child.once("exit", onExit);
-    child.once("error", onError);
+    child.once("error", (error) => {
+      settle(() => reject(error));
+    });
 
     child.stdin.write(
       `${options.messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
     );
   });
 
-  // Every expected reply has arrived; let the server observe stdin EOF and
-  // exit on its own rather than racing it with a signal.
-  child.stdin.end();
+  // Every expected reply is in hand. Close stdin so the server observes EOF
+  // and exits on its own, then wait for `close` (not just `exit`) so
+  // trailing stderr output already in flight is not lost. From this point a
+  // stdin write/EOF error is expected once the server has stopped reading,
+  // so it is no longer treated as fatal.
+  child.stdin.removeAllListeners("error");
+  child.stdin.on("error", () => {
+    // The server may have already closed its read side; the outcome is
+    // decided by the exit/close status checked below instead.
+  });
   if (child.exitCode === null && child.signalCode === null) {
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        child.kill("SIGKILL");
-        resolve();
-      }, EXIT_GRACE_MS);
-      child.once("exit", () => {
-        clearTimeout(timer);
-        resolve();
-      });
-      child.stdout.on("data", (chunk: string) => {
-        stdout += chunk;
-      });
-      child.stderr.on("data", (chunk: string) => {
-        stderr += chunk;
-      });
-    });
+    child.stdin.end();
+    await Promise.race([
+      closed,
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          killIfRunning("SIGKILL");
+          resolve();
+        }, EXIT_GRACE_MS);
+      }),
+    ]);
   }
 
-  // Drain any trailing frames flushed between completion and process exit.
-  for (const line of stdout.split(/\r?\n/u)) {
-    if (line.length === 0) continue;
-    const frame = JSON.parse(line) as JsonRpcFrame;
-    if (typeof frame.id === "number" && seenIds.has(frame.id)) continue;
-    replies.push(frame);
-    if (typeof frame.id === "number") seenIds.add(frame.id);
+  const { code, signal } = await closed;
+
+  if (forcedKill) {
+    throw new Error(
+      "stdio process required SIGKILL after every reply was received; it did not exit once stdin reached EOF",
+    );
+  }
+  if (signal !== null) {
+    throw new Error(`stdio process was terminated by signal ${signal}`);
+  }
+  if (code !== 0) {
+    throw new Error(`stdio process exited with nonzero code ${String(code)}`);
   }
 
   return { replies, stderr };
