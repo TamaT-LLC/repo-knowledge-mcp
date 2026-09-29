@@ -2,9 +2,9 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
-import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { runJsonRpcOverStdio } from "./helpers/stdio-jsonrpc-client.js";
 import {
   GetKnowledgeOutputSchema,
   GetRulesOutputSchema,
@@ -35,7 +35,7 @@ const E2E_TIMEOUT_MS = 120_000;
 
 interface JsonRpcReply {
   readonly error?: unknown;
-  readonly id?: number;
+  readonly id?: number | string;
   readonly result?: unknown;
 }
 
@@ -221,17 +221,14 @@ async function runServe(
     { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
     ...calls,
   ];
-  const result = await execa(process.execPath, ["dist/bin.js", "serve"], {
+  const { replies, stderr } = await runJsonRpcOverStdio({
+    args: ["dist/bin.js", "serve"],
+    command: process.execPath,
     cwd: process.cwd(),
     env: environment.env,
-    input: `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
-    reject: false,
+    messages,
   });
-  expect(result.stderr).toBe("");
-  const replies = result.stdout
-    .split(/\r?\n/u)
-    .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as JsonRpcReply);
+  expect(stderr).toBe("");
   // Every stdout frame must remain valid JSON-RPC while outcomes are recorded.
   expect(replies.every((reply) => "id" in reply || "method" in reply)).toBe(
     true,

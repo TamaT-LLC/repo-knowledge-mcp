@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { runJsonRpcOverStdio } from "./helpers/stdio-jsonrpc-client.js";
 import {
   CanonicalTransactionStore,
   StatsOutputSchema,
@@ -39,7 +40,7 @@ const E2E_TIMEOUT_MS = 120_000;
 
 interface JsonRpcReply {
   readonly error?: unknown;
-  readonly id?: number;
+  readonly id?: number | string;
   readonly result?: unknown;
 }
 
@@ -241,17 +242,14 @@ async function runMcpStats(
       params: { arguments: toolArguments, name: "stats" },
     },
   ];
-  const result = await execa(process.execPath, ["dist/bin.js", "serve"], {
+  const { replies, stderr } = await runJsonRpcOverStdio({
+    args: ["dist/bin.js", "serve"],
+    command: process.execPath,
     cwd: process.cwd(),
     env: environment.env,
-    input: `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
-    reject: false,
+    messages,
   });
-  expect(result.stderr).toBe("");
-  const replies = result.stdout
-    .split(/\r?\n/u)
-    .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as JsonRpcReply);
+  expect(stderr).toBe("");
   // Every stdout frame must remain valid JSON-RPC while stats runs.
   expect(replies.every((reply) => "id" in reply || "method" in reply)).toBe(
     true,
