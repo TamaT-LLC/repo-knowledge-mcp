@@ -52,7 +52,7 @@ export class ProviderPostIngestError extends Error {
   }
 }
 
-/** Drains current pending jobs for the ingested snapshot through the provider pipeline. */
+/** Drains pending or interrupted provider jobs for the ingested snapshot. */
 export class CanonicalProviderPostIngestRunner
   implements ProviderPostIngestRunner
 {
@@ -134,7 +134,10 @@ export class CanonicalProviderPostIngestRunner
 
     let distilled = 0;
     for (const { job, source } of relevant) {
-      if (job.state !== "pending") continue;
+      // The coordinator decides whether a processing lease has expired and
+      // atomically fences its old generation before another provider attempt.
+      // Awaiting-finalize work belongs to its existing finalization route.
+      if (job.state !== "pending" && job.state !== "processing") continue;
       const result = await this.pipeline.run({
         job_id: job.job_id,
         repositoryContext: this.repositoryContext,

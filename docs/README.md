@@ -1,8 +1,8 @@
 # repo-knowledge-mcp ドキュメント
 
-現行の stable release は `v0.4.1` です。
+現行の stable release は `v0.4.3` です。
 初めて使う場合は [README のセットアップ](../README.md#quick-start)から、導入済みの場合は[利用と運用の詳細ガイド](./operations/usage-reference.md)から確認してください。
-この一覧は 2026-09-19 に `package.json` と npm の `latest` がともに `0.4.1` であることを確認して更新しました。
+この checkout の version は [package.json](../package.json)、公開時の証跡は [v0.4.3 release report](./operations/m3-release-v0.4.3.md)を参照してください。npm の現在の `latest` は `npm view @tamat-llc/repo-knowledge-mcp version` で確認できます。
 
 ## 現在の利用方法と仕様
 
@@ -64,7 +64,9 @@ CLI やサービスを分割した場合は、検証対象の処理と起動経�
 
 | 記録 | 対象と結論 |
 | --- | --- |
-| [v0.4.1 release report](./operations/m3-release-v0.4.1.md) | 現行 stable の公開・provenance・registry smoke 完了 |
+| [v0.4.3 release report](./operations/m3-release-v0.4.3.md) | 現行 stable の公開・provenance・registry smoke 完了 |
+| [v0.4.2 release report](./operations/m3-release-v0.4.2.md) | 任意の TypeSafe Jev マージ判定などを追加したリリース |
+| [v0.4.1 release report](./operations/m3-release-v0.4.1.md) | 当該 version の公開・provenance・registry smoke 完了 |
 | [v0.4.0 release report](./operations/m3-release-v0.4.0.md) | stable Node API を縮小したリリース |
 | [v0.3.0 release report](./operations/m3-release-v0.3.0.md) | M3 の初回 stable 公開 |
 | [2026-08-13 security review](./operations/m3-prepublish-security-review-2026-08-13.md) | 公開前のコードと脅威モデルの検証 |

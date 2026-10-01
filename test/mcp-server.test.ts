@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,7 @@ import {
   GetKnowledgeOutputSchema,
   GetRulesOutputSchema,
   REPO_KNOWLEDGE_SERVER_INSTRUCTIONS,
+  REPO_KNOWLEDGE_SERVER_VERSION,
   SearchKnowledgeOutputSchema,
   StatsOutputSchema,
   serveRepoKnowledgeStdio,
@@ -36,6 +37,9 @@ const REPOSITORY = "owner/repository";
 const handles: Array<{ close(): Promise<void> }> = [];
 const clients: WireClient[] = [];
 const temporaryHomes: string[] = [];
+const packageManifest = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
 
 afterEach(async () => {
   await Promise.all(handles.splice(0).map(async (handle) => handle.close()));
@@ -48,6 +52,10 @@ afterEach(async () => {
 });
 
 describe("repo-knowledge MCP read server", () => {
+  it("derives the default server version from the package manifest", () => {
+    expect(REPO_KNOWLEDGE_SERVER_VERSION).toBe(packageManifest.version);
+  });
+
   it("lists and calls all read tools over a 2025-era initialize connection", async () => {
     const fixture = createReadFixture();
     const connection = await connect("legacy", fixture.resolver, {
@@ -57,7 +65,7 @@ describe("repo-knowledge MCP read server", () => {
 
     expect(connection.initializeResult).toMatchObject({
       instructions: REPO_KNOWLEDGE_SERVER_INSTRUCTIONS,
-      serverInfo: { name: "repo-knowledge", version: "0.3.0" },
+      serverInfo: { name: "repo-knowledge", version: packageManifest.version },
     });
 
     const listed = await connection.client.request("tools/list", {});
@@ -270,7 +278,12 @@ describe("repo-knowledge MCP read server", () => {
     expect(replies).toHaveLength(2);
     expect(replies[0]).toMatchObject({
       id: 1,
-      result: { serverInfo: { name: "repo-knowledge" } },
+      result: {
+        serverInfo: {
+          name: "repo-knowledge",
+          version: packageManifest.version,
+        },
+      },
     });
     expect(readTools(replies[1]!).map((tool) => tool.name)).toEqual([
       "get_rules",

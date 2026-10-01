@@ -435,6 +435,53 @@ describe("KnowledgeReadService.getRules", () => {
     });
   });
 
+  it.each([null, checkpoint()])(
+    "reports failed-only jobs as learning with cause inspection and retry (checkpoint %j)",
+    async (syncCheckpoint) => {
+      const repository = await createRepository();
+      await writeRecords(repository, [
+        canonicalRecord("DistillJob", {
+          ...distillJob("failed"),
+          last_error:
+            "synthetic failure detail that must stay out of readiness",
+        }),
+      ]);
+
+      const result = await service(repository, syncCheckpoint).getRules();
+
+      expect(result).toMatchObject({
+        matched_count: 0,
+        readiness: { state: "learning" },
+        rules: [],
+      });
+      expect(result.readiness.next_action).toContain("last_error");
+      expect(result.readiness.next_action).toContain(
+        `repo-knowledge redistill ${REPO_NAME} --failed`,
+      );
+      expect(result.readiness.next_action).toContain(
+        `repo-knowledge distill ${REPO_NAME}`,
+      );
+      expect(result.readiness.next_action).not.toContain(
+        `repo-knowledge sync ${REPO_NAME}`,
+      );
+      expect(result.readiness.next_action).not.toContain(
+        "synthetic failure detail",
+      );
+    },
+  );
+
+  it("still reports a genuinely empty synchronized repository as empty", async () => {
+    const repository = await createRepository();
+
+    const result = await service(repository, checkpoint()).getRules();
+
+    expect(result.readiness.state).toBe("empty");
+    expect(result.readiness.next_action).toContain(
+      `repo-knowledge sync ${REPO_NAME}`,
+    );
+    expect(result.readiness.next_action).not.toContain("--failed");
+  });
+
   it("fails closed for a foreign checkpoint instead of returning readiness", async () => {
     const repository = await createRepository();
 

@@ -183,17 +183,18 @@ coding agent へ次のように依頼します。
 > 変更予定の file と task を指定して、repo-knowledge MCP の `get_rules` を呼んでください。
 
 初回同期の直後に `learning` が返ることがあります。
-これは失敗ではなく、取得した review が蒸留または人間の承認を待っている状態です。
+取得した review が蒸留または人間の承認を待っている状態で、失敗した job の復旧待ちも含みます。`readiness.next_action` を確認してください。
 
 | `readiness.state` | 状態 | 次の操作 |
 | --- | --- | --- |
 | `setup_required` | 初期設定または初回同期が未完了 | `repo-knowledge setup` |
-| `learning` | active rule がなく、処理待ちの job または候補が存在 | 蒸留を実行して `repo-knowledge review` |
+| `learning` | active rule がなく、処理待ち・失敗した job または候補が存在 | `next_action` に従って蒸留・失敗復旧・`repo-knowledge review` |
 | `ready` | active rule が存在 | 返された rule を使う |
 | `empty` | 同期済みだが再利用できる候補がない | 新しい review の後に `repo-knowledge sync` |
 
 `ready` で `rules: []` が返る場合は正常な検索不一致です。
 初期設定不足を意味しません。
+失敗した job だけが残る場合も `empty` にはなりません。canonical `events/distillation.jsonl` の `last_error` と provider の診断を確認して原因を直し、`repo-knowledge redistill owner/repository --failed`、`repo-knowledge distill owner/repository` の順で再実行してください。
 
 <a id="review-to-rule"></a>
 
@@ -324,8 +325,9 @@ Provider API key は設定せず、子 CLI process へ渡す環境変数も実�
 GitHub token、cloud credential、その他の任意の親 process 環境変数は引き継ぎません。
 
 Jev は蒸留後の candidate と既存 rule の候補だけを分類します。
-利用する場合は `TYPESAFE_API_KEY` を設定するか、macOSキーチェーンへ保存してから guided setup を実行してください。
-setup で Provider Adapter を有効にすると、Jev を使うか追加で確認します。
+初回 setup では `TYPESAFE_API_KEY` を設定するか、macOSキーチェーンへ保存してから guided setup を実行してください。
+Provider Adapter を有効にすると、Jev を使うか追加で確認します。
+setup 完了済みの repository では再実行しても設定の質問を繰り返しません。[詳細ガイドの Jev 設定](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md#jev-merge-classification)に従って既存 `config.json` を変更し、`doctor` を実行して MCP server を再接続してください。
 API key は `config.json` に保存しません。環境変数がある場合はキーチェーンより優先します。
 `same` の信頼度が既定の `0.9` 未満なら、その candidate だけを選択中の Provider Adapter で再判定します。
 
@@ -411,10 +413,10 @@ process.exitCode = await runDefaultRepoKnowledgeCli({ argv: ["--help"] });
 | Node.js version error | 22.13.0 以上の 22.x、または 24.0.0 以上へ変更する |
 | GitHub repository を読めない | `gh auth status` と対象アカウントの repository 権限を確認する |
 | Provider subscription を使えない | 選択した provider に応じて `claude auth status --json`、`codex login status`、または `GROK_DISABLE_API_KEY_AUTH=1 grok models` を確認し、必要なら login command を再実行する |
-| Jev が使われない | `TYPESAFE_API_KEY` を設定し、`repo-knowledge setup owner/repository` で Jev と cloud transmission を有効化する。`mergeClassifier.mode: "jev"` と global または repository policy の `allowCloudTransmission: true` を確認し、`repo-knowledge doctor owner/repository` の後に MCP server を再接続する。既定の `provider` mode や `mergeClassifier.allowCloudTransmission: false` では Jev は使われない |
+| Jev が使われない | `TYPESAFE_API_KEY` または macOSキーチェーンを確認する。setup 完了済みなら既存 `config.json` の `mergeClassifier.mode: "jev"` と `mergeClassifier.allowCloudTransmission: true` を設定し、対象の `repoPolicies.<owner/name>.allowCloudMergeClassification` に拒否設定がないこと、Provider Adapter とその cloud transmission が有効なことを確認する。`repo-knowledge doctor owner/repository` の後に MCP server を再接続する。setup の再実行では設定の質問は繰り返されない |
 | `setup` または `review` が TTY error で停止する | pipe や redirect の外で、stdin と stdout が実 TTY の terminal から実行する |
 | `readiness.state` が `setup_required` | `repo-knowledge setup owner/repository` を実行する |
-| `readiness.state` が `learning` | 外部送信の選択を確認し、蒸留後に `repo-knowledge review owner/repository` を実行する |
+| `readiness.state` が `learning` | `next_action` を確認する。処理待ちなら外部送信の選択を確認して蒸留・review を実行し、失敗した job なら原因を直して `redistill owner/repository --failed`、`distill owner/repository` の順で復旧する |
 | `readiness.state` が `empty` | 新しい review の後に `repo-knowledge sync owner/repository` を実行する |
 | `ready` だが `rules` が空 | 正常な検索不一致。file path と task を確認して作業を続ける |
 | lock timeout | 同じ repository を更新する別 process を確認し、終了後に再実行する |

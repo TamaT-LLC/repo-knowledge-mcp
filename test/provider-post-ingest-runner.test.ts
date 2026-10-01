@@ -1,12 +1,27 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CanonicalCliRepositoryService,
+  CanonicalFinalizeService,
   CanonicalProviderPostIngestRunner,
+  CanonicalTransactionStore,
+  DISTILLATION_OUTPUT_SCHEMA_DIGEST,
+  DistillJobCoordinator,
+  GitHubIngestService,
   HostAssistedDistillationError,
+  ProviderDistillationPipeline,
+  ProviderDistillationService,
   ProviderPostIngestError,
   RepoKnowledgeConfigSchema,
   type CanonicalProjectionSnapshot,
-  type ProviderDistillationPipeline,
+  parseDistillationPrompt,
+  type CompleteGitHubPullRequestSnapshot,
+  type LlmProviderAdapter,
+  type RepositoryResolution,
 } from "../src/experimental.js";
 
 const REPOSITORY_ID = "R_repository";
@@ -15,6 +30,13 @@ const JOB_ID = "job_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const OBSOLETE_JOB_ID = "job_01ARZ3NDEKTSV4RRFFQ69G5FAW";
 const HASH = `sha256:${"a".repeat(64)}`;
 const NOW = "2026-08-06T00:00:00.000Z";
+const roots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((root) => rm(root, { force: true, recursive: true })),
+  );
+});
 
 describe("CanonicalProviderPostIngestRunner", () => {
   it("runs current pending jobs and reports their final states", async () => {
@@ -132,6 +154,135 @@ describe("CanonicalProviderPostIngestRunner", () => {
     expect(pipelineRun).not.toHaveBeenCalled();
   });
 
+  it("recovers interrupted processing only after lease expiry, once in a new generation", async () => {
+    const fixture = await recoveryFixture();
+    const interrupted = await fixture.coordinator.acquireLease({
+      job_id: fixture.jobId,
+      repo_id: REPOSITORY_ID,
+    });
+    expect(interrupted).not.toBeNull();
+    const before = (await fixture.store.readSnapshot()).domain.distillJobs[0];
+    fixture.setTime(Date.parse(interrupted!.expires_at) - 1);
+
+    await expect(fixture.cli.distill()).resolves.toEqual({
+      distilled: 0,
+      pending: 1,
+    });
+    expect(fixture.completeStructured).not.toHaveBeenCalled();
+    expect((await fixture.store.readSnapshot()).domain.distillJobs[0]).toEqual(
+      before,
+    );
+
+    fixture.setTime(Date.parse(interrupted!.expires_at));
+    const recovered = await Promise.all([
+      fixture.cli.distill(),
+      fixture.cli.distill(),
+    ]);
+    expect(recovered.map((result) => result.distilled).sort()).toEqual([0, 1]);
+    expect(recovered).toContainEqual({ distilled: 1, pending: 0 });
+    expect(fixture.completeStructured).toHaveBeenCalledOnce();
+    expect(
+      (await fixture.store.readSnapshot()).domain.distillJobs[0],
+    ).toMatchObject({
+      attempts: 2,
+      job_id: fixture.jobId,
+      lease_generation: interrupted!.lease_generation + 1,
+      state: "skipped",
+    });
+    await expect(
+      fixture.coordinator.markAwaitingFinalize(interrupted!),
+    ).rejects.toMatchObject({
+      code: "STALE_LEASE",
+    });
+    await expect(fixture.cli.distill()).resolves.toEqual({
+      distilled: 0,
+      pending: 0,
+    });
+    expect(fixture.completeStructured).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a recovered provider failure terminal until an explicit failed-job reset", async () => {
+    const fixture = await recoveryFixture();
+    const interrupted = await fixture.coordinator.acquireLease({
+      job_id: fixture.jobId,
+      repo_id: REPOSITORY_ID,
+    });
+    fixture.setTime(Date.parse(interrupted!.expires_at));
+    fixture.completeStructured.mockRejectedValueOnce(
+      new Error("synthetic provider failure"),
+    );
+
+    await expect(fixture.cli.distill()).resolves.toEqual({
+      distilled: 0,
+      pending: 1,
+    });
+    const failed = (await fixture.store.readSnapshot()).domain.distillJobs[0]!;
+    expect(failed).toMatchObject({
+      attempts: 2,
+      last_error: "provider request failed (UNEXPECTED_PROVIDER_ERROR)",
+      lease_generation: 2,
+      state: "failed",
+    });
+    await expect(fixture.cli.distill()).resolves.toEqual({
+      distilled: 0,
+      pending: 1,
+    });
+    expect(fixture.completeStructured).toHaveBeenCalledOnce();
+    expect((await fixture.store.readSnapshot()).domain.distillJobs[0]).toEqual(
+      failed,
+    );
+
+    await expect(
+      fixture.cli.redistill({ selector: "failed" }),
+    ).resolves.toMatchObject({
+      created_jobs: 0,
+      reset_jobs: 1,
+      selected_threads: 1,
+    });
+    expect(
+      (await fixture.store.readSnapshot()).domain.distillJobs[0],
+    ).toMatchObject({
+      attempts: 2,
+      job_id: fixture.jobId,
+      last_error: null,
+      lease_generation: 2,
+      state: "pending",
+      validation_failures: 0,
+    });
+    await expect(fixture.cli.distill()).resolves.toEqual({
+      distilled: 1,
+      pending: 0,
+    });
+    expect(fixture.completeStructured).toHaveBeenCalledTimes(2);
+    expect(
+      (await fixture.store.readSnapshot()).domain.distillJobs[0],
+    ).toMatchObject({
+      attempts: 3,
+      lease_generation: 3,
+      state: "skipped",
+    });
+  });
+
+  it("does not re-extract awaiting-finalize work even after its lease expires", async () => {
+    const fixture = await recoveryFixture();
+    const lease = await fixture.coordinator.acquireLease({
+      job_id: fixture.jobId,
+      repo_id: REPOSITORY_ID,
+    });
+    await fixture.coordinator.markAwaitingFinalize(lease!);
+    const before = (await fixture.store.readSnapshot()).domain.distillJobs[0];
+    fixture.setTime(Date.parse(lease!.expires_at));
+
+    await expect(fixture.cli.distill()).resolves.toEqual({
+      distilled: 0,
+      pending: 1,
+    });
+    expect(fixture.completeStructured).not.toHaveBeenCalled();
+    expect((await fixture.store.readSnapshot()).domain.distillJobs[0]).toEqual(
+      before,
+    );
+  });
+
   it("rejects results for a different repository before provider work", async () => {
     const readSnapshot = vi.fn(async () => snapshot([]));
     const runner = new CanonicalProviderPostIngestRunner({
@@ -211,5 +362,146 @@ function ingestResult() {
     snapshot_id: SNAPSHOT_ID,
     unchanged: 0,
     warnings: [],
+  };
+}
+
+async function recoveryFixture() {
+  const root = await mkdtemp(join(tmpdir(), "rkm-provider-recovery-"));
+  roots.push(root);
+  let timestamp = Date.parse(NOW);
+  const now = () => new Date(timestamp);
+  const config = RepoKnowledgeConfigSchema.parse({
+    llm: {
+      allowCloudTransmission: true,
+      mode: "anthropic",
+      model: "fake-model",
+    },
+  });
+  const prompt = parseDistillationPrompt(`---
+prompt_version: recovery-test-v1
+---
+Return structured output for synthetic reviews.
+`);
+  const resolution: RepositoryResolution = {
+    absolutePath: root,
+    aliases: [],
+    currentName: "owner/repository",
+    path: "repos/R_repository",
+    repoId: REPOSITORY_ID,
+    source: "tool-repo",
+  };
+  const ingester = new GitHubIngestService({
+    outputSchemaDigest: DISTILLATION_OUTPUT_SCHEMA_DIGEST,
+    promptDigest: prompt.promptDigest,
+    repositoryContext: {},
+    repositoryResolver: { resolve: async () => resolution },
+    snapshotClient: { fetchCompleteSnapshot: async () => recoverySnapshot() },
+    trust: config.trust,
+  });
+  await ingester.ingest({ pr_number: 42, repo: resolution.currentName });
+  const store = new CanonicalTransactionStore(root);
+  const coordinator = new DistillJobCoordinator(store, { now });
+  const completeStructured = vi.fn<LlmProviderAdapter["completeStructured"]>(
+    async () => ({
+      model: "fake-model",
+      outputText: JSON.stringify({ candidates: [], skip_reason: "typo" }),
+      provider: "anthropic",
+    }),
+  );
+  const extractor = new ProviderDistillationService({
+    adapter: { completeStructured, provider: "anthropic" },
+    config,
+    coordinatorOptions: { now },
+    diagnosticSink: () => {},
+    prompt,
+    repository: resolution,
+  });
+  const runner = new CanonicalProviderPostIngestRunner({
+    config,
+    pipeline: new ProviderDistillationPipeline({
+      classifier: { classify: vi.fn() },
+      extractor,
+      finalizer: new CanonicalFinalizeService({
+        now,
+        repoId: REPOSITORY_ID,
+        repository: store,
+      }),
+      now,
+      search: { search: vi.fn() },
+    }),
+    promptDigest: prompt.promptDigest,
+    repoId: REPOSITORY_ID,
+    repository: store,
+    repositoryContext: {},
+  });
+  const cli = new CanonicalCliRepositoryService({
+    config,
+    now,
+    outputSchemaDigest: DISTILLATION_OUTPUT_SCHEMA_DIGEST,
+    promptDigest: prompt.promptDigest,
+    promptVersion: prompt.promptVersion,
+    providerRunner: runner,
+    repo: resolution.currentName,
+    repoId: REPOSITORY_ID,
+    repository: store,
+    repositoryContext: {},
+  });
+  return {
+    cli,
+    completeStructured,
+    coordinator,
+    jobId: (await store.readSnapshot()).domain.distillJobs[0]!.job_id,
+    setTime: (value: number) => {
+      timestamp = value;
+    },
+    store,
+  };
+}
+
+function recoverySnapshot(): CompleteGitHubPullRequestSnapshot {
+  return {
+    pullRequest: {
+      baseRefOid: "base-oid",
+      headRefOid: "head-oid",
+      id: "PR_synthetic",
+      mergedAt: null,
+      number: 42,
+      title: "Synthetic recovery fixture",
+    },
+    repository: { id: REPOSITORY_ID, nameWithOwner: "owner/repository" },
+    reviewSummaries: [],
+    snapshot: {
+      complete: true,
+      observed_at: NOW,
+      pr_number: 42,
+      repo_id: REPOSITORY_ID,
+      review_summary_ids: [],
+      snapshot_id: SNAPSHOT_ID,
+      thread_ids: ["thread-1"],
+    },
+    threads: [
+      {
+        comments: [
+          {
+            author: {
+              __typename: "User",
+              id: "U_synthetic",
+              login: "reviewer",
+            },
+            authorAssociation: "MEMBER",
+            body: "Correct this synthetic typo.",
+            diffHunk: "@@ -1 +1 @@",
+            createdAt: NOW,
+            id: "comment-synthetic",
+            updatedAt: NOW,
+            url: "https://github.com/owner/repository/pull/42#discussion_r1",
+          },
+        ],
+        id: "thread-1",
+        isOutdated: false,
+        isResolved: false,
+        path: "src/helper.ts",
+      },
+    ],
   };
 }

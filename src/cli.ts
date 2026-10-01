@@ -184,9 +184,21 @@ async function executeCliCommand(
       return executeReviewSession(service, options.io);
     }
 
-    case "export-bootstrap":
-      options.io.writeStdout(`${REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION}\n`);
+    case "export-bootstrap": {
+      const { repo, workspacePath } = command.selection;
+      const selection =
+        repo !== undefined
+          ? { repo }
+          : workspacePath !== undefined
+            ? { workspace_path: workspacePath }
+            : undefined;
+      const instruction =
+        selection === undefined
+          ? REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION
+          : `Before modifying code, call the repo-knowledge MCP \`get_rules\` tool with ${JSON.stringify(selection)} and the files you expect to change.`;
+      options.io.writeStdout(`${instruction}\n`);
       return;
+    }
     default:
       await executeAdminCommand(command, options);
       return;
