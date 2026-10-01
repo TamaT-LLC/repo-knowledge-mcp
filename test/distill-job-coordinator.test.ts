@@ -285,7 +285,12 @@ describe("DistillJobCoordinator", () => {
   it("excludes expired awaiting-finalize jobs from extraction-only acquisition", async () => {
     const repository = await createRepository();
     let now = START;
-    const service = coordinator(repository, { now: () => new Date(now) });
+    const service = coordinator(repository, {
+      /** Reads the controlled clock for this lease-admission regression. */
+      now() {
+        return new Date(now);
+      },
+    });
     const store = new CanonicalTransactionStore(repository);
     await service.createJob(jobRequest());
     const lease = await service.acquireLease({

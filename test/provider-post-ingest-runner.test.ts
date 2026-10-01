@@ -428,8 +428,18 @@ Return structured output for synthetic reviews.
     outputSchemaDigest: DISTILLATION_OUTPUT_SCHEMA_DIGEST,
     promptDigest: prompt.promptDigest,
     repositoryContext: {},
-    repositoryResolver: { resolve: async () => resolution },
-    snapshotClient: { fetchCompleteSnapshot: async () => recoverySnapshot() },
+    repositoryResolver: {
+      /** Resolves only the isolated synthetic repository used by this fixture. */
+      async resolve() {
+        return resolution;
+      },
+    },
+    snapshotClient: {
+      /** Supplies synthetic review data without contacting GitHub. */
+      async fetchCompleteSnapshot() {
+        return recoverySnapshot();
+      },
+    },
     trust: config.trust,
   });
   await ingester.ingest({ pr_number: 42, repo: resolution.currentName });
@@ -446,7 +456,8 @@ Return structured output for synthetic reviews.
     adapter: { completeStructured, provider: "anthropic" },
     config,
     coordinatorOptions: { now },
-    diagnosticSink: () => {},
+    /** Discards expected fake-provider diagnostics without writing test noise. */
+    diagnosticSink() {},
     prompt,
     repository: resolution,
   });
