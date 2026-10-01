@@ -112,6 +112,7 @@ Stats exits 0 on success (including zero stats for an empty repository),
 record_outcome remains deferred to a later milestone.
 `;
 
+/** Parses a CLI invocation, reports diagnostics, and closes its output resources. */
 export async function runRepoKnowledgeCli(
   options: RunRepoKnowledgeCliOptions,
 ): Promise<number> {
@@ -133,6 +134,7 @@ export async function runRepoKnowledgeCli(
   }
 }
 
+/** Dispatches parsed commands, initializing storage only for commands that need it. */
 async function executeCliCommand(
   command: ParsedCliCommand,
   options: RunRepoKnowledgeCliOptions,
@@ -184,15 +186,28 @@ async function executeCliCommand(
       return executeReviewSession(service, options.io);
     }
 
-    case "export-bootstrap":
-      options.io.writeStdout(`${REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION}\n`);
+    case "export-bootstrap": {
+      const { repo, workspacePath } = command.selection;
+      const selection =
+        repo !== undefined
+          ? { repo }
+          : workspacePath !== undefined
+            ? { workspace_path: workspacePath }
+            : undefined;
+      const instruction =
+        selection === undefined
+          ? REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION
+          : `Before modifying code, call the repo-knowledge MCP \`get_rules\` tool with ${JSON.stringify(selection)} and the files you expect to change.`;
+      options.io.writeStdout(`${instruction}\n`);
       return;
+    }
     default:
       await executeAdminCommand(command, options);
       return;
   }
 }
 
+/** Resolves a selected repository and dispatches its read or maintenance command. */
 async function executeRepositoryCommand(
   command: Extract<
     ParsedCliCommand,
@@ -236,6 +251,7 @@ async function executeRepositoryCommand(
   }
 }
 
+/** Starts the MCP server with the explicit repository or workspace selection. */
 async function executeServeCommand(
   command: Extract<ParsedCliCommand, { readonly kind: "serve" }>,
   options: RunRepoKnowledgeCliOptions,
@@ -251,6 +267,7 @@ async function executeServeCommand(
   return;
 }
 
+/** Runs interactive setup, keeping privacy notices on stderr and JSON results on stdout. */
 async function executeSetupCommand(
   command: Extract<ParsedCliCommand, { readonly kind: "setup" }>,
   options: RunRepoKnowledgeCliOptions,

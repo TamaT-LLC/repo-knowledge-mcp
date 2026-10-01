@@ -74,6 +74,7 @@ interface SetupPtyFixture {
 
 type SetupMode = "failure" | "human" | "json";
 
+/** Writes the synthetic setup runner and PTY bridge into a temporary directory. */
 async function createFixture(): Promise<SetupPtyFixture> {
   const root = await temporaryDirectory("rkm-setup-pty-");
   const runner = join(root, "run.mjs");
@@ -83,6 +84,7 @@ async function createFixture(): Promise<SetupPtyFixture> {
   return { bridge, runner };
 }
 
+/** Builds the PTY runner with synthetic setup results and deterministic progress events. */
 function runnerSource(): string {
   return `
 const api = await import(process.env.RKM_INDEX_URL);

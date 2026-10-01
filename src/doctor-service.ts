@@ -108,6 +108,7 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
     this.storageRoot = resolve(options.storageRoot);
   }
 
+  /** Resolves the diagnostic target before checking its effective transmission policy. */
   async run(selection: DoctorRepositorySelection = {}): Promise<DoctorReport> {
     const report = new DoctorReportBuilder();
     checkRuntime(report, this.nodeVersion, this.platform);

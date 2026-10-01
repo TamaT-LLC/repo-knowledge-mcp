@@ -166,6 +166,7 @@ export class GuidedSetupService {
     this.clock = dependencies.clock ?? (() => new Date());
   }
 
+  /** Runs resumable setup, disclosing effective consent before the initial sync. */
   async run(
     request: GuidedSetupRequest,
     prompt: GuidedSetupPrompt,
@@ -258,6 +259,7 @@ export class GuidedSetupService {
     );
   }
 
+  /** Persists global setup choices without replacing repository consent overrides. */
   private async configure(
     resolution: SetupResolution,
     request: GuidedSetupRequest,
@@ -634,6 +636,7 @@ function compareHumanObservations(
   );
 }
 
+/** Preserves an explicit setup boundary or derives the default lookback date. */
 function initialSinceFor(
   request: GuidedSetupRequest,
   now: Date,
@@ -645,6 +648,7 @@ function initialSinceFor(
   ).toISOString();
 }
 
+/** Chooses an initial boundary without widening a resumed checkpoint's saved scope. */
 function initialSyncRequest(
   state: SetupState,
   checkpoint: SyncCheckpoint | null,
@@ -665,6 +669,7 @@ function initialSyncRequest(
   };
 }
 
+/** Offers global opt-ins while explaining the selected repository's effective policy. */
 async function chooseTransmission(
   config: RepoKnowledgeConfig,
   repository: string,
@@ -788,6 +793,7 @@ async function readProviderModel(
   }
 }
 
+/** Applies chosen global opt-ins and repository selection while preserving overrides. */
 function setupConfig(
   current: RepoKnowledgeConfig,
   repository: RepositoryResolution,
@@ -870,10 +876,12 @@ function configuredGlobalTransmission(config: RepoKnowledgeConfig): {
   };
 }
 
+/** Converts the disabled mode to an absent provider choice without changing config. */
 function enabledProviderMode(config: LlmConfig): EnabledLlmProviderMode | null {
   return config.mode === "disabled" ? null : config.mode;
 }
 
+/** Rejects a missing provider choice when an enabled route requires one. */
 function requiredProviderMode(
   mode: EnabledLlmProviderMode | null | undefined,
 ): EnabledLlmProviderMode {
@@ -885,6 +893,7 @@ function requiredProviderMode(
   return mode;
 }
 
+/** Explains override precedence and that declining a global opt-in preserves consent. */
 function repositoryConsentGuidance(
   key: string,
   override: boolean | null,

@@ -95,16 +95,19 @@ function renderReviewEvidence(item: ReviewInboxItem): string[] {
   });
 }
 
+/** Joins escaped terminal values while keeping an empty list explicit. */
 function terminalList(values: readonly string[]): string {
   return values.length === 0
     ? "none"
     : values.map((value) => safeTerminalText(value)).join(", ");
 }
 
+/** Escapes untrusted terminal text without its surrounding serialized quotes. */
 function safeTerminalText(value: string): string {
   return safeTerminalValue(value).slice(1, -1);
 }
 
+/** Formats setup results with effective routes, consent scope, and suggested next steps. */
 export function renderGuidedSetupSummary(result: GuidedSetupResult): string {
   const sync = result.initial_sync.summary;
   const trust =
@@ -141,7 +144,9 @@ export function renderGuidedSetupSummary(result: GuidedSetupResult): string {
 export function renderTransmissionDisclosure(
   state: RepositoryTransmissionState,
 ): string {
+  /** Formats a configured route switch for the human-readable disclosure. */
   const onOff = (value: boolean): string => (value ? "on" : "off");
+  /** Distinguishes inherited consent from an explicit repository decision. */
   const override = (value: boolean | null): string =>
     value === null ? "inherit" : String(value);
   return [
@@ -153,6 +158,7 @@ export function renderTransmissionDisclosure(
   ].join("\n");
 }
 
+/** Describes queued work using the repository-effective distillation route switches. */
 function setupStatusLine(result: GuidedSetupResult): string {
   const jobs = result.initial_sync.summary.jobs_created;
   if (

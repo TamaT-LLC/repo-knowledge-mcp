@@ -33,6 +33,7 @@ const NETWORK_FILESYSTEM_TYPES = new Map<number, string>([
 const SYNCHRONIZED_PATH =
   /(?:^|[/\\])(?:Dropbox|Google Drive|Mobile Documents|OneDrive)(?:[/\\]|$)/iu;
 
+/** Reports whether the supplied Node.js version and operating system are supported. */
 export function checkRuntime(
   report: DoctorReportBuilder,
   nodeVersion: string,
@@ -74,6 +75,7 @@ export function checkRuntime(
   );
 }
 
+/** Checks route readiness using repository consent, or explicitly labeled global defaults. */
 export async function checkTransmissionConfiguration(
   report: DoctorReportBuilder,
   config: RepoKnowledgeConfig | null,
@@ -240,6 +242,7 @@ export async function checkTransmissionConfiguration(
   }
 
   const host = config.hostAssistedDistillation;
+  /** Annotates host-assisted diagnostics with their storage-wide consent scope. */
   const addHost = (check: DoctorCheck): void =>
     report.add({
       ...check,
@@ -269,6 +272,7 @@ export async function checkTransmissionConfiguration(
   }
 }
 
+/** Adds consent provenance and the evaluated repository scope to a diagnostic check. */
 function transmissionCheckReporter(
   report: DoctorReportBuilder,
   repository: string | null,

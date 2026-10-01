@@ -287,16 +287,39 @@ describe("repo-knowledge CLI", () => {
     expect(current.stderr()).toBe("");
   });
 
-  it("prints only the specified bootstrap line without resolving knowledge", async () => {
-    const current = fixture(["export", REPOSITORY, "--bootstrap"]);
+  it.each([
+    { argv: ["export", "--bootstrap"], selection: undefined },
+    {
+      argv: ["export", REPOSITORY, "--bootstrap"],
+      selection: { repo: REPOSITORY },
+    },
+    {
+      argv: ["export", "--repo", "other/repository", "--bootstrap"],
+      selection: { repo: "other/repository" },
+    },
+    {
+      argv: ["export", "--workspace", "/work/repo", "--bootstrap"],
+      selection: { workspace_path: "/work/repo" },
+    },
+  ])(
+    "prints a scoped bootstrap line without resolving knowledge %#",
+    async ({ argv, selection }) => {
+      const current = fixture(argv);
 
-    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+      await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
 
-    expect(current.stdout()).toBe(`${REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION}\n`);
-    expect(current.resolveMutation).not.toHaveBeenCalled();
-    expect(current.resolveOperations).not.toHaveBeenCalled();
-    expect(current.stdout()).not.toContain("canonical fixture rule");
-  });
+      expect(current.stdout()).toBe(
+        selection === undefined
+          ? `${REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION}\n`
+          : `Before modifying code, call the repo-knowledge MCP \`get_rules\` tool with ${JSON.stringify(selection)} and the files you expect to change.\n`,
+      );
+      expect(current.resolveMutation).not.toHaveBeenCalled();
+      expect(current.resolveOperations).not.toHaveBeenCalled();
+      expect(current.setup).not.toHaveBeenCalled();
+      expect(current.doctorRun).not.toHaveBeenCalled();
+      expect(current.stdout()).not.toContain("canonical fixture rule");
+    },
+  );
 
   it("rejects admin commands without a real input and output TTY", async () => {
     const current = fixture(["approve", KNOWLEDGE_ID, "--repo", REPOSITORY], {
@@ -1037,6 +1060,7 @@ function inboxPage(items: readonly ReviewInboxItem[]) {
   };
 }
 
+/** Captures CLI output and supplies isolated, deterministic service doubles. */
 function fixture(
   argv: readonly string[],
   tty: { readonly stdinIsTTY: boolean; readonly stdoutIsTTY: boolean } = {
@@ -1203,6 +1227,7 @@ function fixture(
   };
 }
 
+/** Supplies a safe-default setup result with explicit global and repository consent fields. */
 function setupResult(): GuidedSetupResult {
   return {
     config_path: "/storage/config.json",

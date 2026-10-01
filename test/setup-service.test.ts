@@ -815,6 +815,7 @@ interface FixtureOverrides {
   readonly typesafeApiKeyAvailable?: boolean;
 }
 
+/** Creates isolated setup dependencies, optionally sharing storage with a second repository. */
 async function fixture(overrides: FixtureOverrides = {}) {
   const parent = await temporaryDirectory();
   const storageRoot = overrides.storageRoot ?? join(parent, "storage");
@@ -895,6 +896,7 @@ async function fixture(overrides: FixtureOverrides = {}) {
   };
 }
 
+/** Runs a synthetic pending job through the real policy gate and an injected fake adapter. */
 async function runPolicyProvider(
   config: RepoKnowledgeConfig,
   repository: RepositoryResolution,
