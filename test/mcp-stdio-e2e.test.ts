@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -11,6 +12,9 @@ const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const JOB_ID = "job_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const HASH = `sha256:${"a".repeat(64)}`;
 const children: StdioProcessClient[] = [];
+const packageManifest = JSON.parse(
+  await readFile(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
 
 afterEach(async () => {
   await Promise.all(children.splice(0).map((client) => client.close()));
@@ -28,7 +32,12 @@ describe("M1 real stdio MCP E2E", () => {
       protocolVersion: "2025-11-25",
     });
     expect(initialized).toMatchObject({
-      result: { serverInfo: { name: "repo-knowledge", version: "0.3.0" } },
+      result: {
+        serverInfo: {
+          name: "repo-knowledge",
+          version: packageManifest.version,
+        },
+      },
     });
     client.notify("notifications/initialized", {});
 

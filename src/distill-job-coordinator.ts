@@ -61,6 +61,8 @@ export interface CreateDistillJobResult {
 }
 
 export interface AcquireDistillJobLeaseRequest {
+  /** Only admit pending or expired processing jobs; incompatible with finalize resume. */
+  readonly extraction_only?: boolean;
   readonly job_id?: string;
   readonly lease_duration_ms?: number;
   readonly repo_id: string;
@@ -202,6 +204,7 @@ export class DistillJobCoordinator {
     });
   }
 
+  /** Atomically admits an eligible job, optionally excluding finalization work. */
   async acquireLease(
     request: AcquireDistillJobLeaseRequest,
   ): Promise<DistillJobLease | null> {
@@ -217,6 +220,15 @@ export class DistillJobCoordinator {
       throw coordinatorError(
         "INVALID_ARGUMENT",
         "resume_awaiting_finalize requires an explicit job_id",
+      );
+    }
+    if (
+      request.extraction_only === true &&
+      request.resume_awaiting_finalize === true
+    ) {
+      throw coordinatorError(
+        "INVALID_ARGUMENT",
+        "extraction_only cannot be combined with resume_awaiting_finalize",
       );
     }
     const duration =
@@ -242,6 +254,8 @@ export class DistillJobCoordinator {
         .filter(
           (candidate) =>
             candidate.repo_id === repoId &&
+            (request.extraction_only !== true ||
+              candidate.state !== "awaiting_finalize") &&
             (requestedJobId === undefined ||
               candidate.job_id === requestedJobId) &&
             (isLeaseEligible(candidate, operation.timestamp) ||

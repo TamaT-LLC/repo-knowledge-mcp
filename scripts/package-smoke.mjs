@@ -45,6 +45,7 @@ const expectedTools = [
 // M2 commands the installed CLI help must document for cron operators.
 const expectedHelpCommands = ["sync [repo]", "stats [repo]", "distill [repo]"];
 
+/** Verifies a clean tarball install, CLI startup, MCP handshake, and consumer imports. */
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const typeScriptVersion = parseLockedTypeScriptVersion(
@@ -119,6 +120,17 @@ async function main() {
     );
     const installedPackage = JSON.parse(
       await readFile(installedPackagePath, "utf8"),
+    );
+    const installedMcpServer = JSON.parse(
+      await readFile(
+        join(
+          installDirectory,
+          "node_modules",
+          "@modelcontextprotocol/server",
+          "package.json",
+        ),
+        "utf8",
+      ),
     );
     assert(
       installedPackage.name === expectedName,
@@ -214,6 +226,18 @@ async function main() {
       setupHelp.stderr === "" && setupHelp.stdout.includes("setup [repo]"),
       "installed guided setup help was not available",
     );
+    const bootstrap = await run(
+      executable,
+      ["export", "owner/another-repository", "--bootstrap"],
+      { cwd: workspaceDirectory, env: environment },
+    );
+    assert(
+      bootstrap.stderr === "" &&
+        bootstrap.stdout ===
+          'Before modifying code, call the repo-knowledge MCP `get_rules` tool with {"repo":"owner/another-repository"} and the files you expect to change.\n',
+      "installed bootstrap did not preserve its explicit repository",
+    );
+    await assertPathMissing(environment.REPO_KNOWLEDGE_HOME);
     const reviewHelp = await run(executable, ["review", "--help"], {
       cwd: workspaceDirectory,
       env: environment,
@@ -287,6 +311,11 @@ async function main() {
           "repo-knowledge",
         "installed MCP returned unexpected serverInfo",
       );
+      assert(
+        asRecord(asRecord(initialized.result).serverInfo).version ===
+          installedPackage.version,
+        "installed MCP server version does not match its package manifest",
+      );
       client.notify("notifications/initialized", {});
       const listed = await client.request("tools/list", {});
       assert(listed.error === undefined, "installed MCP tools/list failed");
@@ -353,6 +382,7 @@ async function main() {
     process.stdout.write(
       `${JSON.stringify(
         {
+          bootstrap_repository: true,
           cli_help: true,
           guided_setup: true,
           guided_setup_help: true,
@@ -361,6 +391,8 @@ async function main() {
           m3_readiness: "learning",
           m2_tool_calls: ["sync_repo", "stats", "get_rules"],
           mcp_tools: expectedTools.length,
+          mcp_server_version: installedPackage.version,
+          mcp_sdk_version: installedMcpServer.version,
           node_api_import: true,
           node_api_types: true,
           package: `${String(installedPackage.name)}@${String(installedPackage.version)}`,

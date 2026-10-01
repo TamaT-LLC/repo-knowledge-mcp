@@ -45,6 +45,7 @@ import {
   registerMutationTools,
   type KnowledgeMutationServiceResolver,
 } from "./mcp-mutation-tools.js";
+import { REPO_KNOWLEDGE_PACKAGE_VERSION } from "./package-version.js";
 import {
   RepositoryResolver,
   type RepositoryResolutionInput,
@@ -62,7 +63,7 @@ import {
 import { SyncCheckpointStore } from "./sync-checkpoint-store.js";
 
 export const REPO_KNOWLEDGE_SERVER_NAME = "repo-knowledge";
-export const REPO_KNOWLEDGE_SERVER_VERSION = "0.3.0";
+export const REPO_KNOWLEDGE_SERVER_VERSION = REPO_KNOWLEDGE_PACKAGE_VERSION;
 export const REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION =
   "Before modifying code, call the repo-knowledge MCP `get_rules` tool with the files you expect to change.";
 export const REPO_KNOWLEDGE_SERVER_INSTRUCTIONS = [

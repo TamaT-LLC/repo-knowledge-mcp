@@ -213,6 +213,7 @@ export class ProviderDistillationService {
     this.trustPolicyDigest = computeTrustPolicyDigest(this.config.trust);
   }
 
+  /** Extracts only after atomically acquiring a pending or expired processing job. */
   async run(
     request: ProviderDistillationRunRequest,
   ): Promise<ProviderDistillationRunResult> {
@@ -243,6 +244,7 @@ export class ProviderDistillationService {
       trustPolicyDigest: this.trustPolicyDigest,
     });
     const lease = await this.coordinator.acquireLease({
+      extraction_only: true,
       job_id: jobId,
       repo_id: this.repoId,
     });

@@ -1,6 +1,6 @@
 # repo-knowledge-mcp 利用と運用の詳細ガイド
 
-`v0.4.1` では、レビューを取得し、許可した経路で蒸留し、人間が承認したルールを coding agent へ提供します。
+`v0.4.3` では、レビューを取得し、許可した経路で蒸留し、人間が承認したルールを coding agent へ提供します。
 最初に動かす手順は [README](../../README.md#quick-start) を参照してください。
 文書の対象と検証記録は[ドキュメント一覧](../README.md)にまとめています。
 
@@ -22,7 +22,7 @@ repository を位置引数と `--repo` の両方で指定しないでくださ�
 | `list [repo]` | knowledge の一覧。`--status proposed` などで絞り込み |
 | `review [repo]` | 候補と変更提案を一つの TTY session で確認 |
 | `stats [repo]` | JSON 集計。`--bucket total` または `--bucket day --since <iso> --until <iso>` |
-| `export [repo] --bootstrap` | `get_rules` の呼び出しを促す一文を出力。ルール本文の一括 export は未対応 |
+| `export [repo] --bootstrap` | 明示した repository または workspace を含む `get_rules` の呼び出し指示を出力。ルール本文の一括 export は未対応 |
 | `serve` | stdio MCP server を起動。repository は `--repo` または `--workspace` で指定 |
 | `reindex [repo]` | canonical data から `index.sqlite` を再構築 |
 | `redistill [repo] <selector>` | `--all`、`--author <login>`、`--prompt-version <version>`、`--failed`、`--outdated` の一つで再処理対象を選択 |
@@ -31,6 +31,8 @@ repository を位置引数と `--repo` の両方で指定しないでくださ�
 `redistill --outdated` は現在の prompt、schema、trust policy に対応する job がない thread だけを対象にします。
 既存 job の強制リセットには使えません。
 再処理待ちの job は、選択した Provider Adapter または host-assisted の経路で処理してください。
+失敗した job は通常の `distill` だけでは再処理されません。canonical `events/distillation.jsonl` の `last_error` と provider の診断を確認して原因を直し、`repo-knowledge redistill owner/repository --failed` で再度 queue に入れた後、`repo-knowledge distill owner/repository` を実行します。
+active rule がなく失敗した job だけが残る場合、MCP の `readiness.state` は `learning` のままで、`next_action` がこの復旧手順を示します。
 
 管理操作には実 input/output TTY が必要です。repository は `--repo` または `--workspace` で指定します。
 
@@ -239,6 +241,8 @@ diff を送らずに蒸留したい場合は、Provider Adapter を無効にし�
 検出時は `SENSITIVE_CONTENT_DETECTED` で処理を止め、provider process へ payload を渡しません。
 error には検出値を含めず、field path と kind だけを返します。
 
+<a id="jev-merge-classification"></a>
+
 ## TypeSafe Jev でマージ判定する
 
 Jev は蒸留を置き換えず、candidate と既存 knowledge の `same`、`overlaps`、`different` 判定だけを担当します。
@@ -246,7 +250,7 @@ Jev が失敗した場合は、現在選択している Provider Adapter の分�
 
 API key は config や CLI argument に書きません。
 `TYPESAFE_API_KEY` があればそれを使い、macOSでは未設定時に専用のキーチェーン項目へフォールバックします。
-一時的に試す場合は同じ shell で key を非表示入力し、guided setup を実行します。
+初回 setup で試す場合は同じ shell で key を非表示入力し、guided setup を実行します。
 
 ```console
 read -s TYPESAFE_API_KEY
@@ -269,7 +273,9 @@ unset TYPESAFE_API_KEY
 Linuxでは環境変数を利用します。
 
 Provider Adapter を有効にした後、Jev の質問に `Yes` と答えると次の設定になります。
-setup 済みの repository では、既存 config の `mergeClassifier` だけを同じ内容へ変更します。
+setup 完了済みの repository では再実行しても設定の質問を繰り返しません。
+既存 config の `mergeClassifier` を次の内容へ変更し、Provider Adapter とその cloud transmission が有効なこと、対象の `repoPolicies.<owner/name>.allowCloudMergeClassification` に拒否設定がないことを確認します。
+他の repository、workspace mapping、trust 設定は保持し、変更後は `repo-knowledge doctor owner/repository` を実行して MCP server を再接続してください。
 
 ```json
 {

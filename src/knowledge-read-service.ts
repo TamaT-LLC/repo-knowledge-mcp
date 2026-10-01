@@ -460,6 +460,12 @@ export function deriveRepositoryReadiness(
       learningNextAction(repo, hasLearningJob, hasProposedKnowledge),
     );
   }
+  if (jobs.some((item) => item.state === "failed")) {
+    return readiness(
+      "learning",
+      `Distillation jobs failed. Inspect the failed jobs' \`last_error\` in canonical \`events/distillation.jsonl\` and provider diagnostics, fix the cause, then run \`repo-knowledge redistill ${repo} --failed\` followed by \`repo-knowledge distill ${repo}\`.`,
+    );
+  }
   if (!hasSyncHistory && jobs.length === 0 && knowledge.length === 0) {
     return readiness(
       "setup_required",

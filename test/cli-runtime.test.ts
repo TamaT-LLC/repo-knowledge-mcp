@@ -3,8 +3,10 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +16,6 @@ import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION,
   REPO_KNOWLEDGE_CLI_HELP,
   SetupStateStore,
   captureCanonicalStateReadOnly,
@@ -68,17 +69,45 @@ describe("default CLI runtime", () => {
     await expect(access(storageRoot)).rejects.toMatchObject({ code: "ENOENT" });
 
     const bootstrap = output({ stdinIsTTY: false, stdoutIsTTY: false });
+    const ghRun = vi.fn<GhRunnerLike["run"]>();
     await expect(
       runDefaultRepoKnowledgeCli({
         argv: ["export", "owner/repository", "--bootstrap"],
+        ghRunner: { run: ghRun },
         io: bootstrap.io,
         storageRoot,
       }),
     ).resolves.toBe(0);
     expect(bootstrap.stdout()).toBe(
-      `${REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION}\n`,
+      'Before modifying code, call the repo-knowledge MCP `get_rules` tool with {"repo":"owner/repository"} and the files you expect to change.\n',
     );
+    expect(ghRun).not.toHaveBeenCalled();
     await expect(access(storageRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("exports the requested repository instead of a configured default without writes", async () => {
+    const storageRoot = await temporaryDirectory();
+    const configPath = join(storageRoot, "config.json");
+    const config = '{"defaultRepo":"owner/repository-a"}\n';
+    await writeFile(configPath, config);
+    const captured = output({ stdinIsTTY: false, stdoutIsTTY: false });
+    const ghRun = vi.fn<GhRunnerLike["run"]>();
+
+    await expect(
+      runDefaultRepoKnowledgeCli({
+        argv: ["export", "owner/repository-b", "--bootstrap"],
+        ghRunner: { run: ghRun },
+        io: captured.io,
+        storageRoot,
+      }),
+    ).resolves.toBe(0);
+
+    expect(captured.stdout()).toContain('{"repo":"owner/repository-b"}');
+    expect(captured.stdout()).not.toContain("repository-a");
+    expect(captured.stderr()).toBe("");
+    expect(ghRun).not.toHaveBeenCalled();
+    expect(await readFile(configPath, "utf8")).toBe(config);
+    expect(await readdir(storageRoot)).toEqual(["config.json"]);
   });
 
   it("runs doctor without initializing missing storage", async () => {
