@@ -207,6 +207,7 @@ async function executeCliCommand(
   }
 }
 
+/** Resolves a selected repository and dispatches its read or maintenance command. */
 async function executeRepositoryCommand(
   command: Extract<
     ParsedCliCommand,
@@ -250,6 +251,7 @@ async function executeRepositoryCommand(
   }
 }
 
+/** Starts the MCP server with the explicit repository or workspace selection. */
 async function executeServeCommand(
   command: Extract<ParsedCliCommand, { readonly kind: "serve" }>,
   options: RunRepoKnowledgeCliOptions,
@@ -265,6 +267,7 @@ async function executeServeCommand(
   return;
 }
 
+/** Runs interactive setup, keeping privacy notices on stderr and JSON results on stdout. */
 async function executeSetupCommand(
   command: Extract<ParsedCliCommand, { readonly kind: "setup" }>,
   options: RunRepoKnowledgeCliOptions,
@@ -284,6 +287,7 @@ async function executeSetupCommand(
   const prompt: GuidedSetupPrompt = {
     confirm: (request) => options.io.confirm!(request),
     input: (request) => options.io.input!(request),
+    notice: (message) => options.io.writeStderr(`${message}\n`),
     ...(command.json !== true && options.io.activity !== undefined
       ? {
           progress: (update: TerminalActivityUpdate) =>

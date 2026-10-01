@@ -7,7 +7,8 @@
 **repo-knowledge-mcp** は、Pull Request のレビューから得た知見を個人用ローカルストアへ保存し、Codex、Claude Code、Cursor から再利用できる rule に変換する stdio MCP server です。
 人間と複数の AI reviewer が残した指摘を GitHub から取得し、根拠を追跡できる Markdown として管理します。
 
-外部送信と trusted-human rule の自動 active 化は既定で無効です。
+外部蒸留の送信と trusted-human rule の自動 active 化は既定で無効です。
+外部蒸留が OFF でも、`get_rules` などの通常の MCP read は承認済み rule と説明を接続先 MCP client へ返します。
 GitHub token は `gh` CLI が管理し、repo-knowledge-mcp は token を受領または保存しません。
 
 ## 紹介動画
@@ -117,10 +118,14 @@ repo-knowledge --help
 
 guided setup は repository の解決、private storage の作成、外部送信の選択、信頼する人間 reviewer の選択、初回同期を一つの TTY session で行います。
 外部送信と reviewer trust の質問は既定で `No` です。
+送信の `Yes` は同じ storage の全 repository（今後追加する repository を含む）に適用する global 設定として保存されます。
+Provider / Jev は `repoPolicies.<owner/name>.allowCloudTransmission` / `allowCloudMergeClassification` の明示値を優先し、`true` / `false` のどちらも global 既定値を上書きします。host-assisted は global-only で、repository 別の override はありません。
+setup は既存の override を変更せず、`No` は既存同意の取り消しではありません。repository ごとの制御には上記 override を編集し、host-assisted の適用範囲を分けるには storage を分離してください。
+初回同期前と結果には対象 repository の実効送信状態、global 同意の既定値、repository override を分けて表示します。Provider が実効 ON の場合、初回同期中にも蒸留が実行され得ます。
 初回同期は既定で直近 90 日を対象とし、`--since <iso>` または `--all-history` で変更できます。
 
 結果を機械的に読む場合は、実 TTY から `--json` を付けて実行します。
-この場合は stdout に JSON document を一件だけ出力し、progress を表示しません。
+この場合は stdout に JSON document を一件だけ出力し、progress を表示しません。送信範囲の事前説明は stderr に表示します。
 
 中断または部分的な同期失敗後は、同じ command を再実行してください。
 保存済み scope と checkpoint から処理を再開します。
@@ -132,6 +137,7 @@ npx -y @tamat-llc/repo-knowledge-mcp@0.4.3 doctor owner/repository
 ```
 
 `doctor` は runtime、GitHub 認証、config、storage、canonical data、検索用 projection を変更せずに検査します。
+対象 repository の実効同意で Provider / Jev の readiness を検査し、global 同意と override を区別します。対象が未解決の場合は global 既定値だけの診断であることを明示します。
 
 ### 4. MCP client へ登録する
 

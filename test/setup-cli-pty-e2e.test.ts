@@ -32,7 +32,9 @@ describe("repo-knowledge setup PTY E2E", () => {
     expect(result.output).toContain("✓ Syncing pull request reviews (2.");
     expect(result.output).toContain("Setup complete");
     expect(result.output).toContain(`Repository  ${REPOSITORY}`);
-    expect(result.output).toContain("no model transmission route is enabled");
+    expect(result.output).toContain(
+      "no external-distillation route is enabled",
+    );
     expect(result.output).not.toContain('{"config_path"');
   }, 15_000);
 
@@ -72,6 +74,7 @@ interface SetupPtyFixture {
 
 type SetupMode = "failure" | "human" | "json";
 
+/** Writes the synthetic setup runner and PTY bridge into a temporary directory. */
 async function createFixture(): Promise<SetupPtyFixture> {
   const root = await temporaryDirectory("rkm-setup-pty-");
   const runner = join(root, "run.mjs");
@@ -81,6 +84,7 @@ async function createFixture(): Promise<SetupPtyFixture> {
   return { bridge, runner };
 }
 
+/** Builds the PTY runner with synthetic setup results and deterministic progress events. */
 function runnerSource(): string {
   return `
 const api = await import(process.env.RKM_INDEX_URL);
@@ -111,7 +115,9 @@ const result = {
   resumed: false,
   state_path: "/private/repos/R_setup_pty/setup-state.json",
   storage_root: "/private",
-  transmission: { host_assisted: false, provider: false },
+  transmission: { host_assisted: false, merge_classifier: false, provider: false,
+    global_defaults: { provider: false, merge_classifier: false },
+    repository_overrides: { provider: null, merge_classifier: null } },
   trust: { candidates: 2, selected: [] },
 };
 const argv = ["setup", ${JSON.stringify(REPOSITORY)}, ...(mode === "json" ? ["--json"] : [])];

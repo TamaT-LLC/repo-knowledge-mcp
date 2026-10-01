@@ -1,4 +1,5 @@
 import { safeTerminalValue } from "./admin-plane-service.js";
+import type { RepositoryTransmissionState } from "./config.js";
 import type { GuidedSetupResult } from "./setup-service.js";
 import type { ReviewInboxItem } from "./review-inbox-service.js";
 
@@ -94,25 +95,21 @@ function renderReviewEvidence(item: ReviewInboxItem): string[] {
   });
 }
 
+/** Joins escaped terminal values while keeping an empty list explicit. */
 function terminalList(values: readonly string[]): string {
   return values.length === 0
     ? "none"
     : values.map((value) => safeTerminalText(value)).join(", ");
 }
 
+/** Escapes untrusted terminal text without its surrounding serialized quotes. */
 function safeTerminalText(value: string): string {
   return safeTerminalValue(value).slice(1, -1);
 }
 
+/** Formats setup results with effective routes, consent scope, and suggested next steps. */
 export function renderGuidedSetupSummary(result: GuidedSetupResult): string {
   const sync = result.initial_sync.summary;
-  const routes = [
-    result.transmission.provider ? "provider on" : "provider off",
-    result.transmission.merge_classifier ? "Jev on" : "Jev off",
-    result.transmission.host_assisted
-      ? "host-assisted on"
-      : "host-assisted off",
-  ].join(" · ");
   const trust =
     result.trust.selected.length === 0
       ? `0 selected this run · ${String(result.trust.candidates)} candidate(s) observed`
@@ -129,7 +126,7 @@ export function renderGuidedSetupSummary(result: GuidedSetupResult): string {
     `Storage     ${safeTerminalText(result.repository.storage_path)}`,
     `Sync        ${String(sync.discovered)} found · ${String(sync.ingested)} imported · ${String(sync.unchanged)} unchanged · ${String(sync.jobs_created)} job(s) queued`,
     `Health      ${String(result.doctor.pass)} passed · ${String(result.doctor.warn)} warnings · ${String(result.doctor.fail)} failed`,
-    `Privacy     ${routes}`,
+    `Privacy     ${renderTransmissionDisclosure(result.transmission)}`,
     `Trust       ${trust}`,
     "",
     "Status",
@@ -143,6 +140,25 @@ export function renderGuidedSetupSummary(result: GuidedSetupResult): string {
   ].join("\n")}`;
 }
 
+/** Consent switches describe configured routes, not credential/model readiness. */
+export function renderTransmissionDisclosure(
+  state: RepositoryTransmissionState,
+): string {
+  /** Formats a configured route switch for the human-readable disclosure. */
+  const onOff = (value: boolean): string => (value ? "on" : "off");
+  /** Distinguishes inherited consent from an explicit repository decision. */
+  const override = (value: boolean | null): string =>
+    value === null ? "inherit" : String(value);
+  return [
+    `Effective repository routes: provider ${onOff(state.provider)} · Jev ${onOff(state.merge_classifier)} · host-assisted ${onOff(state.host_assisted)}`,
+    `Global consent defaults: provider ${String(state.global_defaults.provider)} · Jev ${String(state.global_defaults.merge_classifier)}`,
+    `Repository overrides: provider ${override(state.repository_overrides.provider)} · Jev ${override(state.repository_overrides.merge_classifier)}`,
+    "Global settings apply to all repositories sharing this storage, including future repositories. Provider/Jev repoPolicies overrides take precedence; host-assisted is global-only.",
+    "These are configured routes, not a model/credential readiness check. External-distillation opt-out does not disable normal approved-rule outputs to a connected MCP client.",
+  ].join("\n");
+}
+
+/** Describes queued work using the repository-effective distillation route switches. */
 function setupStatusLine(result: GuidedSetupResult): string {
   const jobs = result.initial_sync.summary.jobs_created;
   if (
@@ -152,7 +168,7 @@ function setupStatusLine(result: GuidedSetupResult): string {
   ) {
     return (
       `Local sync is ready. ${String(jobs)} new distillation job(s) are queued; ` +
-      "no model transmission route is enabled."
+      "no external-distillation route is enabled for this repository."
     );
   }
   if (jobs > 0) {

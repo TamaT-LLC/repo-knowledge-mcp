@@ -49,6 +49,21 @@ export interface EffectiveRepositoryPolicy {
   readonly allowCloudMergeClassification: boolean;
 }
 
+/** Effective route switches plus the raw consent settings that determine them. */
+export interface RepositoryTransmissionState {
+  readonly host_assisted: boolean;
+  readonly merge_classifier: boolean;
+  readonly provider: boolean;
+  readonly global_defaults: {
+    readonly merge_classifier: boolean;
+    readonly provider: boolean;
+  };
+  readonly repository_overrides: {
+    readonly merge_classifier: boolean | null;
+    readonly provider: boolean | null;
+  };
+}
+
 export interface InitializedStorage {
   readonly config: RepoKnowledgeConfig;
   readonly configPath: string;
@@ -140,6 +155,32 @@ export function resolveRepositoryPolicy(
     allowCloudTransmission:
       normalizedConfig.repoPolicies[normalizedRepository]
         ?.allowCloudTransmission ?? normalizedConfig.llm.allowCloudTransmission,
+  };
+}
+
+/** Reports the same repository policy used by provider and Jev execution. */
+export function resolveRepositoryTransmissionState(
+  config: RepoKnowledgeConfig,
+  repository: string,
+): RepositoryTransmissionState {
+  const policy = resolveRepositoryPolicy(config, repository);
+  const override = config.repoPolicies[RepositoryNameSchema.parse(repository)];
+  return {
+    host_assisted:
+      config.hostAssistedDistillation.enabled &&
+      config.hostAssistedDistillation.allowReviewContentTransmission,
+    merge_classifier:
+      config.mergeClassifier.mode === "jev" &&
+      policy.allowCloudMergeClassification,
+    provider: config.llm.mode !== "disabled" && policy.allowCloudTransmission,
+    global_defaults: {
+      merge_classifier: config.mergeClassifier.allowCloudTransmission,
+      provider: config.llm.allowCloudTransmission,
+    },
+    repository_overrides: {
+      merge_classifier: override?.allowCloudMergeClassification ?? null,
+      provider: override?.allowCloudTransmission ?? null,
+    },
   };
 }
 

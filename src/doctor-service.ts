@@ -108,6 +108,7 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
     this.storageRoot = resolve(options.storageRoot);
   }
 
+  /** Resolves the diagnostic target before checking its effective transmission policy. */
   async run(selection: DoctorRepositorySelection = {}): Promise<DoctorReport> {
     const report = new DoctorReportBuilder();
     checkRuntime(report, this.nodeVersion, this.platform);
@@ -119,12 +120,6 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
     const config = storageExists
       ? await inspectConfig(report, this.storageRoot)
       : null;
-    await checkTransmissionConfiguration(
-      report,
-      config,
-      this.llmSubscriptionInspector,
-      this.typesafeCredential,
-    );
     await inspectSqliteFeatures(report);
     const github = await inspectGithub(report, this.ghRunner);
     const registry = storageExists
@@ -146,6 +141,13 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
       target,
       identity,
       this.storageRoot,
+    );
+    await checkTransmissionConfiguration(
+      report,
+      config,
+      this.llmSubscriptionInspector,
+      this.typesafeCredential,
+      identity?.currentName ?? local?.currentName ?? target,
     );
     if (local === null) {
       addSkippedRepositoryChecks(report);

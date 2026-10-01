@@ -143,6 +143,8 @@ repo-knowledge review owner/repository
 
 ## 外部送信を行わない場合
 
+この節の OFF は外部蒸留を指します。`get_rules` などによる承認済み rule の通常出力は接続先 MCP client へ渡るため、すべての AI / 外部出力を禁止する設定ではありません。
+
 `llm.mode` が `disabled` で、host-assisted の同意 flag がそろっていない場合、review content を LLM へ送りません。
 raw evidence と pending job はローカルに保存されるため、後から送信方法を選べます。
 
@@ -229,7 +231,11 @@ grok login
 repo-knowledge distill owner/repository
 ```
 
-repository 単位の `repoPolicies.<owner/name>.allowCloudTransmission: false` は global opt-in より優先されます。
+Provider の `llm.allowCloudTransmission` と Jev の `mergeClassifier.allowCloudTransmission` は同じ storage の全 repository と今後の repository が継承する global 既定値です。
+setup の `Yes` はこの global 設定を更新します。既存の `repoPolicies` は変更せず、`No` でも既存同意は取り消しません。
+Provider の `repoPolicies.<owner/name>.allowCloudTransmission` は `false` / `true` のどちらも global 同意に優先します。Jev では `allowCloudMergeClassification` が同じ役割を持ちます。
+setup の初回同期前・結果と `doctor owner/repository` は対象 repository の実効状態、global 既定値、override を区別します。`setup --json` でも事前説明は stderr、結果 JSON は stdout に分離されます。
+JSON の `transmission.provider` / `merge_classifier` は実効 route の状態、`global_defaults` は生の global 同意値、`repository_overrides` は明示値（未設定なら `null`）です。route が ON でも model / credential の readiness は doctor で別途検査します。
 CLI の `ingest` / `sync` と MCP の `ingest_pr` / `sync_repo` は、Provider Adapter が有効なら取得後に蒸留も実行します。
 GitHub からの取得だけを行う場合は、Provider Adapter を無効にしてください。
 MCP server 起動後に `llm` 設定を変えた場合は、client から server を再接続して config を読み直してください。
@@ -317,6 +323,7 @@ credentialを変更した後は MCP client から server を再接続してく�
 ## host-assisted distillation を使う
 
 host-assisted distillation は、接続中の Claude Code または Codex が使う host model へ一件ずつ job を渡します。
+二つの同意 flag は global-only で、同じ storage の全 repository と将来追加する repository に適用されます。repository override はなく、適用範囲を分けるには storage を分離します。
 Provider CLI は起動せず、`llm.mode` は `disabled` のままにします。
 
 ```json

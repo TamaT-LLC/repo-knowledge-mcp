@@ -3,7 +3,12 @@ import {
   compareCodeUnits,
   sortAndDedupeStrings,
 } from "./canonical.js";
-import type { InitializedStorage } from "./config.js";
+import {
+  resolveRepositoryTransmissionState,
+  type InitializedStorage,
+  type RepositoryTransmissionState,
+} from "./config.js";
+import { renderTransmissionDisclosure } from "./cli-render.js";
 import type { DoctorReport } from "./doctor-service.js";
 import type {
   CommentObservation,
@@ -47,6 +52,7 @@ export interface GuidedSetupPrompt {
   confirm(request: SetupConfirmationRequest): Promise<boolean>;
   input?(request: SetupTextInputRequest): Promise<string>;
   progress?(update: TerminalActivityUpdate): void;
+  notice?(message: string): void;
 }
 
 export interface SetupTrustCandidate {
@@ -75,11 +81,7 @@ export interface GuidedSetupResult {
   readonly resumed: boolean;
   readonly state_path: string;
   readonly storage_root: string;
-  readonly transmission: {
-    readonly host_assisted: boolean;
-    readonly merge_classifier: boolean;
-    readonly provider: boolean;
-  };
+  readonly transmission: RepositoryTransmissionState;
   readonly trust: {
     readonly candidates: number;
     readonly selected: readonly {
@@ -164,6 +166,7 @@ export class GuidedSetupService {
     this.clock = dependencies.clock ?? (() => new Date());
   }
 
+  /** Runs resumable setup, disclosing effective consent before the initial sync. */
   async run(
     request: GuidedSetupRequest,
     prompt: GuidedSetupPrompt,
@@ -171,6 +174,15 @@ export class GuidedSetupService {
     const resolution = await this.resolve(request, prompt);
     const resumed = resolution.state !== null;
     const configured = await this.configure(resolution, request, prompt);
+    prompt.notice?.(
+      `Before initial sync for ${resolution.repository.currentName}:\n` +
+        renderTransmissionDisclosure(
+          resolveRepositoryTransmissionState(
+            configured.config,
+            resolution.repository.currentName,
+          ),
+        ),
+    );
     const synced = await this.syncInitial(
       resolution,
       configured.state,
@@ -211,7 +223,10 @@ export class GuidedSetupService {
       resumed,
       state_path: stateStore.path,
       storage_root: storage.rootPath,
-      transmission: transmissionState(config),
+      transmission: resolveRepositoryTransmissionState(
+        config,
+        repository.currentName,
+      ),
       trust: {
         candidates: candidates.length,
         selected: selected.map((candidate) => ({
@@ -244,6 +259,7 @@ export class GuidedSetupService {
     );
   }
 
+  /** Persists global setup choices without replacing repository consent overrides. */
   private async configure(
     resolution: SetupResolution,
     request: GuidedSetupRequest,
@@ -258,11 +274,12 @@ export class GuidedSetupService {
       state === null
         ? await chooseTransmission(
             initialConfig,
+            repository.currentName,
             prompt,
             this.dependencies.typesafeApiKeyAvailable?.() ??
               resolveTypeSafeCredential() !== null,
           )
-        : configuredTransmission(initialConfig);
+        : configuredGlobalTransmission(initialConfig);
 
     let configBeforeSetup = initialConfig;
     const config = await this.dependencies.updateConfig(
@@ -619,6 +636,7 @@ function compareHumanObservations(
   );
 }
 
+/** Preserves an explicit setup boundary or derives the default lookback date. */
 function initialSinceFor(
   request: GuidedSetupRequest,
   now: Date,
@@ -630,6 +648,7 @@ function initialSinceFor(
   ).toISOString();
 }
 
+/** Chooses an initial boundary without widening a resumed checkpoint's saved scope. */
 function initialSyncRequest(
   state: SetupState,
   checkpoint: SyncCheckpoint | null,
@@ -650,8 +669,10 @@ function initialSyncRequest(
   };
 }
 
+/** Offers global opt-ins while explaining the selected repository's effective policy. */
 async function chooseTransmission(
   config: RepoKnowledgeConfig,
+  repository: string,
   prompt: GuidedSetupPrompt,
   typesafeApiKeyAvailable: boolean,
 ): Promise<{
@@ -661,14 +682,21 @@ async function chooseTransmission(
   readonly providerMode: EnabledLlmProviderMode | null;
   readonly providerModel: string | null;
 }> {
-  const current = configuredTransmission(config);
+  const current = configuredGlobalTransmission(config);
+  const effective = resolveRepositoryTransmissionState(config, repository);
   const provider =
     current.provider ||
     (await prompt.confirm({
       defaultValue: false,
       id: "transmission.provider",
       message:
-        "Provider route sends review comment bodies and diff hunks through a locally logged-in subscription CLI. Enable it and choose Claude Code, Codex, or Grok CLI?",
+        "Provider route sends review comment bodies and diff hunks through a locally logged-in subscription CLI. " +
+        `Current repository route: ${effective.provider ? "on" : "off"}. ` +
+        "Enable the global default for all repositories sharing this storage, including future repositories, and choose Claude Code, Codex, or Grok CLI? " +
+        repositoryConsentGuidance(
+          "allowCloudTransmission",
+          effective.repository_overrides.provider,
+        ),
     }));
   const configuredMode = enabledProviderMode(config.llm);
   const providerMode = provider
@@ -690,7 +718,13 @@ async function chooseTransmission(
         defaultValue: false,
         id: "transmission.merge-classifier",
         message:
-          "Use TypeSafe Jev for merge classification? Candidate and possible-match rule summaries will be sent to TypeSafe.",
+          "Use TypeSafe Jev for merge classification? Candidate and possible-match rule summaries will be sent to TypeSafe. " +
+          `Current repository Jev route: ${effective.merge_classifier ? "on" : "off"}. ` +
+          "Enable the global default for all repositories sharing this storage, including future repositories? " +
+          repositoryConsentGuidance(
+            "allowCloudMergeClassification",
+            effective.repository_overrides.merge_classifier,
+          ),
       })));
   const hostAssisted =
     current.hostAssisted ||
@@ -698,7 +732,10 @@ async function chooseTransmission(
       defaultValue: false,
       id: "transmission.host-assisted",
       message:
-        "Host-assisted route returns review comment bodies to the connected MCP host model. Enable it?",
+        "Host-assisted route returns review comment bodies to the connected MCP host model. " +
+        "Enable it globally for all repositories sharing this storage, including future repositories? " +
+        "Host-assisted consent has no repository override; use separate storage to isolate its scope. " +
+        "External-distillation opt-out does not disable normal approved-rule outputs to a connected MCP client.",
     }));
   return {
     hostAssisted,
@@ -756,6 +793,7 @@ async function readProviderModel(
   }
 }
 
+/** Applies chosen global opt-ins and repository selection while preserving overrides. */
 function setupConfig(
   current: RepoKnowledgeConfig,
   repository: RepositoryResolution,
@@ -818,7 +856,8 @@ function setupConfig(
   };
 }
 
-function configuredTransmission(config: RepoKnowledgeConfig): {
+/** Existing global opt-ins, never repository-effective values to be copied globally. */
+function configuredGlobalTransmission(config: RepoKnowledgeConfig): {
   readonly hostAssisted: boolean;
   readonly mergeClassifier: boolean;
   readonly provider: boolean;
@@ -837,10 +876,12 @@ function configuredTransmission(config: RepoKnowledgeConfig): {
   };
 }
 
+/** Converts the disabled mode to an absent provider choice without changing config. */
 function enabledProviderMode(config: LlmConfig): EnabledLlmProviderMode | null {
   return config.mode === "disabled" ? null : config.mode;
 }
 
+/** Rejects a missing provider choice when an enabled route requires one. */
 function requiredProviderMode(
   mode: EnabledLlmProviderMode | null | undefined,
 ): EnabledLlmProviderMode {
@@ -852,17 +893,18 @@ function requiredProviderMode(
   return mode;
 }
 
-function transmissionState(config: RepoKnowledgeConfig): {
-  readonly host_assisted: boolean;
-  readonly merge_classifier: boolean;
-  readonly provider: boolean;
-} {
-  const transmission = configuredTransmission(config);
-  return {
-    host_assisted: transmission.hostAssisted,
-    merge_classifier: transmission.mergeClassifier,
-    provider: transmission.provider,
-  };
+/** Explains override precedence and that declining a global opt-in preserves consent. */
+function repositoryConsentGuidance(
+  key: string,
+  override: boolean | null,
+): string {
+  return (
+    `repoPolicies.<owner/name>.${key} overrides this default. ` +
+    (override === null
+      ? "This repository currently inherits the global default. "
+      : `This repository has an explicit ${String(override)} override, which setup preserves. `) +
+    "No keeps existing consent unchanged; it does not revoke a repository override."
+  );
 }
 
 function assertStateMatches(

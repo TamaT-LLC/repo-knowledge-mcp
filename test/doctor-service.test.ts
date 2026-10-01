@@ -21,6 +21,7 @@ import {
   applyKnowledgeDocumentPatch,
   createDomainId,
   initializeStorage,
+  updateRepoKnowledgeConfig,
   type CanonicalJsonlRecord,
   type DoctorCheck,
   type DoctorReport,
@@ -345,6 +346,110 @@ describe("RepoKnowledgeDoctor", () => {
     expect(
       check(hostResult, "config.host_assisted_transmission"),
     ).toMatchObject({ status: "warn" });
+  });
+
+  it.each([false, true])(
+    "checks effective repository consent with a %s global default",
+    async (globalConsent) => {
+      const fixture = await createFixture({
+        llm: {
+          mode: "anthropic",
+          model: "fixture-model",
+          allowCloudTransmission: globalConsent,
+        },
+        mergeClassifier: { mode: "jev", allowCloudTransmission: globalConsent },
+        repoPolicies: {
+          [REPOSITORY]: {
+            allowCloudTransmission: !globalConsent,
+            allowCloudMergeClassification: !globalConsent,
+          },
+        },
+      });
+      const subscription = new FakeSubscriptionInspector({
+        authenticated: true,
+        cliAvailable: true,
+      });
+      const result = await fixture
+        .doctor({ subscription, environment: {} })
+        .run({ repo: REPOSITORY });
+      expect(subscription.modes).toEqual(globalConsent ? [] : ["anthropic"]);
+      expect(check(result, "config.provider_transmission").status).toBe(
+        globalConsent ? "warn" : "pass",
+      );
+      expect(check(result, "config.merge_classifier_transmission").status).toBe(
+        globalConsent ? "warn" : "fail",
+      );
+      for (const id of [
+        "config.provider_transmission",
+        "config.merge_classifier_transmission",
+      ]) {
+        expect(check(result, id).details).toMatchObject({
+          repository: REPOSITORY,
+          global_consent: globalConsent,
+          repository_override: !globalConsent,
+          effective_consent: !globalConsent,
+          enabled: !globalConsent,
+        });
+        expect(check(result, id).message).toContain(
+          `global consent ${String(globalConsent)}, repository override ${String(!globalConsent)}`,
+        );
+      }
+    },
+  );
+
+  it("uses the current repository name rather than an old alias for consent", async () => {
+    const fixture = await createFixture({
+      llm: {
+        mode: "anthropic",
+        model: "fixture-model",
+        allowCloudTransmission: false,
+      },
+      repoPolicies: {
+        [REPOSITORY]: { allowCloudTransmission: true },
+        "owner/old-name": { allowCloudTransmission: false },
+      },
+    });
+    const subscription = new FakeSubscriptionInspector({
+      authenticated: true,
+      cliAvailable: true,
+    });
+    const result = await fixture
+      .doctor({ subscription })
+      .run({ repo: "owner/old-name" });
+    expect(subscription.modes).toEqual(["anthropic"]);
+    expect(check(result, "config.provider_transmission").details).toMatchObject(
+      { repository: REPOSITORY, enabled: true, repository_override: true },
+    );
+  });
+
+  it("labels diagnostics as global-only when no repository can be selected", async () => {
+    const fixture = await createFixture({
+      repoPolicies: { [REPOSITORY]: { allowCloudTransmission: true } },
+    });
+    await updateRepoKnowledgeConfig(
+      join(fixture.storageRoot, "config.json"),
+      (config) => {
+        const { defaultRepo: _defaultRepo, ...rest } = config;
+        return rest;
+      },
+    );
+    const result = await fixture.doctor().run();
+    expect(check(result, "config.provider_transmission")).toMatchObject({
+      message: expect.stringContaining(
+        "Global defaults only; no repository policy was evaluated",
+      ),
+      details: {
+        repository: null,
+        repository_override: null,
+        global_consent: false,
+      },
+    });
+    expect(
+      check(result, "config.host_assisted_transmission").message,
+    ).toContain("global-only");
+    expect(
+      check(result, "config.host_assisted_transmission").message,
+    ).toContain("does not disable normal approved-rule outputs");
   });
 
   it("requires TYPESAFE_API_KEY only when Jev transmission is enabled", async () => {

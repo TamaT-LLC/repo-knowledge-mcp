@@ -7,12 +7,13 @@ import Database from "better-sqlite3";
 import {
   DEFAULT_CONFIG_FILE_NAME,
   loadRepoKnowledgeConfig,
+  resolveRepositoryPolicy,
 } from "../config.js";
 import type { RepoKnowledgeConfig } from "../domain-schemas.js";
 import type { ResolvedTypeSafeCredential } from "../jev-client.js";
 import { getLlmProviderDefinition } from "../llm-provider-config.js";
 import type { LlmSubscriptionInspectorLike } from "../subscription-cli-provider.js";
-import { DoctorReportBuilder } from "./report-builder.js";
+import { DoctorReportBuilder, type DoctorCheck } from "./report-builder.js";
 import {
   errorCode,
   errorMessage,
@@ -32,6 +33,7 @@ const NETWORK_FILESYSTEM_TYPES = new Map<number, string>([
 const SYNCHRONIZED_PATH =
   /(?:^|[/\\])(?:Dropbox|Google Drive|Mobile Documents|OneDrive)(?:[/\\]|$)/iu;
 
+/** Reports whether the supplied Node.js version and operating system are supported. */
 export function checkRuntime(
   report: DoctorReportBuilder,
   nodeVersion: string,
@@ -73,11 +75,13 @@ export function checkRuntime(
   );
 }
 
+/** Checks route readiness using repository consent, or explicitly labeled global defaults. */
 export async function checkTransmissionConfiguration(
   report: DoctorReportBuilder,
   config: RepoKnowledgeConfig | null,
   subscriptionInspector: LlmSubscriptionInspectorLike,
   typesafeCredential: ResolvedTypeSafeCredential | null = null,
+  repository: string | null = null,
 ): Promise<void> {
   if (config === null) {
     for (const id of [
@@ -94,33 +98,57 @@ export async function checkTransmissionConfiguration(
     }
     return;
   }
+  const policy =
+    repository === null
+      ? {
+          allowCloudTransmission: config.llm.allowCloudTransmission,
+          allowCloudMergeClassification:
+            config.mergeClassifier.allowCloudTransmission,
+        }
+      : resolveRepositoryPolicy(config, repository);
+  const overrides =
+    repository === null ? undefined : config.repoPolicies[repository];
+  const addProvider = transmissionCheckReporter(report, repository, {
+    global_consent: config.llm.allowCloudTransmission,
+    repository_override: overrides?.allowCloudTransmission ?? null,
+    effective_consent: policy.allowCloudTransmission,
+    enabled: config.llm.mode !== "disabled" && policy.allowCloudTransmission,
+  });
+  const addMergeClassifier = transmissionCheckReporter(report, repository, {
+    global_consent: config.mergeClassifier.allowCloudTransmission,
+    repository_override: overrides?.allowCloudMergeClassification ?? null,
+    effective_consent: policy.allowCloudMergeClassification,
+    enabled:
+      config.mergeClassifier.mode === "jev" &&
+      policy.allowCloudMergeClassification,
+  });
   const mergeClassifier = config.mergeClassifier;
   if (
     mergeClassifier.mode === "provider" &&
-    mergeClassifier.allowCloudTransmission
+    policy.allowCloudMergeClassification
   ) {
-    report.add({
+    addMergeClassifier({
       id: "config.merge_classifier_transmission",
       message:
         "Jev cloud consent is true while the provider merge classifier is selected.",
       remedy:
-        "Set mergeClassifier.allowCloudTransmission to false, or select Jev intentionally.",
+        "Set the applicable repoPolicies.<owner/name>.allowCloudMergeClassification or global mergeClassifier.allowCloudTransmission to false, or select Jev intentionally.",
       status: "warn",
     });
   } else if (
     mergeClassifier.mode === "jev" &&
-    !mergeClassifier.allowCloudTransmission
+    !policy.allowCloudMergeClassification
   ) {
-    report.add({
+    addMergeClassifier({
       id: "config.merge_classifier_transmission",
       message:
         "Jev merge classification is configured but cloud transmission consent is false.",
       remedy:
-        "Use provider mode, or explicitly enable mergeClassifier.allowCloudTransmission after reviewing data disclosure.",
+        "Use provider mode, or review the applicable repoPolicies.<owner/name>.allowCloudMergeClassification override and global mergeClassifier.allowCloudTransmission consent.",
       status: "warn",
     });
   } else if (mergeClassifier.mode === "jev" && typesafeCredential === null) {
-    report.add({
+    addMergeClassifier({
       id: "config.merge_classifier_transmission",
       message: "Jev merge classification has no TypeSafe API credential.",
       remedy:
@@ -128,7 +156,7 @@ export async function checkTransmissionConfiguration(
       status: "fail",
     });
   } else {
-    report.add({
+    addMergeClassifier({
       details:
         mergeClassifier.mode === "jev"
           ? {
@@ -147,31 +175,31 @@ export async function checkTransmissionConfiguration(
   }
 
   const provider = config.llm;
-  if (provider.mode === "disabled" && provider.allowCloudTransmission) {
-    report.add({
+  if (provider.mode === "disabled" && policy.allowCloudTransmission) {
+    addProvider({
       id: "config.provider_transmission",
       message:
         "Cloud transmission consent is true while the provider mode is disabled.",
       remedy:
-        "Set llm.allowCloudTransmission to false, or configure mode and model intentionally.",
+        "Set the applicable repoPolicies.<owner/name>.allowCloudTransmission or global llm.allowCloudTransmission to false, or configure mode and model intentionally.",
       status: "warn",
     });
-  } else if (provider.mode !== "disabled" && !provider.allowCloudTransmission) {
+  } else if (provider.mode !== "disabled" && !policy.allowCloudTransmission) {
     const definition = getLlmProviderDefinition(provider.mode);
-    report.add({
+    addProvider({
       id: "config.provider_transmission",
       message: `${definition.displayName} mode is configured but cloud transmission consent is false; provider calls remain disabled.`,
       remedy:
-        "Either set mode to disabled or explicitly enable allowCloudTransmission after reviewing data disclosure.",
+        "Either set mode to disabled, or review the applicable repoPolicies.<owner/name>.allowCloudTransmission override and global llm.allowCloudTransmission consent.",
       status: "warn",
     });
   } else if (
     provider.mode !== "disabled" &&
-    provider.allowCloudTransmission &&
+    policy.allowCloudTransmission &&
     provider.model === null
   ) {
     const definition = getLlmProviderDefinition(provider.mode);
-    report.add({
+    addProvider({
       id: "config.provider_transmission",
       message: `Enabled ${definition.displayName} transmission has no configured model.`,
       remedy: "Set llm.model before running provider distillation.",
@@ -181,21 +209,21 @@ export async function checkTransmissionConfiguration(
     const definition = getLlmProviderDefinition(provider.mode);
     const subscription = await subscriptionInspector.inspect(provider.mode);
     if (!subscription.cliAvailable) {
-      report.add({
+      addProvider({
         id: "config.provider_transmission",
         message: `Enabled ${definition.displayName} transmission cannot find the ${definition.cliExecutable} CLI.`,
         remedy: `Install ${definition.displayName}, then run ${definition.loginCommand}.`,
         status: "fail",
       });
     } else if (!subscription.authenticated) {
-      report.add({
+      addProvider({
         id: "config.provider_transmission",
         message: `Enabled ${definition.displayName} transmission has no usable subscription login.`,
         remedy: `Run ${definition.loginCommand} and choose subscription sign-in, then rerun doctor.`,
         status: "fail",
       });
     } else {
-      report.add({
+      addProvider({
         details: {
           authentication: subscription.method ?? "subscription",
           cli: definition.cliExecutable,
@@ -206,7 +234,7 @@ export async function checkTransmissionConfiguration(
       });
     }
   } else {
-    report.add({
+    addProvider({
       id: "config.provider_transmission",
       message: "Provider transmission is safely disabled.",
       status: "pass",
@@ -214,8 +242,18 @@ export async function checkTransmissionConfiguration(
   }
 
   const host = config.hostAssistedDistillation;
-  if (host.enabled !== host.allowReviewContentTransmission) {
+  /** Annotates host-assisted diagnostics with their storage-wide consent scope. */
+  const addHost = (check: DoctorCheck): void =>
     report.add({
+      ...check,
+      details: {
+        global_only: true,
+        enabled: host.enabled && host.allowReviewContentTransmission,
+      },
+      message: `${check.message} Host-assisted consent is global-only for all repositories sharing this storage, including future repositories; there is no repository override. External-distillation opt-out does not disable normal approved-rule outputs to a connected MCP client.`,
+    });
+  if (host.enabled !== host.allowReviewContentTransmission) {
+    addHost({
       id: "config.host_assisted_transmission",
       message:
         "Host-assisted mode requires both enabled and allowReviewContentTransmission; review content remains unavailable.",
@@ -224,7 +262,7 @@ export async function checkTransmissionConfiguration(
       status: "warn",
     });
   } else {
-    report.add({
+    addHost({
       id: "config.host_assisted_transmission",
       message: host.enabled
         ? "Host-assisted transmission has both required opt-ins."
@@ -232,6 +270,29 @@ export async function checkTransmissionConfiguration(
       status: "pass",
     });
   }
+}
+
+/** Adds consent provenance and the evaluated repository scope to a diagnostic check. */
+function transmissionCheckReporter(
+  report: DoctorReportBuilder,
+  repository: string | null,
+  policy: {
+    readonly global_consent: boolean;
+    readonly repository_override: boolean | null;
+    readonly effective_consent: boolean;
+    readonly enabled: boolean;
+  },
+): (check: DoctorCheck) => void {
+  return (check) =>
+    report.add({
+      ...check,
+      details: { ...check.details, ...policy, repository },
+      message:
+        check.message +
+        (repository === null
+          ? " Global defaults only; no repository policy was evaluated."
+          : ` Repository ${repository}: global consent ${String(policy.global_consent)}, repository override ${policy.repository_override === null ? "inherit" : String(policy.repository_override)}, effective consent ${String(policy.effective_consent)}.`),
+    });
 }
 
 export async function inspectSqliteFeatures(

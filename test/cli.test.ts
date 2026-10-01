@@ -156,7 +156,11 @@ describe("repo-knowledge CLI", () => {
         since: "2026-08-01T00:00:00.000Z",
         workspacePath: "/work/repo",
       },
-      { confirm: expect.any(Function), input: expect.any(Function) },
+      {
+        confirm: expect.any(Function),
+        input: expect.any(Function),
+        notice: expect.any(Function),
+      },
     );
     expect(current.stdout()).toContain("Setup complete");
     expect(current.stdout()).toContain(`Repository  ${REPOSITORY}`);
@@ -167,7 +171,7 @@ describe("repo-knowledge CLI", () => {
       "provider off · Jev off · host-assisted off",
     );
     expect(current.stdout()).toContain(
-      "no model transmission route is enabled",
+      "no external-distillation route is enabled",
     );
     expect(current.stdout()).toContain(
       `repo-knowledge setup ${REPOSITORY} --json`,
@@ -196,12 +200,16 @@ describe("repo-knowledge CLI", () => {
       expect(await prompt.confirm(confirmation)).toBe(false);
       expect(await prompt.input!(input)).toBe("claude-test");
       prompt.progress!(update);
+      prompt.notice!("Effective repository routes: provider off");
       return setupResult();
     });
     expect(await runRepoKnowledgeCli(current.options)).toBe(0);
     expect(current.options.io.confirm).toHaveBeenCalledWith(confirmation);
     expect(current.options.io.input).toHaveBeenCalledWith(input);
     expect(activity).toHaveBeenCalledWith(update);
+    expect(current.stderr()).toContain(
+      "Effective repository routes: provider off",
+    );
   });
 
   it("routes a TTY rejection to the admin service", async () => {
@@ -230,7 +238,11 @@ describe("repo-knowledge CLI", () => {
     expect(current.stdout().trim().split("\n")).toHaveLength(1);
     expect(current.setup).toHaveBeenCalledWith(
       { repo: REPOSITORY },
-      { confirm: expect.any(Function), input: expect.any(Function) },
+      {
+        confirm: expect.any(Function),
+        input: expect.any(Function),
+        notice: expect.any(Function),
+      },
     );
     expect(activity).not.toHaveBeenCalled();
   });
@@ -1048,6 +1060,7 @@ function inboxPage(items: readonly ReviewInboxItem[]) {
   };
 }
 
+/** Captures CLI output and supplies isolated, deterministic service doubles. */
 function fixture(
   argv: readonly string[],
   tty: { readonly stdinIsTTY: boolean; readonly stdoutIsTTY: boolean } = {
@@ -1214,6 +1227,7 @@ function fixture(
   };
 }
 
+/** Supplies a safe-default setup result with explicit global and repository consent fields. */
 function setupResult(): GuidedSetupResult {
   return {
     config_path: "/storage/config.json",
@@ -1243,6 +1257,8 @@ function setupResult(): GuidedSetupResult {
       host_assisted: false,
       merge_classifier: false,
       provider: false,
+      global_defaults: { provider: false, merge_classifier: false },
+      repository_overrides: { provider: null, merge_classifier: null },
     },
     trust: { candidates: 0, selected: [] },
   };

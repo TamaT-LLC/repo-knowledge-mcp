@@ -103,6 +103,11 @@ LLM への外部送信は二つの独立経路があります。
   server 自身が provider API を呼ぶのでなく、normalized review content を MCP client へ返し、client が利用する model に渡します。
 
 両経路は既定で無効です。
+setup で許可する Provider / Jev / host-assisted の送信設定は、同じ storage の全 repository と今後追加する repository に適用する global 設定です。
+Provider では `repoPolicies.<owner/name>.allowCloudTransmission`、Jev では `repoPolicies.<owner/name>.allowCloudMergeClassification` の明示値が global 同意より優先されます。`false` は global opt-in を拒否し、`true` は global opt-out を上書きします。mode / model / credential の要件は別途満たす必要があります。
+setup は既存 override を保存し、global 質問への `No` を既存同意の取り消しとして扱いません。初回同期の前に実効状態、global 既定値、override を表示します。
+host-assisted は二つの global flag だけで判定し、repository 別 override はありません。別々の同意範囲が必要なら storage を分離してください。
+Jev は独立した同意に基づき candidate と possible-match rule の要約を TypeSafe に送信します。
 Provider Adapter は review comment、actor metadata、path、取得済み diff context、repository context、candidate、possible knowledge match を送信し得ます。
 host-assisted は comment と actor metadata を返し、`includeDiffHunk: true` のときだけ diff hunk を含めます。
 `includeDiffHunk` は host-assisted 専用です。Provider Adapter の送信から diff を除外する設定ではありません。
@@ -126,7 +131,9 @@ scanner を回避せず、書き換えられない場合は外部送信を無効
 
 scanner は既知形式の deny-list であり、すべての機密情報を検出する保証ではありません。
 credential を review、diff、config へ貼らない運用は引き続き必要です。
-機密 repository では provider と host-assisted の両方を無効のまま使用してください。
+機密 repository では Provider / Jev / host-assisted の外部蒸留を、対象 repository の実効設定で無効にしてください。
+これは通常の MCP read の停止ではありません。`get_rules`、`search_knowledge`、`get_knowledge` は外部蒸留が OFF でも、承認済み rule、説明、code example、evidence metadata を接続先 MCP client へ返します。
+MCP client とその model の data handling policy も確認し、そこへの出力自体を許可できない repository はその client に接続しないでください。
 
 ## Sync / outcome / provider 測定の data boundary
 
