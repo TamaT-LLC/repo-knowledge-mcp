@@ -377,6 +377,7 @@ function job(
   } as const;
 }
 
+/** Describes the synthetic ingested snapshot used by the runner regressions. */
 function ingestResult() {
   return {
     changed_threads: 0,

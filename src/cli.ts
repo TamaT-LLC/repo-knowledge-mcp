@@ -112,6 +112,7 @@ Stats exits 0 on success (including zero stats for an empty repository),
 record_outcome remains deferred to a later milestone.
 `;
 
+/** Parses a CLI invocation, reports diagnostics, and closes its output resources. */
 export async function runRepoKnowledgeCli(
   options: RunRepoKnowledgeCliOptions,
 ): Promise<number> {
