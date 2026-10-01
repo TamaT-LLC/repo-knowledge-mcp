@@ -397,7 +397,13 @@ async function recoveryFixture() {
   roots.push(root);
   let timestamp = Date.parse(NOW);
   /** Returns the fixture's controlled current time. */
-  const now = () => new Date(timestamp);
+  function now(): Date {
+    return new Date(timestamp);
+  }
+  /** Sets the fixture clock to the supplied epoch-millisecond timestamp. */
+  function setTime(value: number): void {
+    timestamp = value;
+  }
   const config = RepoKnowledgeConfigSchema.parse({
     llm: {
       allowCloudTransmission: true,
@@ -480,10 +486,7 @@ Return structured output for synthetic reviews.
     coordinator,
     jobId: (await store.readSnapshot()).domain.distillJobs[0]!.job_id,
     runner,
-    /** Sets the fixture clock to the supplied epoch-millisecond timestamp. */
-    setTime: (value: number) => {
-      timestamp = value;
-    },
+    setTime,
     store,
   };
 }
