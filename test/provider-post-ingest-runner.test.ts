@@ -396,6 +396,7 @@ async function recoveryFixture() {
   const root = await mkdtemp(join(tmpdir(), "rkm-provider-recovery-"));
   roots.push(root);
   let timestamp = Date.parse(NOW);
+  /** Returns the fixture's controlled current time. */
   const now = () => new Date(timestamp);
   const config = RepoKnowledgeConfigSchema.parse({
     llm: {
@@ -479,6 +480,7 @@ Return structured output for synthetic reviews.
     coordinator,
     jobId: (await store.readSnapshot()).domain.distillJobs[0]!.job_id,
     runner,
+    /** Sets the fixture clock to the supplied epoch-millisecond timestamp. */
     setTime: (value: number) => {
       timestamp = value;
     },
