@@ -231,7 +231,15 @@ async function main() {
         RKM_SETUP_OUTPUT: "human",
       },
     });
-    assert(humanSetup.stderr === "", "installed guided setup wrote to stderr");
+    assert(
+      humanSetup.stderr.includes(
+        `Before initial sync for ${smokeRepository}`,
+      ) &&
+        humanSetup.stderr.includes(
+          "provider off · Jev off · host-assisted off",
+        ),
+      "installed guided setup omitted pre-sync privacy disclosure",
+    );
     assert(
       humanSetup.stdout.includes("Setup complete") &&
         humanSetup.stdout.includes(`Repository  ${smokeRepository}`) &&
@@ -249,7 +257,11 @@ async function main() {
         RKM_SETUP_OUTPUT: "json",
       },
     });
-    assert(setup.stderr === "", "installed guided setup wrote to stderr");
+    assert(
+      setup.stderr.includes(`Before initial sync for ${smokeRepository}`) &&
+        setup.stderr.includes("provider off · Jev off · host-assisted off"),
+      "installed guided setup JSON mode omitted pre-sync privacy disclosure",
+    );
     assert(
       setup.stdout.trim().split("\n").length === 1 &&
         setup.stdout.startsWith('{"config_path":'),

@@ -18,6 +18,10 @@ import {
   type PossibleMatchSet,
 } from "../src/experimental.js";
 
+import { resolveRepositoryTransmissionState } from "../src/config.js";
+import { checkTransmissionConfiguration } from "../src/doctor/checks-runtime.js";
+import { DoctorReportBuilder } from "../src/doctor/report-builder.js";
+
 const REPOSITORY = "owner/repository";
 const CANDIDATE_A = "cand_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const CANDIDATE_B = "cand_01ARZ3NDEKTSV4RRFFQ69G5FAW";
@@ -139,6 +143,72 @@ describe("JevMergeRelationClassifier", () => {
     });
     expect(client.requests).toEqual([]);
   });
+
+  it.each([false, true])(
+    "matches reported repository consent with a fake Jev call when global consent is %s",
+    async (globalConsent) => {
+      const config = parseRepoKnowledgeConfig({
+        mergeClassifier: { mode: "jev", allowCloudTransmission: globalConsent },
+        repoPolicies: {
+          [REPOSITORY]: { allowCloudMergeClassification: !globalConsent },
+        },
+      });
+      const client = new FakeJevClient({
+        answers: {
+          candidate_0: choiceAnswer("different", [
+            "different",
+            "same_0",
+            "overlaps_0",
+          ]),
+        },
+        model: "fixture-jev",
+      });
+      const classifier = new JevMergeRelationClassifier({
+        client,
+        config,
+        repository: { currentName: REPOSITORY },
+      });
+      const request = {
+        candidates: [candidate(CANDIDATE_A, "Synthetic rule")],
+        possible_matches: [matchSet(CANDIDATE_A, [KNOWLEDGE_A])],
+      };
+      if (globalConsent) {
+        await expect(classifier.classify(request)).rejects.toMatchObject({
+          code: "MERGE_CLASSIFIER_TRANSMISSION_DENIED",
+        });
+      } else {
+        await expect(classifier.classify(request)).resolves.toMatchObject({
+          decisions: [{ relation: "different" }],
+        });
+      }
+      const state = resolveRepositoryTransmissionState(config, REPOSITORY);
+      const report = new DoctorReportBuilder();
+      await checkTransmissionConfiguration(
+        report,
+        config,
+        {
+          inspect: async () => {
+            throw new Error("provider inspector must not run");
+          },
+        },
+        { apiKey: "fixture-only", source: "environment" },
+        REPOSITORY,
+      );
+      expect(client.requests).toHaveLength(globalConsent ? 0 : 1);
+      expect(state.merge_classifier).toBe(!globalConsent);
+      expect(
+        report
+          .build()
+          .checks.find(
+            (check) => check.id === "config.merge_classifier_transmission",
+          )?.details,
+      ).toMatchObject({
+        enabled: state.merge_classifier,
+        global_consent: globalConsent,
+        repository_override: !globalConsent,
+      });
+    },
+  );
 
   it("requires an API key before contacting Jev", async () => {
     const classifier = new JevMergeRelationClassifier({

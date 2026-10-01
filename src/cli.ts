@@ -270,6 +270,7 @@ async function executeSetupCommand(
   const prompt: GuidedSetupPrompt = {
     confirm: (request) => options.io.confirm!(request),
     input: (request) => options.io.input!(request),
+    notice: (message) => options.io.writeStderr(`${message}\n`),
     ...(command.json !== true && options.io.activity !== undefined
       ? {
           progress: (update: TerminalActivityUpdate) =>

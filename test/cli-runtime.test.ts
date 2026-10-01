@@ -179,6 +179,14 @@ describe("default CLI runtime", () => {
         storageRoot,
       });
       expect(exitCode, captured.stderr()).toBe(0);
+      expect(captured.stdout().trim().split("\n")).toHaveLength(1);
+      expect(captured.stderr()).toContain(
+        "Before initial sync for owner/repository",
+      );
+      expect(captured.stderr()).toContain(
+        "provider off · Jev off · host-assisted off",
+      );
+      expect(captured.stderr()).not.toContain("Prefer the repository helper.");
 
       const result = JSON.parse(captured.stdout()) as {
         repository: { storage_path: string; workspace_path: string };

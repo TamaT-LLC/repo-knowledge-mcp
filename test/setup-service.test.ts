@@ -5,6 +5,15 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CanonicalTransactionStore,
+  DISTILLATION_OUTPUT_SCHEMA_DIGEST,
+  DistillJobCoordinator,
+  ProviderDistillationService,
+  computeDistillationInputDigest,
+  computeThreadContentFingerprint,
+  computeThreadDistillationKey,
+  computeTrustPolicyDigest,
+  parseDistillationPrompt,
   GuidedSetupService,
   SetupStateStore,
   collectSetupTrustCandidates,
@@ -15,11 +24,16 @@ import {
   type CommentObservation,
   type DoctorReport,
   type GuidedSetupDependencies,
+  type RepoKnowledgeConfig,
   type RepositoryResolution,
   type SetupTrustCandidate,
   type SyncCheckpoint,
   type SyncRepoSummary,
 } from "../src/experimental.js";
+
+import { renderGuidedSetupSummary } from "../src/cli-render.js";
+import { checkTransmissionConfiguration } from "../src/doctor/checks-runtime.js";
+import { DoctorReportBuilder } from "../src/doctor/report-builder.js";
 
 const NOW = new Date("2026-08-09T00:00:00.000Z");
 const DEFAULT_SINCE = "2026-05-11T00:00:00.000Z";
@@ -128,6 +142,253 @@ describe("guided setup service", () => {
     await expect(
       access(join(current.workspacePath, ".repo-knowledge")),
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each([false, true])(
+    "reports effective repository consent when the global default is %s",
+    async (globalConsent) => {
+      const current = await fixture({
+        config: {
+          llm: {
+            mode: "anthropic",
+            model: "fixture-model",
+            allowCloudTransmission: globalConsent,
+          },
+          mergeClassifier: {
+            mode: "jev",
+            allowCloudTransmission: globalConsent,
+          },
+          repoPolicies: {
+            [REPOSITORY]: {
+              allowCloudTransmission: !globalConsent,
+              allowCloudMergeClassification: !globalConsent,
+            },
+          },
+        },
+      });
+      const notices: string[] = [];
+      const confirmations: { message: string; defaultValue: boolean }[] = [];
+      const completeStructured = vi.fn(async () => ({
+        model: "fixture-model",
+        outputText: JSON.stringify({
+          candidates: [],
+          skip_reason: "pr_specific",
+        }),
+        provider: "anthropic" as const,
+      }));
+      const reports: DoctorReport[] = [];
+      current.runDoctor.mockImplementation(async () => {
+        const report = new DoctorReportBuilder();
+        await checkTransmissionConfiguration(
+          report,
+          await loadRepoKnowledgeConfig(current.configPath),
+          {
+            inspect: async () => ({ authenticated: true, cliAvailable: true }),
+          },
+          { apiKey: "fixture-only", source: "environment" },
+          REPOSITORY,
+        );
+        const result = report.build();
+        reports.push(result);
+        return result;
+      });
+      current.sync.mockImplementation(async () => {
+        // Assert disclosure happened before the same config reaches an actual fake adapter.
+        expect(notices).toHaveLength(1);
+        expect(notices[0]).toContain(
+          `provider ${globalConsent ? "off" : "on"} · Jev ${globalConsent ? "off" : "on"}`,
+        );
+        const config = await loadRepoKnowledgeConfig(current.configPath);
+        const execution = await runPolicyProvider(
+          config,
+          current.repository,
+          completeStructured,
+        );
+        expect(execution.state).toBe(globalConsent ? "pending" : "extracted");
+        return syncSummary();
+      });
+      const result = await current.service.run(
+        { repo: REPOSITORY },
+        {
+          confirm: async (request) => {
+            confirmations.push(request);
+            return false;
+          },
+          notice: (message) => notices.push(message),
+        },
+      );
+      expect(completeStructured).toHaveBeenCalledTimes(globalConsent ? 0 : 1);
+      expect(result.transmission).toMatchObject({
+        global_defaults: {
+          provider: globalConsent,
+          merge_classifier: globalConsent,
+        },
+        repository_overrides: {
+          provider: !globalConsent,
+          merge_classifier: !globalConsent,
+        },
+      });
+      for (const report of reports) {
+        for (const id of [
+          "config.provider_transmission",
+          "config.merge_classifier_transmission",
+        ]) {
+          expect(
+            report.checks.find((check) => check.id === id)?.details,
+          ).toMatchObject({
+            enabled: !globalConsent,
+            global_consent: globalConsent,
+            repository_override: !globalConsent,
+          });
+        }
+      }
+      expect(notices[0]).toContain("Before initial sync for owner/repository");
+      expect(notices[0]).toContain("including future repositories");
+      expect(notices[0]).toContain("host-assisted is global-only");
+      expect(notices[0]).toContain(
+        "does not disable normal approved-rule outputs",
+      );
+      const rendered = renderGuidedSetupSummary(result);
+      expect(rendered).toContain(
+        `provider ${globalConsent ? "off" : "on"} · Jev ${globalConsent ? "off" : "on"}`,
+      );
+      expect(rendered).toContain(
+        `Global consent defaults: provider ${String(globalConsent)}`,
+      );
+      expect(rendered).toContain(
+        `Repository overrides: provider ${String(!globalConsent)}`,
+      );
+      if (!globalConsent) {
+        expect(confirmations[0]?.message).toContain(
+          "Current repository route: on",
+        );
+        expect(confirmations[0]?.message).toContain(
+          "explicit true override, which setup preserves",
+        );
+      }
+      expect(confirmations.every((request) => !request.defaultValue)).toBe(
+        true,
+      );
+      expect(result.transmission.provider).toBe(!globalConsent);
+      expect(result.transmission.merge_classifier).toBe(!globalConsent);
+      const persisted = await loadRepoKnowledgeConfig(current.configPath);
+      expect(persisted.llm.allowCloudTransmission).toBe(globalConsent);
+      expect(persisted.mergeClassifier.allowCloudTransmission).toBe(
+        globalConsent,
+      );
+      expect(persisted.repoPolicies[REPOSITORY]).toEqual({
+        allowCloudTransmission: !globalConsent,
+        allowCloudMergeClassification: !globalConsent,
+      });
+    },
+  );
+
+  it("discloses global consent inherited by a future repository without changing overrides", async () => {
+    const first = await fixture({ typesafeApiKeyAvailable: true });
+    const prompts: { id: string; message: string; defaultValue: boolean }[] =
+      [];
+    await first.service.run(
+      { repo: REPOSITORY },
+      {
+        confirm: async (request) => {
+          prompts.push(request);
+          return true;
+        },
+        input: async (request) =>
+          request.id === "transmission.provider-mode"
+            ? "anthropic"
+            : "fixture-model",
+      },
+    );
+    for (const prompt of prompts) {
+      expect(prompt.defaultValue).toBe(false);
+      expect(prompt.message).toContain(
+        "all repositories sharing this storage, including future repositories",
+      );
+    }
+    expect(
+      prompts.find((prompt) => prompt.id === "transmission.provider")?.message,
+    ).toContain("allowCloudTransmission");
+    expect(
+      prompts.find((prompt) => prompt.id === "transmission.merge-classifier")
+        ?.message,
+    ).toContain("allowCloudMergeClassification");
+    expect(
+      prompts.find((prompt) => prompt.id === "transmission.host-assisted")
+        ?.message,
+    ).toContain("no repository override");
+
+    const inherited = await loadRepoKnowledgeConfig(first.configPath);
+    const second = await fixture({
+      storageRoot: first.storageRoot,
+      repositoryName: "owner/future",
+      repositoryId: "R_future",
+    });
+    const confirm = vi.fn(async () => false);
+    const notices: string[] = [];
+    second.sync.mockImplementation(async () => {
+      expect(notices[0]).toContain("Before initial sync for owner/future");
+      expect(notices[0]).toContain("provider on · Jev on · host-assisted on");
+      expect(notices[0]).toContain(
+        "Repository overrides: provider inherit · Jev inherit",
+      );
+      return syncSummary();
+    });
+    const result = await second.service.run(
+      { repo: "owner/future" },
+      { confirm, notice: (message) => notices.push(message) },
+    );
+    expect(confirm).not.toHaveBeenCalled();
+    expect(result.transmission).toMatchObject({
+      provider: true,
+      merge_classifier: true,
+      host_assisted: true,
+    });
+    const after = await loadRepoKnowledgeConfig(second.configPath);
+    expect(after.llm).toEqual(inherited.llm);
+    expect(after.mergeClassifier).toEqual(inherited.mergeClassifier);
+    expect(after.hostAssistedDistillation).toEqual(
+      inherited.hostAssistedDistillation,
+    );
+  });
+
+  it("preserves an explicit repository denial when enabling global defaults", async () => {
+    const current = await fixture({
+      config: {
+        repoPolicies: {
+          [REPOSITORY]: {
+            allowCloudTransmission: false,
+            allowCloudMergeClassification: false,
+          },
+        },
+      },
+      typesafeApiKeyAvailable: true,
+    });
+    const prompts: string[] = [];
+    const result = await current.service.run(
+      { repo: REPOSITORY },
+      {
+        confirm: async (request) => {
+          prompts.push(request.message);
+          return request.id !== "transmission.host-assisted";
+        },
+        input: async (request) =>
+          request.id === "transmission.provider-mode"
+            ? "anthropic"
+            : "fixture-model",
+      },
+    );
+    expect(prompts[0]).toContain("Current repository route: off");
+    expect(prompts[0]).toContain(
+      "explicit false override, which setup preserves",
+    );
+    expect(prompts[1]).toContain("Current repository Jev route: off");
+    expect(result.transmission).toMatchObject({
+      provider: false,
+      merge_classifier: false,
+      global_defaults: { provider: true, merge_classifier: true },
+      repository_overrides: { provider: false, merge_classifier: false },
+    });
   });
 
   it("resumes a partial initial sync from its checkpoint without duplicate config", async () => {
@@ -546,33 +807,40 @@ describe("setup trust candidates", () => {
 
 interface FixtureOverrides {
   readonly candidates?: readonly SetupTrustCandidate[];
+  readonly config?: Record<string, unknown>;
+  readonly storageRoot?: string;
+  readonly repositoryName?: string;
+  readonly repositoryId?: string;
   readonly mappedRepository?: string;
   readonly typesafeApiKeyAvailable?: boolean;
 }
 
 async function fixture(overrides: FixtureOverrides = {}) {
   const parent = await temporaryDirectory();
-  const storageRoot = join(parent, "storage");
+  const storageRoot = overrides.storageRoot ?? join(parent, "storage");
+  const repositoryName = overrides.repositoryName ?? REPOSITORY;
+  const repositoryId = overrides.repositoryId ?? REPOSITORY_ID;
   const workspacePath = join(parent, "workspace");
   await mkdir(workspacePath, { mode: 0o700 });
   const initialized = await initializeStorage(
     storageRoot,
     overrides.mappedRepository === undefined
-      ? {}
+      ? (overrides.config ?? {})
       : {
+          ...overrides.config,
           workspaceMappings: {
             [workspacePath]: overrides.mappedRepository,
           },
         },
   );
-  const repositoryRoot = join(storageRoot, "repos", REPOSITORY_ID);
+  const repositoryRoot = join(storageRoot, "repos", repositoryId);
   await mkdir(repositoryRoot, { mode: 0o700, recursive: true });
   const repository: RepositoryResolution = {
     absolutePath: repositoryRoot,
     aliases: [],
-    currentName: REPOSITORY,
-    path: `repos/${REPOSITORY_ID}`,
-    repoId: REPOSITORY_ID,
+    currentName: repositoryName,
+    path: `repos/${repositoryId}`,
+    repoId: repositoryId,
     source: "tool-repo",
     workspacePath,
   };
@@ -621,9 +889,86 @@ async function fixture(overrides: FixtureOverrides = {}) {
     runDoctor,
     service: new GuidedSetupService(dependencies),
     stateStore,
+    storageRoot,
     sync,
     workspacePath,
   };
+}
+
+async function runPolicyProvider(
+  config: RepoKnowledgeConfig,
+  repository: RepositoryResolution,
+  completeStructured: () => Promise<{
+    model: string;
+    outputText: string;
+    provider: "anthropic";
+  }>,
+) {
+  const prompt = parseDistillationPrompt(
+    "---\nprompt_version: policy-test\n---\nReturn synthetic fixture output.\n",
+  );
+  const normalizedActors = [
+    {
+      authorAssociation: "MEMBER",
+      actor_id: "U_fixture",
+      actor_kind: "user" as const,
+      login: "fixture",
+      provider: "human" as const,
+      trust: "trusted" as const,
+    },
+  ];
+  const normalizedComments = [
+    {
+      id: "fixture-comment",
+      body: "Synthetic review body",
+      createdAt: NOW.toISOString(),
+      updatedAt: NOW.toISOString(),
+    },
+  ];
+  const threadId = "fixture-thread";
+  const path = "src/fixture.ts";
+  const repositoryContext = {};
+  const distillationInputDigest = computeDistillationInputDigest({
+    normalizedActors,
+    normalizedComments,
+    path,
+    repositoryContext,
+    threadId,
+  });
+  const distillationKey = computeThreadDistillationKey({
+    distillationInputDigest,
+    outputSchemaDigest: DISTILLATION_OUTPUT_SCHEMA_DIGEST,
+    promptDigest: prompt.promptDigest,
+    trustPolicyDigest: computeTrustPolicyDigest(config.trust),
+  });
+  const thread = {
+    normalizedActors,
+    normalizedComments,
+    path,
+    threadId,
+    distillationInputDigest,
+    distillationKey,
+    contentFingerprint: computeThreadContentFingerprint(
+      threadId,
+      path,
+      normalizedComments,
+    ),
+  };
+  const coordinator = new DistillJobCoordinator(
+    new CanonicalTransactionStore(repository.absolutePath),
+  );
+  const created = await coordinator.createJob({
+    distillation_key: distillationKey,
+    repo_id: repository.repoId,
+    thread_id: threadId,
+  });
+  return new ProviderDistillationService({
+    diagnosticSink: () => undefined,
+    adapter: { provider: "anthropic", completeStructured },
+    config,
+    prompt,
+    repository,
+  }).run({ job_id: created.job.job_id, repositoryContext, thread });
 }
 
 function healthyDoctor(): DoctorReport {
