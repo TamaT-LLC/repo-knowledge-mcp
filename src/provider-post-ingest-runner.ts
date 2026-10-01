@@ -82,6 +82,7 @@ export class CanonicalProviderPostIngestRunner
     };
   }
 
+  /** Runs snapshot jobs through atomic lease admission and reports remaining work. */
   async run(
     request: ProviderPostIngestRequest,
   ): Promise<ProviderPostIngestResult> {

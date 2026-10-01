@@ -282,6 +282,53 @@ describe("DistillJobCoordinator", () => {
     });
   });
 
+  it("excludes expired awaiting-finalize jobs from extraction-only acquisition", async () => {
+    const repository = await createRepository();
+    let now = START;
+    const service = coordinator(repository, { now: () => new Date(now) });
+    const store = new CanonicalTransactionStore(repository);
+    await service.createJob(jobRequest());
+    const lease = await service.acquireLease({
+      extraction_only: true,
+      repo_id: REPO_ID,
+    });
+    await service.markAwaitingFinalize(lease!);
+    now = Date.parse(lease!.expires_at);
+    const before = await store.readSnapshot();
+
+    expect(
+      await service.acquireLease({
+        extraction_only: true,
+        job_id: lease!.job_id,
+        repo_id: REPO_ID,
+      }),
+    ).toBeNull();
+    expect((await store.readSnapshot()).domain.distillJobs).toEqual(
+      before.domain.distillJobs,
+    );
+    await expect(
+      service.acquireLease({
+        extraction_only: true,
+        job_id: lease!.job_id,
+        repo_id: REPO_ID,
+        resume_awaiting_finalize: true,
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect((await store.readSnapshot()).domain.distillJobs).toEqual(
+      before.domain.distillJobs,
+    );
+
+    await expect(
+      service.acquireLease({
+        job_id: lease!.job_id,
+        repo_id: REPO_ID,
+      }),
+    ).resolves.toMatchObject({
+      job: { state: "awaiting_finalize" },
+      lease_generation: 2,
+    });
+  });
+
   it("explicitly resumes an active awaiting-finalize lease and fences its old token", async () => {
     const repository = await createRepository();
     let now = START;

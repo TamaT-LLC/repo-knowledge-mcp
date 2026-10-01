@@ -283,6 +283,32 @@ describe("CanonicalProviderPostIngestRunner", () => {
     );
   });
 
+  it("does not re-extract when a processing snapshot becomes expired awaiting-finalize before admission", async () => {
+    const fixture = await recoveryFixture();
+    const lease = await fixture.coordinator.acquireLease({
+      job_id: fixture.jobId,
+      repo_id: REPOSITORY_ID,
+    });
+    const readSnapshot = fixture.store.readSnapshot.bind(fixture.store);
+    let awaiting: CanonicalProjectionSnapshot | undefined;
+    vi.spyOn(fixture.store, "readSnapshot").mockImplementationOnce(async () => {
+      const stale = await readSnapshot();
+      expect(stale.domain.distillJobs[0]?.state).toBe("processing");
+      await fixture.coordinator.markAwaitingFinalize(lease!);
+      fixture.setTime(Date.parse(lease!.expires_at));
+      awaiting = await readSnapshot();
+      return stale;
+    });
+
+    await expect(
+      fixture.runner.run({ ingest: ingestResult(), pr_number: 42 }),
+    ).resolves.toEqual({ distilled: 0, pending: 1 });
+    expect(fixture.completeStructured).not.toHaveBeenCalled();
+    expect((await readSnapshot()).domain.distillJobs).toEqual(
+      awaiting!.domain.distillJobs,
+    );
+  });
+
   it("rejects results for a different repository before provider work", async () => {
     const readSnapshot = vi.fn(async () => snapshot([]));
     const runner = new CanonicalProviderPostIngestRunner({
@@ -365,6 +391,7 @@ function ingestResult() {
   };
 }
 
+/** Builds a temporary canonical repository with a fake provider and controlled clock. */
 async function recoveryFixture() {
   const root = await mkdtemp(join(tmpdir(), "rkm-provider-recovery-"));
   roots.push(root);
@@ -451,6 +478,7 @@ Return structured output for synthetic reviews.
     completeStructured,
     coordinator,
     jobId: (await store.readSnapshot()).domain.distillJobs[0]!.job_id,
+    runner,
     setTime: (value: number) => {
       timestamp = value;
     },
@@ -458,6 +486,7 @@ Return structured output for synthetic reviews.
   };
 }
 
+/** Supplies a complete synthetic review snapshot without GitHub or credential access. */
 function recoverySnapshot(): CompleteGitHubPullRequestSnapshot {
   return {
     pullRequest: {

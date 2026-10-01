@@ -45,6 +45,7 @@ const expectedTools = [
 // M2 commands the installed CLI help must document for cron operators.
 const expectedHelpCommands = ["sync [repo]", "stats [repo]", "distill [repo]"];
 
+/** Verifies a clean tarball install, CLI startup, MCP handshake, and consumer imports. */
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const typeScriptVersion = parseLockedTypeScriptVersion(

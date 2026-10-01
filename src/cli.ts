@@ -133,6 +133,7 @@ export async function runRepoKnowledgeCli(
   }
 }
 
+/** Dispatches parsed commands, initializing storage only for commands that need it. */
 async function executeCliCommand(
   command: ParsedCliCommand,
   options: RunRepoKnowledgeCliOptions,
