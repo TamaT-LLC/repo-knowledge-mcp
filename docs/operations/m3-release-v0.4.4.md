@@ -35,8 +35,17 @@
 | initial bootstrap / initial publisher | n/a | 後続 stable release。再実施しない |
 | final commit / clean worktree / tag identity | pending | main merge と tag 作成の承認前 |
 | GitHub repository / npm environment の credential 0件 | 未確認 | 今回の準備では secret / variable の管理 API を利用できない |
-| npm environment protection / version tag protection | 未確認 | 過去 report の設定を今回直接確認したとは扱わない |
+| npm environment protection | 未確認 | settings を読む browser が未ログイン。過去 report の設定を今回の pass としない |
+| main / code-owner / version tag protection | 確認済み | 2026-10-02 06:16–06:18 UTC の ruleset API。下記 |
 | security review / alert disposition | pending | §4。CodeQL と package scan だけで secret scanning の状態を代用しない |
+
+### 現在の repository protection（read-only 確認）
+
+- [main ruleset 20803864](https://github.com/TamaT-LLC/repo-knowledge-mcp/rules/20803864): active。PR、review thread 解決、strict な Node 22 / 24 と CodeQL Actions / JavaScript-TypeScript checks を要求。deletion / non-fast-forward を制限し、bypass actor なし
+- [code-owner ruleset 20804041](https://github.com/TamaT-LLC/repo-knowledge-mcp/rules/20804041): active。1 approval、code-owner review、stale review dismissal、last-push approval を要求。Integration `2740` と User `33048137` の pull-request-only bypass が存在する。bypass を今回の承認の代用として使用しない
+- [version-tag ruleset 20807010](https://github.com/TamaT-LLC/repo-knowledge-mcp/rules/20807010): active。`refs/tags/v*` の update / deletion を制限し、除外・bypass actor なし
+
+alert / environment / secret / variable の管理情報は今回の connector の対応 API に含まれず、cloud browser の settings page は未ログインで読めなかった。これは利用者本人の権限不足を証明するものではない。権限設定は変更せず、未確認の件数を0件として扱わない。
 
 前回 npm package settings 対話監査日は 2026-08-24、記録上の次回期限は 2026-11-22。
 今回の準備では設定変更を行っておらず、日付上の定期監査は `not_due`。
@@ -86,6 +95,7 @@ maintainer はこの差分資料と test 結果を review して適用範囲を�
 | 実行日 | 2026-10-02 UTC |
 
 runbook の順序で dependency を検証し、audit / signature の成功後にだけ lifecycle script を実行した。
+2026-10-02 06:18 UTC の再確認でも vulnerability 0件、signature 112件、attestation 43件だった。
 
 | command | 結果 | 実測 |
 | --- | --- | --- |
@@ -107,7 +117,7 @@ local package smoke の clean install は依存範囲内の MCP SDK `2.2.0`、�
 
 | 項目 | 状態 |
 | --- | --- |
-| CodeQL exact PR head | pending |
+| CodeQL exact PR head | `32b94313` の [run 36968082213](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/36968082213) は Actions / JavaScript-TypeScript とも success。最新 head の結果は §5 の PR 記録を参照。open alert 0件の証明ではない |
 | dependency / registry signature audit | 上記 local gate は pass |
 | package credential / local-data scan | pass。local package smoke の artifact allowlist / source scan。Git history scan ではない |
 | GitHub secret scanning / Git history scan / Dependabot open alerts | 未確認。今回の接続では対応 API を利用できず、0件とは主張しない |
@@ -116,9 +126,16 @@ local package smoke の clean install は依存範囲内の MCP SDK `2.2.0`、�
 
 ## 5. Pull Request CI
 
-準備 PR の exact head で Node.js 22 / 24 と CodeQL の terminal result を確認する。
+準備 head `32b94313202a879610b3fbea4886336342005cbb` の terminal result は次のとおり。
+
+| 対象 | 結果 | run URL |
+| --- | --- | --- |
+| CI Node.js 22 / 24 | success。audit / signatures / check / golden / quality / package smoke を両環境で完了 | [run 36968085207](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/36968085207) |
+| CodeQL Actions / JavaScript-TypeScript | success | [run 36968082213](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/36968082213) |
+
+この表は明記した head の結果である。report 更新後も最新の exact head の全 CI を再確認し、次の PR 記録で追跡する。
 最終的な run URL と review 状態は[準備 PR #196](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/196)へ記録する。
-CodeRabbit は draft の自動 review を skip しており、その success status を内容の review 完了とは扱わない。手動の外部 agent review は未依頼。
+CodeRabbit は当初 draft の自動 review を skip した。利用者の承認後、2026-10-02 06:17 UTC に[手動 review](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/196#issuecomment-5946616361)を依頼した。実際の review 結果と対象 head を準備 PR に記録し、skip の success status を内容の review 完了とは扱わない。
 PR CI は main の release commit の検証や registry smoke の代わりにはならない。
 
 ## 6. M3 acceptance と live workflow の範囲
