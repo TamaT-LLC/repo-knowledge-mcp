@@ -22,7 +22,7 @@
 - [PR #195](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/195): setup / doctor に repository の実効送信設定と global 同意・override を区別して表示し、storage 全体と将来追加する repository への同意範囲を説明
 - この準備 PR: version / lockfile と現行ガイドを更新し、公開前後の証跡を区別
 
-`v0.4.3` から dependency graph、release workflow、canonical schema、approval / trust の判定は変更していない。
+`v0.4.3` から lockfile の依存関係構成、release workflow、canonical schema、approval / trust の判定は変更していない。
 既存 repository override を setup で変更せず、host-assisted の同意は従来どおり global-only である。
 
 ## 2. 公開前提
@@ -34,8 +34,8 @@
 | exact version 未使用 | 確認済み（要再確認） | `npm view @tamat-llc/repo-knowledge-mcp@0.4.4 version --json` は `E404` |
 | initial bootstrap / initial publisher | n/a | 後続 stable release。再実施しない |
 | final commit / clean worktree / tag identity | pending | main merge と tag 作成の承認前 |
-| GitHub repository / npm environment の credential 0件 | 未確認 | 今回の準備では secret / variable の管理 API を利用できない |
-| npm environment protection | 未確認 | settings を読む browser が未ログイン。過去 report の設定を今回の pass としない |
+| GitHub repository / npm environment の credential metadata | pass | 2026-10-02 07:15 UTC: repository と `npm` environment の secret / variable は各0件。repository が利用できる organization secret / variable も各0件。値は参照していない |
+| npm environment protection | 設定確認済み | required reviewer は `TakehiroT` / `Fuelda`、self-review 禁止、selected branches/tags は `v*` tag のみ。管理者 bypass の既存設定は下記 |
 | main / code-owner / version tag protection | 確認済み | 2026-10-02 06:16–06:18 UTC の ruleset API。下記 |
 | security review / alert disposition | pending | §4。CodeQL と package scan だけで secret scanning の状態を代用しない |
 
@@ -45,10 +45,20 @@
 - [code-owner ruleset 20804041](https://github.com/TamaT-LLC/repo-knowledge-mcp/rules/20804041): active。1 approval、code-owner review、stale review dismissal、last-push approval を要求。Integration `2740` と User `33048137` の pull-request-only bypass が存在する。bypass を今回の承認の代用として使用しない
 - [version-tag ruleset 20807010](https://github.com/TamaT-LLC/repo-knowledge-mcp/rules/20807010): active。`refs/tags/v*` の update / deletion を制限し、除外・bypass actor なし
 
-alert / environment / secret / variable の管理情報は今回の connector の対応 API に含まれず、cloud browser の settings page は未ログインで読めなかった。これは利用者本人の権限不足を証明するものではない。権限設定は変更せず、未確認の件数を0件として扱わない。
+管理情報は connector の対応 API に含まれなかったため、認証後の browser UI で read-only 確認を行った。
+
+| 確認項目 | 2026-10-02 07:15 UTC の実測と source |
+| --- | --- |
+| repository / organization Actions secrets | repository 0件、repository が利用できる organization secrets 0件。[settings](https://github.com/TamaT-LLC/repo-knowledge-mcp/settings/secrets/actions) |
+| repository / organization Actions variables | repository 0件、repository が利用できる organization variables 0件。metadata だけを照合。[settings](https://github.com/TamaT-LLC/repo-knowledge-mcp/settings/variables/actions) |
+| npm environment secrets / variables | 各0件。[environment](https://github.com/TamaT-LLC/repo-knowledge-mcp/settings/environments/19807183312/edit) |
+| npm environment review / deployment | required reviewers `TakehiroT` / `Fuelda`、prevent self-review ON、`v*` tag policy、許可 branch 0件。同じ environment 画面 |
+| npm environment admin bypass | 既存の「Allow administrators to bypass configured protection rules」は ON。今回の準備では変更・使用していない。code-owner ruleset の bypass と併せ、maintainer の残余リスク review 対象とする |
+
+secret や variable の値、認証情報は report に含めない。
 
 前回 npm package settings 対話監査日は 2026-08-24、記録上の次回期限は 2026-11-22。
-今回の準備では設定変更を行っておらず、日付上の定期監査は `not_due`。
+今回の準備では npm package settings を変更しておらず、日付上の定期監査は `not_due`。
 未観測の変更・incident の有無を maintainer が公開前に確認する。現在の token 禁止設定を直接確認したという意味ではない。
 
 ## 3. M2 release gate
@@ -111,27 +121,30 @@ runbook の順序で dependency を検証し、audit / signature の成功後に
 | `release:verify` | not run | exact tag / main 上の final release commit が未確定 |
 
 Coverage は statements 88.88%、branches 79.45%、functions 94.09%、lines 89.63%。
-local package smoke の clean install は依存範囲内の MCP SDK `2.2.0`、固定 TypeScript `7.0.2` を取得した。source lockfile の dependency graph は未変更。
+local package smoke の clean install は依存範囲内の MCP SDK `2.2.0`、固定 TypeScript `7.0.2` を取得した。source lockfile の依存関係構成は未変更。
 
 ### Security review の区別
 
 | 項目 | 状態 |
 | --- | --- |
-| CodeQL exact PR head | `32b94313` の [run 36968082213](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/36968082213) は Actions / JavaScript-TypeScript とも success。最新 head の結果は §5 の PR 記録を参照。open alert 0件の証明ではない |
+| CodeQL exact PR head | `178154ff` の [run 36973264324](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/36973264324) は Actions / JavaScript-TypeScript とも success。最新 head の結果は §5 の PR 記録を参照。open alert 0件の証明ではない |
 | dependency / registry signature audit | 上記 local gate は pass |
 | package credential / local-data scan | pass。local package smoke の artifact allowlist / source scan。Git history scan ではない |
-| GitHub secret scanning / Git history scan / Dependabot open alerts | 未確認。今回の接続では対応 API を利用できず、0件とは主張しない |
+| GitHub CodeQL open alerts | 2026-10-02 07:17 UTC: `is:open branch:main` は0件、closed 78件、全 tool 正常。tool 一覧は CodeQL のみ。[code scanning](https://github.com/TamaT-LLC/repo-knowledge-mcp/security/code-scanning) |
+| GitHub secret scanning | 2026-10-02 07:17 UTC: `is:open` は0件、closed 0件、unresolved secrets なし。[secret scanning](https://github.com/TamaT-LLC/repo-knowledge-mcp/security/secret-scanning) |
+| 独立した local Git history scan | 未実施。上記 GitHub secret scanning の実測と、local package artifact の credential scan を区別して記録 |
+| Dependabot open alerts | 2026-10-02 07:21 UTC: 利用者の明示承認で Dependency graph だけを有効化後、`Dependency files checked` と `is:open` 0件 / closed 0件を確認。[alerts](https://github.com/TamaT-LLC/repo-knowledge-mcp/security/dependabot) / [settings](https://github.com/TamaT-LLC/repo-knowledge-mcp/settings/security_analysis)。発見時の inactive と対応は §9 |
 | source boundary review | AI による差分 review で具体的な新規 defect は未検出。人間の security approval ではない |
-| maintainer security review / 残余リスク受容 | pending |
+| maintainer security review / 残余リスク受容 | pending。M2 適用判断、既存 bypass 設定、必要な history scan 証跡の十分性を review |
 
 ## 5. Pull Request CI
 
-準備 head `32b94313202a879610b3fbea4886336342005cbb` の terminal result は次のとおり。
+準備 head `178154ff723f286c45fae6057bf7214b221301f8` の terminal result は次のとおり。
 
 | 対象 | 結果 | run URL |
 | --- | --- | --- |
-| CI Node.js 22 / 24 | success。audit / signatures / check / golden / quality / package smoke を両環境で完了 | [run 36968085207](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/36968085207) |
-| CodeQL Actions / JavaScript-TypeScript | success | [run 36968082213](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/36968082213) |
+| CI Node.js 22 / 24 | success。audit / signatures / check / golden / quality / package smoke を両環境で完了 | [run 36973267381](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/36973267381) |
+| CodeQL Actions / JavaScript-TypeScript | success | [run 36973264324](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/36973264324) |
 
 この表は明記した head の結果である。report 更新後も最新の exact head の全 CI を再確認し、次の PR 記録で追跡する。
 最終的な run URL と review 状態は[準備 PR #196](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/196)へ記録する。
@@ -179,6 +192,12 @@ GitHub Release、tag、npm publish はこの準備作業では作成・実行し
 local rebuild は初回および `HOME` だけの変更後に、cloud の `XDG_CACHE_HOME` が指す書き込み不可の cache path で失敗した。
 `XDG_CACHE_HOME` と node-gyp cache を書き込み可能な temporary directory に設定して再実行し、成功した。
 dependency / signature gate を飛ばさず、product source、lockfile、security 設定はこの回避のために変更していない。
+
+07:16–07:18 UTC の設定確認で、Dependabot alerts は ON だが Dependency graph は OFF のため、alerts の詳細ページが inactive であることを検出した。
+利用者の明示承認後、07:21:20 UTC に Dependency graph だけを ON にし、`Repository settings saved` と実設定を確認した。
+07:21:41 UTC の alerts ページで dependency files の検査時刻と open 0件 / closed 0件を確認した。inactive の表示を0件と誤認していない。
+既存の Renovate は [Dependency Dashboard #114](https://github.com/TamaT-LLC/repo-knowledge-mcp/issues/114) と `renovate.json` で稼働している。
+[dependency update runbook](./dependency-update-runbook.md) に従い、Dependency graph / Dependabot alerts が検知し、Renovate が更新 PR を作成する役割分担を維持する。新たな bot の導入、security-update PR の自動作成、他の security option は有効化していない。
 
 ## 10. Go / no-go と残る手順
 
