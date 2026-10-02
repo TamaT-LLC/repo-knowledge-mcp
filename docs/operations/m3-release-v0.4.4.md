@@ -29,7 +29,7 @@
 
 | 項目 | 結果 | 根拠 |
 | --- | --- | --- |
-| npm organization / license | 確認済み | package scope は `tamat-llc`、`package.json` / `LICENSE` は MIT |
+| package scope / license | 確認済み | package scope は `tamat-llc`、`package.json` / `LICENSE` は MIT |
 | GitHub repository visibility | 確認済み | 2026-10-02 UTC の repository API で `public` |
 | exact version 未使用 | 確認済み（要再確認） | `npm view @tamat-llc/repo-knowledge-mcp@0.4.4 version --json` は `E404` |
 | initial bootstrap / initial publisher | n/a | 後続 stable release。再実施しない |
@@ -117,7 +117,8 @@ local package smoke の clean install は依存範囲内の MCP SDK `2.2.0`、�
 ## 5. Pull Request CI
 
 準備 PR の exact head で Node.js 22 / 24 と CodeQL の terminal result を確認する。
-最終的な run URL と review 状態は準備 PR へ記録する。
+最終的な run URL と review 状態は[準備 PR #196](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/196)へ記録する。
+CodeRabbit は draft の自動 review を skip しており、その success status を内容の review 完了とは扱わない。手動の外部 agent review は未依頼。
 PR CI は main の release commit の検証や registry smoke の代わりにはならない。
 
 ## 6. M3 acceptance と live workflow の範囲
@@ -139,6 +140,16 @@ fixture のみの流れとは区別する一方、次の制約がある。
 
 公開 artifact は未生成。local package smoke の検査結果と公開 artifact を混同しない。
 公開時に release workflow が生成した tarball / report の SHA-256、integrity、file list を記録し、registry から取得した同一 version と照合する。
+
+次は準備 head `00ddb404b403f6cabc12289206e1ffca9713fe29` で再実行した local gate の artifact であり、公開 artifact ではない。
+
+| 項目 | local 検証値 |
+| --- | --- |
+| tarball | `tamat-llc-repo-knowledge-mcp-0.4.4.tgz` |
+| tarball SHA-256 | `740c7f5b9872ba6f0ef248ab778e5cb20e53a517b4706c4f2664e40e4b1c032f` |
+| artifact report SHA-256 | `590105a4ba18f3cda128c47502c1a351c0b60e9e0d5f24ebba80360df7a6bc03` |
+| allowlist / credential scan | pass、255 entries、`dist-js-dts-plus-explicit-root-files-v3` |
+
 CLI bin は `repo-knowledge` / `repo-knowledge-mcp`、MCP tool 契約は11件のままである。
 
 ## 8. Release CI と registry smoke
