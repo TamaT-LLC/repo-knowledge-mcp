@@ -42,7 +42,7 @@
 ### 現在の repository protection（read-only 確認）
 
 - [main ruleset 20803864](https://github.com/TamaT-LLC/repo-knowledge-mcp/rules/20803864): active。PR、review thread 解決、strict な Node 22 / 24 と CodeQL Actions / JavaScript-TypeScript checks を要求。deletion / non-fast-forward を制限し、bypass actor なし
-- [code-owner ruleset 20804041](https://github.com/TamaT-LLC/repo-knowledge-mcp/rules/20804041): active。1 approval、code-owner review、stale review dismissal、last-push approval を要求。Integration `2740` と User `33048137` の pull-request-only bypass が存在する。bypass を今回の承認の代用として使用しない
+- [code-owner ruleset 20804041](https://github.com/TamaT-LLC/repo-knowledge-mcp/rules/20804041): active。1 approval、code-owner review、stale review dismissal、last-push approval を要求。Integration `2740` と User `33048137` の pull-request-only bypass が存在する。owner は PR #196 に限り既存の code-owner bypass merge を別途明示承認した。必須 CI / CodeQL の bypass や ruleset の変更は認めていない
 - [version-tag ruleset 20807010](https://github.com/TamaT-LLC/repo-knowledge-mcp/rules/20807010): active。`refs/tags/v*` の update / deletion を制限し、除外・bypass actor なし
 
 管理情報は connector の対応 API に含まれなかったため、認証後の browser UI で read-only 確認を行った。
@@ -136,7 +136,7 @@ local package smoke の clean install は依存範囲内の MCP SDK `2.2.0`、�
 | 独立した local Git history scan | 未実施。上記 GitHub secret scanning の実測と、local package artifact の credential scan を区別して記録 |
 | Dependabot open alerts | 2026-10-02 07:21 UTC: 利用者の明示承認で Dependency graph だけを有効化後、`Dependency files checked` と `is:open` 0件 / closed 0件を確認。[alerts](https://github.com/TamaT-LLC/repo-knowledge-mcp/security/dependabot) / [settings](https://github.com/TamaT-LLC/repo-knowledge-mcp/settings/security_analysis)。発見時の inactive と対応は §9 |
 | source boundary review | AI による差分 review で具体的な新規 defect は未検出。人間の security approval ではない |
-| owner の release 判断 / 残余リスク | 実測と未実施項目を示したうえで `TakehiroT` が patch release を承認。独立 security audit や GitHub の required approval を代行するものではない。既存 bypass は使用しない |
+| owner の release 判断 / 残余リスク | 実測と未実施項目を示したうえで `TakehiroT` が patch release を承認。独立 security audit の attestation ではない。PR #196 の既存 code-owner bypass merge は別途明示承認済みで、独立 reviewer の approval を得たとは扱わない。npm environment の approval / bypass は別扱い |
 
 ## 5. Pull Request CI
 
@@ -203,10 +203,11 @@ dependency / signature gate を飛ばさず、product source、lockfile、securi
 ## 10. Go / no-go と残る手順
 
 **総合判定: owner の release 承認済み、release 実行・完了検証は未完了。**
-owner は patch `0.4.4` の merge / release を明示承認した。既存の required review / environment approval はこの承認と別に満たす。保護の bypass や未実施検証の pass 扱いは承認されていない。
+owner は patch `0.4.4` の merge / release と、PR #196 に限った既存の code-owner bypass merge を明示承認した。独立した code-owner approval を得たとは記録しない。
+必須 CI / CodeQL、未実施検証、`npm` environment の required approval は省略しない。environment bypass と保護設定の変更は承認されていない。
 
 1. 上記の owner による M2 適用判断を維持し、今回の検証範囲と未実施項目を区別する
-2. exact PR head の Node.js 22 / 24 CI、CodeQL と required review を確認する。GitHub が独立 reviewer を要求する場合は待ち、bypass しない
-3. required review 完了後に main の final commit を確定し、runbook の全 gate と exact-version 未使用を再確認する
+2. exact PR head の Node.js 22 / 24 CI、CodeQL、CodeRabbit と未解決 thread を確認し、PR #196 を許可済みの既存 bypass 範囲だけで merge する
+3. PR #196 の merge 後に main の final commit を確定し、runbook の全 gate と exact-version 未使用を再確認する
 4. tag と draft GitHub Release を用意し、`release:verify` と公開前 report の整合性を確認する。`npm` environment の必要な承認は別途取得する
 5. OIDC publish、provenance、Node.js 22 / 24 registry smoke、artifact の一致を確認してから release 完了に更新する
