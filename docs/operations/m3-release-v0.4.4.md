@@ -209,5 +209,6 @@ owner は patch `0.4.4` の merge / release と、PR #196 に限った既存の 
 1. 上記の owner による M2 適用判断を維持し、今回の検証範囲と未実施項目を区別する
 2. exact PR head の Node.js 22 / 24 CI、CodeQL、CodeRabbit と未解決 thread を確認し、PR #196 を許可済みの既存 bypass 範囲だけで merge する
 3. PR #196 の merge 後に main の final commit を確定し、runbook の全 gate と exact-version 未使用を再確認する
-4. tag と draft GitHub Release を用意し、`release:verify` と公開前 report の整合性を確認する。`npm` environment の必要な承認は別途取得する
-5. OIDC publish、provenance、Node.js 22 / 24 registry smoke、artifact の一致を確認してから release 完了に更新する
+4. M3 acceptance report の review と、公開対象 commit の security review の完了を確認する。未解決の critical / high finding があれば tag / GitHub Release へ進まない。owner の release 承認だけで未実施の検査や review を pass にしない
+5. tag と draft GitHub Release を用意し、`release:verify` と公開前 report の整合性を確認する。`npm` environment の必要な承認は別途取得する
+6. OIDC publish、provenance、Node.js 22 / 24 registry smoke、artifact の一致を確認してから release 完了に更新する
