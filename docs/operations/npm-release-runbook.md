@@ -5,6 +5,7 @@
 
 各 stable release の実測値と公開後の完了判定は`m3-release-v<version>.md`へ記録する。
 最新の完了記録は[M3 v0.4.3 release report](./m3-release-v0.4.3.md)である。
+次の `v0.4.4` は[release report](./m3-release-v0.4.4.md)で準備中として追跡し、未完了 gate を公開済みの結果で代用しない。
 
 公開境界の差分レビューは[2026-08-24のM3 npm公開方式セキュリティレビュー](./m3-npm-release-security-review-2026-08-24.md)を正本とする。
 
@@ -260,10 +261,10 @@ publish 後は registry 反映を待ち、exact version の `npm exec` と同じ
 workflow の artifact から `package-artifact-report.json` を取得し、release report の name、version、commit、tarball integrity と照合する。
 
 手元で再確認する場合も `latest` を使わず exact version を指定する。
-次のcommandは、現在の`latest`である`0.4.3`をexact versionで再確認する例である。
+次の `0.4.4` は公開後の再確認例であり、registry への公開前には実行しない。
 
 ```console
-RELEASE_VERSION=0.4.3
+RELEASE_VERSION=0.4.4
 npx --yes --package="@tamat-llc/repo-knowledge-mcp@${RELEASE_VERSION}" -- repo-knowledge --help
 npm run --silent registry:smoke -- \
   --name @tamat-llc/repo-knowledge-mcp \

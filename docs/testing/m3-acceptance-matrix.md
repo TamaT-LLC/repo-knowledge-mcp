@@ -4,7 +4,7 @@ M3 の個人利用要件を、自動テスト、CI、release workflow、運用�
 
 要件の正本は [repo-knowledge-mcp M3 個人利用要件](../design/repo-knowledge-mcp-v0.3-personal-use.md) とする。
 本表は実装済みの検証と、公開時にだけ実行できる検証を分けて記録する。
-現行 stable の公開結果は [v0.4.3 release report](../operations/m3-release-v0.4.3.md) を参照する。
+`v0.4.4` の準備状況は [v0.4.4 release report](../operations/m3-release-v0.4.4.md)、現行 stable の公開結果は [v0.4.3 release report](../operations/m3-release-v0.4.3.md) を参照する。
 M3 は機能要件の識別子であり、npm の version 番号ではない。
 
 ## 検証レイヤー

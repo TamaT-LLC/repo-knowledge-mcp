@@ -9,6 +9,7 @@ security issue は public issue に詳細を書かず、GitHub の [private vuln
 再現手順、影響範囲、対象 version、可能なら最小 fixture を含め、実 token、review 本文、個人情報は添付しないでください。
 
 security update 対象は最新の stable release（現在は `v0.4.3`）です。
+この checkout は `v0.4.4` の公開準備中です。以下の setup / doctor の表示説明は修正後の source に対応します。
 未 release の main branch は best effort で修正します。
 
 ## Security boundary

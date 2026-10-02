@@ -3,7 +3,7 @@
 M1 の完了条件と受け入れテスト 1〜63 を、実行可能な test または再現可能な smoke gate へ対応付ける。
 `npm run check` は実行中の Node.js で automated 欄の test を実行する。
 [CI](../../.github/workflows/ci.yml) が同じ check を Node.js 22 / 24 で繰り返し、実 GitHub データが必要な項目は [real PR smoke runbook](./m1-smoke-runbook.md) で確認する。
-M1 は導入時のマイルストーン名であり、以下の保存・復旧の契約は `v0.4.3` でも継続して検証する。
+M1 は導入時のマイルストーン名であり、以下の保存・復旧の契約は 公開準備中の `v0.4.4` source でも継続して検証する。
 
 ## Architecture criteria 1〜12
 
