@@ -75,7 +75,9 @@ secret や variable の値、認証情報は report に含めない。
 | human evaluation | `7e816c12ce44d33a104fc73018429b3098f07e1394b65d511beca6b040b8f22d` |
 | human approval | `88934752d2e92d6a508e87d354883d0fd225866fbc141d9c401008c1245ca63e` |
 
-**今回の M2 証跡再利用の適用判定: pending reviewer determination。**
+**今回の M2 証跡再利用の適用判定: owner が既存 pilot 証跡と今回の回帰検証を採用。**
+2026-10-02 UTC、repository owner `TakehiroT` は下記の変更範囲・検証方針の説明を受け、patch `0.4.4` の release を明示的に承認した。
+これは今回の patch に対する owner の適用判断であり、過去の human evaluation の書き換え、新しい独立 human evaluation、一般的な運用 gate の免除ではない。
 [限定再評価計画](./m2-post-fix-revalidation-plan.md) の再利用禁止条件は、writer lock / 同時実行制御、canonical transaction / recovery / reindex などの変更時に新しい14日 pilot を要求する。
 一方、後から更新された [M3 acceptance matrix の運用 gate](../testing/m3-acceptance-matrix.md) は、後続 release で証跡と変更範囲を確認し、影響する契約を再検証すると定める。
 [pilot plan](./m2-cron-pilot-plan.md) も、合格済みの運用耐久性を変更しない修正に同じ14日試験の反復を要求しない。
@@ -90,10 +92,9 @@ secret や variable の値、認証情報は report に含めない。
 | canonical / 継続運用 | canonical transaction / recovery engine、checkpoint / resume、reindex、cron wrapper、日次集計、ranking、quality threshold は未変更。全 suite と golden / quality gate で回帰検証 |
 | setup / doctor | #195 は表示と同意範囲の説明を修正。policy precedence、trust / approval、storage 形式は未変更。実効 consent の matrix と TTY / JSON 回帰 test を再実行 |
 
-これは「pilot が検証した運用契約を維持した provider 回復修正」として限定再検証する根拠案であり、新たな人間の M2 approval ではない。
-同時実行制御 / recovery の広い文言が今回にも適用される余地があり、既存 hash の一致だけで go としない。
-maintainer はこの差分資料と test 結果を review して適用範囲を記録する。運用契約を変更したと判断する場合は、計画に従い新しい14日 pilot が必要となる。
-現時点で14日再実施が確定したとも、免除が承認済みとも扱わない。
+これは「pilot が検証した運用契約を維持した provider 回復修正」として限定再検証する根拠である。owner は既存 hash の一致だけではなく、この差分と回帰検証を今回の patch release に採用した。
+同時実行制御 / recovery の広い文言との関係をこの記録に残す。運用契約を変更する別の変更では、計画に従って新しい14日 pilot の要否を再判定し、今回の判断を一般的な免除として流用しない。
+独立した新しい14日 pilot や human ranking evaluation は実施していない。
 
 ## 4. Local verification と security
 
@@ -135,7 +136,7 @@ local package smoke の clean install は依存範囲内の MCP SDK `2.2.0`、�
 | 独立した local Git history scan | 未実施。上記 GitHub secret scanning の実測と、local package artifact の credential scan を区別して記録 |
 | Dependabot open alerts | 2026-10-02 07:21 UTC: 利用者の明示承認で Dependency graph だけを有効化後、`Dependency files checked` と `is:open` 0件 / closed 0件を確認。[alerts](https://github.com/TamaT-LLC/repo-knowledge-mcp/security/dependabot) / [settings](https://github.com/TamaT-LLC/repo-knowledge-mcp/settings/security_analysis)。発見時の inactive と対応は §9 |
 | source boundary review | AI による差分 review で具体的な新規 defect は未検出。人間の security approval ではない |
-| maintainer security review / 残余リスク受容 | pending。M2 適用判断、既存 bypass 設定、必要な history scan 証跡の十分性を review |
+| owner の release 判断 / 残余リスク | 実測と未実施項目を示したうえで `TakehiroT` が patch release を承認。独立 security audit や GitHub の required approval を代行するものではない。既存 bypass は使用しない |
 
 ## 5. Pull Request CI
 
@@ -155,7 +156,7 @@ PR CI は main の release commit の検証や registry smoke の代わりには
 
 [M3 acceptance matrix](../testing/m3-acceptance-matrix.md) に対応する自動 test / local package smoke は §4 と PR CI で再実行する。
 M3-AC-008 の exact-version registry smoke は公開後まで未実施であり、全11項目 pass とは記録しない。
-最終 M3 acceptance の maintainer review は pending。
+owner は今回の patch release を承認した。これは未実施の registry smoke を pass とするものではなく、公開後の M3-AC-008 完了確認は引き続き必要である。
 
 別途、source base `391017f`（当時の package version `0.4.3`）で実 PR #194 の検証を行った。
 実 `gh` 取得 → 実 OpenAI assistant の host-assisted prepare / submit → 隔離 storage の実 TTY 確認 → 実 Codex MCP client の承認前後・scope 別 read は成功した。
@@ -201,11 +202,11 @@ dependency / signature gate を飛ばさず、product source、lockfile、securi
 
 ## 10. Go / no-go と残る手順
 
-**総合判定: release 未完了。公開 no-go。**
-準備 PR の検証成功は merge / tag / GitHub Release / npm publish の承認を意味しない。
+**総合判定: owner の release 承認済み、release 実行・完了検証は未完了。**
+owner は patch `0.4.4` の merge / release を明示承認した。既存の required review / environment approval はこの承認と別に満たす。保護の bypass や未実施検証の pass 扱いは承認されていない。
 
-1. M2 証跡の再利用可否を明示して判断し、必要な再評価を完了する
-2. exact PR head の Node.js 22 / 24 CI、CodeQL と review を確認し、maintainer の security / acceptance review と必要な alert・environment 検査を完了する
-3. 別途 merge 承認後に main の final commit を確定し、runbook の全 gate と exact-version 未使用を再確認する
-4. 別途公開承認後に tag と draft GitHub Release を用意し、`release:verify` と公開前 report の review を完了する
+1. 上記の owner による M2 適用判断を維持し、今回の検証範囲と未実施項目を区別する
+2. exact PR head の Node.js 22 / 24 CI、CodeQL と required review を確認する。GitHub が独立 reviewer を要求する場合は待ち、bypass しない
+3. required review 完了後に main の final commit を確定し、runbook の全 gate と exact-version 未使用を再確認する
+4. tag と draft GitHub Release を用意し、`release:verify` と公開前 report の整合性を確認する。`npm` environment の必要な承認は別途取得する
 5. OIDC publish、provenance、Node.js 22 / 24 registry smoke、artifact の一致を確認してから release 完了に更新する
