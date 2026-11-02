@@ -5,7 +5,7 @@
 
 各 stable release の実測値と公開後の完了判定は`m3-release-v<version>.md`へ記録する。
 最新の完了記録は[M3 v0.4.3 release report](./m3-release-v0.4.3.md)である。
-次の `v0.4.4` は[release report](./m3-release-v0.4.4.md)で準備中として追跡し、未完了 gate を公開済みの結果で代用しない。
+次の `v0.4.5` は[release report](./m3-release-v0.4.5.md)で準備中として追跡し、未完了 gate を公開済みの結果で代用しない。
 
 公開境界の差分レビューは[2026-08-24のM3 npm公開方式セキュリティレビュー](./m3-npm-release-security-review-2026-08-24.md)を正本とする。
 
