@@ -29,7 +29,8 @@ GitHub の secret scanning open alerts、CodeQL の open high / critical alerts�
 `npm` environment は `TakehiroT` / `Fuelda` の承認を要求し、self-review を禁止している。
 main は Node.js 22 / 24 と CodeQL の成功、未解決 thread の解消を要求する。
 別の ruleset が code-owner approval と last-push approval を要求する。
-既存の owner bypass は今回の依頼だけで承認されたとは扱わず、保護設定を変更しない。
+ユーザーは2026-11-02に PR #210 の code-owner bypass 使用を明示承認した。
+必須 CI / CodeQL は維持し、npm environment approval は別途必要である。保護設定は変更しない。
 
 npm package settings の前回対話監査は2026-08-24、次回期限は2026-11-22。
 設定変更や認証異常は観測しておらず、日付上は `not_due` である。
@@ -100,7 +101,10 @@ CodeRabbit は cron の exit 75 通知と、繰り延べ PR に対する即時�
 `deferred` だけが残る場合は次の定期同期か60秒以上待つよう案内し、MCP 回帰 test を追加した。
 再レビューでは新規蒸留 job の案内も維持するよう minor 1件があり、待機案内と併記して2条件を test した。
 `has_more` の応答契約は維持した。
-現在、保護条件の変更・bypass、main CI の手動起動は行っていない。
+GitHub の minor 指摘に対応し、前回 v0.4.4 の公開後 report を Release asset から取得した。
+SHA-256 `8632e6fb9a7fe0d1784bf11f4f25608b0092da73d5d5e4bc2a2a1a5afff2bfc5` が asset digest と一致する。
+前回の準備記録は履歴として保存し、docs index / runbook から公開後結果へ案内する。
+code-owner bypass はユーザーが PR #210 に限り承認済み。保護設定の変更、npm environment bypass、main CI の手動起動は行っていない。
 
 ## 10. Go / no-go
 
