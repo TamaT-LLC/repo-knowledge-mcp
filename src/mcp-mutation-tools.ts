@@ -133,6 +133,9 @@ export function registerMutationTools(
         SyncRepoResultSchema,
         async () =>
           (await resolveMutationService(options, input)).syncRepo({
+            ...(input.max_pull_requests === undefined
+              ? {}
+              : { maxPullRequests: input.max_pull_requests }),
             ...(input.since === undefined ? {} : { since: input.since }),
           }),
         summarizeSync,

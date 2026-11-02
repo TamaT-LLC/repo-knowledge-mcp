@@ -18,6 +18,7 @@ import {
   nextConnectionCursor,
   requireGraphqlRepository,
 } from "./github-graphql.js";
+import { readGitHubServerTime } from "./github-server-time.js";
 import {
   SyncCursorError,
   compareSyncOrder,
@@ -32,8 +33,36 @@ import {
 
 export const DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE = 50;
 export const DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS = 3;
+/**
+ * PRs updated within this window before the run starts are deferred to the
+ * next run. The run start is GitHub's own time (the `Date` header read before
+ * the first page), never this host's clock, so the host's clock skew plays no
+ * part. An update landing mid-enumeration happens after that response was
+ * produced, so its `updatedAt` (seconds) is at or after the truncated `Date`
+ * (seconds) and thus strictly after the cutoff even with a zero window. The
+ * window is a margin for clock differences between GitHub's own servers and
+ * keeps PRs still being edited out of the run.
+ */
+export const DEFAULT_SYNC_UPDATE_SETTLE_MS = 60_000;
+/**
+ * How far GitHub's `UPDATED_AT` sort key may lag behind a PR's returned
+ * `updatedAt` before the traversal stops reading past the sync boundary.
+ *
+ * GitHub (GraphQL, REST `sort=updated`, the issues `since` filter and search
+ * `updated:` all alike) orders PRs by an internal timestamp that some updates
+ * never bump, so a PR can be listed far below where its `updatedAt` would
+ * place it; the key has never been observed ahead of `updatedAt`. On a real
+ * 12k-PR repository the lag was a few minutes to 4.25 hours for PRs updated
+ * in recent months, and up to 41 days for two PRs from 2025. A PR whose lag
+ * exceeds this window is listed too deep for an incremental run to reach;
+ * GitHub's own incremental filters miss it too, and a `--since` replay picks
+ * it up. Reading one more week past the boundary costs a few pages.
+ */
+export const DEFAULT_SYNC_SORT_LAG_TOLERANCE_MS = 7 * 24 * 60 * 60 * 1_000;
 
 const MAX_SYNC_PULL_REQUEST_LIST_ATTEMPTS = 10;
+const MAX_SYNC_UPDATE_SETTLE_MS = 24 * 60 * 60 * 1_000;
+const MAX_SYNC_SORT_LAG_TOLERANCE_MS = 90 * 24 * 60 * 60 * 1_000;
 
 const PULL_REQUEST_LIST_FIELDS = `
   id
@@ -128,6 +157,8 @@ export interface EnumerateUpdatedPullRequestsRequest {
 }
 
 export interface EnumerateUpdatedPullRequestsResult {
+  /** PRs after the boundary left for the next run (updated at/after the cutoff). */
+  readonly deferred: number;
   readonly nextCursor: SyncCursor | null;
   readonly pullRequests: readonly UpdatedPullRequestRef[];
   readonly repository: SyncRepositoryIdentity;
@@ -137,18 +168,38 @@ export interface GitHubPullRequestEnumeratorOptions {
   readonly ghRunner?: GhRunnerLike;
   readonly maxListChangeAttempts?: number;
   readonly pageSize?: number;
+  /**
+   * GitHub's current time, read once before the first page. Defaults to the
+   * `Date` header of `gh api --include /rate_limit` through `ghRunner`.
+   */
+  readonly serverTime?: () => Promise<Date>;
+  readonly sortLagToleranceMs?: number;
+  readonly updateSettleMs?: number;
 }
 
 /**
  * Enumerates the PRs a sync run must revisit, ordered deterministically by
- * (updatedAt, PR number) ascending. Each partial or unstable attempt is
- * discarded; mutable listings restart from the same boundary a bounded
- * number of times, so a successful result always carries a resumable cursor.
+ * (updatedAt, PR number) ascending. The run is bounded above by a cutoff
+ * fixed from GitHub's server time before the first page is read (never from
+ * the local clock): PRs updated at or after it are deferred to the next
+ * run instead of aborting this one, so concurrent PR activity never blocks
+ * the checkpoint from advancing. GitHub only approximately orders the listing
+ * by `updatedAt`, so the traversal never relies on monotonic order: it
+ * collects every node down to the sort-lag window past the boundary, dedupes
+ * by node ID and sorts locally. A PR repeating below the cutoff with a
+ * different `updatedAt` (which the server-time cutoff rules out unless
+ * GitHub's own clocks disagree by more than the settle window) or a
+ * repository identity change mid-traversal discards the
+ * listing and restarts it from the same boundary and cutoff a bounded number
+ * of times; two node IDs claiming one PR number fail closed immediately.
  */
 export class GitHubPullRequestEnumerator {
   private readonly ghRunner: GhRunnerLike;
   private readonly maxListChangeAttempts: number;
   private readonly pageSize: number;
+  private readonly serverTime: () => Promise<Date>;
+  private readonly sortLagToleranceMs: number;
+  private readonly updateSettleMs: number;
 
   constructor(options: GitHubPullRequestEnumeratorOptions = {}) {
     this.ghRunner = options.ghRunner ?? new GhRunner();
@@ -156,9 +207,21 @@ export class GitHubPullRequestEnumerator {
       options.maxListChangeAttempts ??
         DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS,
     );
+    this.serverTime =
+      options.serverTime ?? (() => readGitHubServerTime(this.ghRunner));
     this.pageSize = assertGraphqlPageSize(
       options.pageSize ?? DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE,
       "pageSize",
+    );
+    this.updateSettleMs = assertWindowMs(
+      options.updateSettleMs ?? DEFAULT_SYNC_UPDATE_SETTLE_MS,
+      "updateSettleMs",
+      MAX_SYNC_UPDATE_SETTLE_MS,
+    );
+    this.sortLagToleranceMs = assertWindowMs(
+      options.sortLagToleranceMs ?? DEFAULT_SYNC_SORT_LAG_TOLERANCE_MS,
+      "sortLagToleranceMs",
+      MAX_SYNC_SORT_LAG_TOLERANCE_MS,
     );
   }
 
@@ -171,10 +234,19 @@ export class GitHubPullRequestEnumerator {
       ...(request.since === undefined ? {} : { since: request.since }),
     });
     const [owner, name] = repo.split("/") as [string, string];
+    // Read from GitHub before the first page and fixed once per run, so
+    // every retry shares the same upper bound and any update made while the
+    // listing is read lands at or after it whatever this host's clock says.
+    const cutoffMs = await this.readCutoffMs();
 
     for (let attempt = 1; ; attempt += 1) {
       try {
-        return await this.enumerateStablePullRequestList(boundary, owner, name);
+        return await this.enumerateStablePullRequestList(
+          boundary,
+          cutoffMs,
+          owner,
+          name,
+        );
       } catch (error) {
         if (
           !isPullRequestListChanged(error) ||
@@ -186,13 +258,30 @@ export class GitHubPullRequestEnumerator {
     }
   }
 
-  /** Restarts from the same sync boundary after a mutable listing is seen. */
+  private async readCutoffMs(): Promise<number> {
+    const serverMs = (await this.serverTime()).getTime();
+    if (!Number.isFinite(serverMs)) {
+      throw new GitHubSnapshotError(
+        "GITHUB_SERVER_TIME_UNAVAILABLE",
+        "GitHub server time",
+        "could not read GitHub's server time: invalid date",
+      );
+    }
+    return serverMs - this.updateSettleMs;
+  }
+
+  /** Restarts from the same sync boundary after an incoherent listing. */
   private async enumerateStablePullRequestList(
     boundary: SyncBoundary,
+    cutoffMs: number,
     owner: string,
     name: string,
   ): Promise<EnumerateUpdatedPullRequestsResult> {
-    const traversal = new PullRequestListTraversal(boundary);
+    const traversal = new PullRequestListTraversal(
+      boundary,
+      cutoffMs,
+      this.sortLagToleranceMs,
+    );
     let repository: SyncRepositoryIdentity | null = null;
     let cursor: string | null = null;
     const seenCursors = new Set<string>();
@@ -237,6 +326,7 @@ export class GitHubPullRequestEnumerator {
     assertCursorRepositoryBinding(boundary, repository);
     const pullRequests = traversal.sortedAscending();
     return {
+      deferred: traversal.deferredCount(),
       nextCursor: resolveNextCursor(boundary, repository, pullRequests),
       pullRequests,
       repository,
@@ -245,58 +335,111 @@ export class GitHubPullRequestEnumerator {
 }
 
 /**
- * Validates the updatedAt-descending listing while it is consumed. A node
- * appearing twice or arriving out of order means the repository changed
- * during the traversal, so the whole enumeration fails closed.
+ * Collects the `UPDATED_AT`-descending listing without assuming it is
+ * strictly ordered by `updatedAt`.
+ *
+ * Assumptions about GitHub's listing, checked against real data:
+ * - The sort key never runs ahead of `updatedAt` and lags it by at most
+ *   `sortLagToleranceMs`. Every node listed after a node N then has
+ *   `updatedAt <= N.updatedAt + sortLagToleranceMs`, so the traversal stops
+ *   at the first node where that bound falls outside the boundary window.
+ *   Using N's own `updatedAt` as the bound for its sort key is conservative:
+ *   a lagging node only delays the stop.
+ * - A PR's sort key only ever moves forward. An update moving a PR up the
+ *   listing shifts later pages down, which repeats nodes (deduped here) but
+ *   never skips one; a PR that jumps over the read position was updated
+ *   after GitHub's server time read before the first page, so its
+ *   `updatedAt` is after the cutoff and the next run's boundary (at most the
+ *   cutoff) still lies before it.
+ *
+ * Nodes at or after the run cutoff are deferred to the next run, whose
+ * boundary still lies before their `updatedAt`. A PR observed with a
+ * timestamp at or after the cutoff is deferred even if an earlier page showed
+ * it older, since it changed during this run. Below the cutoff a repeat must
+ * carry the same `updatedAt`; a mid-run update cannot land there unless
+ * GitHub's own clocks disagree by more than the settle window, so such a
+ * repeat is treated as an incoherent listing and the enumeration restarts
+ * with the same cutoff.
  */
 class PullRequestListTraversal {
-  private readonly included: (UpdatedPullRequestRef & {
-    readonly updatedAtMs: number;
-  })[] = [];
-  private previousUpdatedAtMs = Number.POSITIVE_INFINITY;
-  private readonly seenIds = new Set<string>();
-  private readonly seenNumbers = new Set<number>();
+  private readonly deferredIds = new Set<string>();
+  private readonly included = new Map<
+    string,
+    UpdatedPullRequestRef & { readonly updatedAtMs: number }
+  >();
+  private readonly seenIds = new Map<string, number>();
+  private readonly seenNumbers = new Map<number, string>();
 
-  constructor(private readonly boundary: SyncBoundary) {}
+  constructor(
+    private readonly boundary: SyncBoundary,
+    private readonly cutoffMs: number,
+    private readonly sortLagToleranceMs: number,
+  ) {}
 
-  /** Returns false once every remaining node is older than the boundary. */
+  /** Returns false once no remaining node can be after the boundary. */
   append(nodes: readonly PullRequestListNode[], operation: string): boolean {
     for (const node of nodes) {
-      if (this.seenIds.has(node.id)) {
-        throw duplicateGraphqlNode(operation, `pull request ${node.id}`);
-      }
-      if (this.seenNumbers.has(node.number)) {
-        throw duplicateGraphqlNode(
-          operation,
-          `pull request #${String(node.number)}`,
-        );
-      }
       const updatedAtMs = parseIsoTimestampMs(node.updatedAt);
-      if (updatedAtMs > this.previousUpdatedAtMs) {
+      this.recordIdentity(node, operation);
+      const seenUpdatedAtMs = this.seenIds.get(node.id);
+      this.seenIds.set(
+        node.id,
+        Math.max(seenUpdatedAtMs ?? updatedAtMs, updatedAtMs),
+      );
+      if (updatedAtMs >= this.cutoffMs) {
+        if (isAfterSyncBoundary(this.boundary, updatedAtMs, node.number)) {
+          this.deferredIds.add(node.id);
+        }
+        this.included.delete(node.id);
+        continue;
+      }
+      if (seenUpdatedAtMs !== undefined && seenUpdatedAtMs !== updatedAtMs) {
+        if (seenUpdatedAtMs >= this.cutoffMs) continue;
         throw listChangedError(operation);
       }
-      this.seenIds.add(node.id);
-      this.seenNumbers.add(node.number);
-      this.previousUpdatedAtMs = updatedAtMs;
-      if (isBeyondSyncBoundaryWindow(this.boundary, updatedAtMs)) {
-        return false;
-      }
-      if (isAfterSyncBoundary(this.boundary, updatedAtMs, node.number)) {
-        this.included.push({
+      if (
+        seenUpdatedAtMs === undefined &&
+        isAfterSyncBoundary(this.boundary, updatedAtMs, node.number)
+      ) {
+        this.included.set(node.id, {
           id: node.id,
           number: node.number,
           updatedAt: node.updatedAt,
           updatedAtMs,
         });
       }
+      if (
+        isBeyondSyncBoundaryWindow(
+          this.boundary,
+          updatedAtMs,
+          this.sortLagToleranceMs,
+        )
+      ) {
+        return false;
+      }
     }
     return true;
   }
 
+  deferredCount(): number {
+    return this.deferredIds.size;
+  }
+
   sortedAscending(): readonly UpdatedPullRequestRef[] {
-    return [...this.included]
+    return [...this.included.values()]
       .sort(compareSyncOrder)
       .map(({ id, number, updatedAt }) => ({ id, number, updatedAt }));
+  }
+
+  private recordIdentity(node: PullRequestListNode, operation: string): void {
+    const knownId = this.seenNumbers.get(node.number);
+    if (knownId !== undefined && knownId !== node.id) {
+      throw duplicateGraphqlNode(
+        operation,
+        `pull request #${String(node.number)}`,
+      );
+    }
+    this.seenNumbers.set(node.number, node.id);
   }
 }
 
@@ -362,6 +505,13 @@ function assertListChangeAttempts(value: number): number {
     throw new TypeError(
       `maxListChangeAttempts must be between 1 and ${String(MAX_SYNC_PULL_REQUEST_LIST_ATTEMPTS)}`,
     );
+  }
+  return value;
+}
+
+function assertWindowMs(value: number, name: string, max: number): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > max) {
+    throw new TypeError(`${name} must be between 0 and ${String(max)}`);
   }
   return value;
 }

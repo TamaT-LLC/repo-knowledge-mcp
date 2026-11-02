@@ -772,6 +772,19 @@ describe("repo-knowledge CLI", () => {
     });
   });
 
+  it("forwards --max-prs to sync and rejects an invalid cap", async () => {
+    const current = fixture(["sync", REPOSITORY, "--max-prs", "25"]);
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(0);
+    expect(current.syncRepo).toHaveBeenCalledWith({ maxPullRequests: 25 });
+
+    for (const value of ["0", "1.5", "10001"]) {
+      const invalid = fixture(["sync", REPOSITORY, "--max-prs", value]);
+      await expect(runRepoKnowledgeCli(invalid.options)).resolves.toBe(2);
+      expect(invalid.syncRepo).not.toHaveBeenCalled();
+    }
+  });
+
   it("routes sync through the same mutation service resolver as MCP", async () => {
     const current = fixture([
       "sync",
@@ -787,9 +800,11 @@ describe("repo-knowledge CLI", () => {
       since: "2026-08-01T00:00:00.000Z",
     });
     expect(JSON.parse(current.stdout())).toEqual({
+      deferred: 0,
       discovered: 2,
       failed: 0,
       failures: [],
+      has_more: false,
       ingested: 1,
       jobs_created: 1,
       next_cursor: null,
@@ -830,9 +845,11 @@ describe("repo-knowledge CLI", () => {
   it("exits non-zero with an operator diagnostic on a partial sync failure", async () => {
     const current = fixture(["sync", REPOSITORY]);
     current.syncRepo.mockResolvedValueOnce({
+      deferred: 0,
       discovered: 3,
       failed: 1,
       failures: [{ message: "ingest fixture failure", pr_number: 2 }],
+      has_more: true,
       ingested: 1,
       jobs_created: 1,
       next_cursor: null,
@@ -1091,9 +1108,11 @@ function fixture(
     warnings: [],
   }));
   const syncRepo = vi.fn<KnowledgeMutationOperations["syncRepo"]>(async () => ({
+    deferred: 0,
     discovered: 2,
     failed: 0,
     failures: [],
+    has_more: false,
     ingested: 1,
     jobs_created: 1,
     next_cursor: null,
@@ -1235,9 +1254,11 @@ function setupResult(): GuidedSetupResult {
     initial_sync: {
       scope: { mode: "since", since: "2026-05-11T00:00:00.000Z" },
       summary: {
+        deferred: 0,
         discovered: 2,
         failed: 0,
         failures: [],
+        has_more: false,
         ingested: 2,
         jobs_created: 2,
         next_cursor: null,

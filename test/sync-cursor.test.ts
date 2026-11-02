@@ -132,6 +132,23 @@ describe("isBeyondSyncBoundaryWindow", () => {
     expect(isBeyondSyncBoundaryWindow(boundary, boundaryMs)).toBe(false);
     expect(isBeyondSyncBoundaryWindow(boundary, boundaryMs - 1)).toBe(true);
   });
+
+  it("widens the window by the sort lag tolerance", () => {
+    const cursorBoundary = resolveSyncBoundary({ cursor });
+    expect(
+      isBeyondSyncBoundaryWindow(cursorBoundary, boundaryMs - 10, 10),
+    ).toBe(false);
+    expect(
+      isBeyondSyncBoundaryWindow(cursorBoundary, boundaryMs - 11, 10),
+    ).toBe(true);
+    const sinceBoundary = resolveSyncBoundary({ since: BOUNDARY_AT });
+    expect(isBeyondSyncBoundaryWindow(sinceBoundary, boundaryMs - 9, 10)).toBe(
+      false,
+    );
+    expect(isBeyondSyncBoundaryWindow(sinceBoundary, boundaryMs - 10, 10)).toBe(
+      true,
+    );
+  });
 });
 
 describe("compareSyncOrder", () => {

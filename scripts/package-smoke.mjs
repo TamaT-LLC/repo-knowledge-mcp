@@ -457,6 +457,17 @@ if (args[0] === "--version") {
 if (args[0] === "auth" && args[1] === "status") {
   process.exit(0);
 }
+if (args.join(" ") === "api --include /rate_limit") {
+  // GitHub's server time for the sync cutoff, shaped like real
+  // \`gh api --include\` output: status line, headers, blank line, body.
+  process.stdout.write(
+    "HTTP/2.0 200 OK\\r\\nContent-Type: application/json; charset=utf-8\\r\\nDate: " +
+      new Date().toUTCString() +
+      "\\r\\n\\r\\n" +
+      JSON.stringify({ resources: {}, rate: { limit: 5000, remaining: 5000 } }),
+  );
+  process.exit(0);
+}
 if (args[0] !== "api" || args[1] !== "graphql") {
   process.stderr.write("fake gh: unsupported invocation\\n");
   process.exit(1);

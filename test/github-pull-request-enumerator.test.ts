@@ -1,12 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS,
   DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE,
+  DEFAULT_SYNC_SORT_LAG_TOLERANCE_MS,
+  DEFAULT_SYNC_UPDATE_SETTLE_MS,
   LIST_UPDATED_PULL_REQUESTS_PAGE_QUERY,
   LIST_UPDATED_PULL_REQUESTS_QUERY,
   GitHubPullRequestEnumerator,
   SYNC_CURSOR_VERSION,
+  GITHUB_SERVER_TIME_ARGS,
+  parseGitHubServerDate,
   type GhRunnerLike,
   type SyncCursor,
 } from "../src/experimental.js";
@@ -14,9 +18,208 @@ import {
 const REPO_ID = "R_repo_node";
 const REPO_NAME = "owner/repository";
 const BASE_MS = Date.parse("2026-08-01T00:00:00.000Z");
+const ONE_SECOND_MS = 1_000;
 const ONE_MINUTE_MS = 60_000;
+const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
+const ONE_DAY_MS = 24 * ONE_HOUR_MS;
+// GitHub's time unless a test sets one: well after every fixture timestamp.
+const DEFAULT_SERVER_MS = BASE_MS + 30 * ONE_DAY_MS;
 
 describe("GitHubPullRequestEnumerator", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reads GitHub's server time once, before the first page, across retries", async () => {
+    const runner = pagedRunner([
+      page([node(11), node(10)], "cursor-1"),
+      page([node(10, timestampMs(12))], null),
+      page([node(10, timestampMs(12)), node(11)], null),
+    ]).withServerTime(timestampMs(30));
+
+    await new GitHubPullRequestEnumerator({
+      ghRunner: runner,
+    }).enumerateUpdatedPullRequests({
+      cursor: cursorAt(9, timestampMs(9)),
+      repo: REPO_NAME,
+    });
+
+    expect(runner.log).toEqual([
+      "server-time",
+      "graphql",
+      "graphql",
+      "graphql",
+    ]);
+  });
+
+  it("derives the cutoff from GitHub's server time regardless of the local clock", async () => {
+    const serverMs = timestampMs(20);
+    const cutoffMs = serverMs - DEFAULT_SYNC_UPDATE_SETTLE_MS;
+    const run = async (): Promise<
+      Awaited<
+        ReturnType<GitHubPullRequestEnumerator["enumerateUpdatedPullRequests"]>
+      >
+    > =>
+      new GitHubPullRequestEnumerator({
+        ghRunner: pagedRunner([
+          page(
+            [node(19, cutoffMs), node(18, cutoffMs - 1_000), node(17)],
+            null,
+          ),
+        ]).withServerTime(serverMs),
+      }).enumerateUpdatedPullRequests({
+        cursor: cursorAt(16, timestampMs(16)),
+        repo: REPO_NAME,
+      });
+
+    const results = [];
+    for (const localSkewMs of [0, ONE_DAY_MS, -ONE_DAY_MS]) {
+      vi.useFakeTimers({ now: serverMs + localSkewMs, toFake: ["Date"] });
+      results.push(await run());
+      vi.useRealTimers();
+    }
+
+    expect(results[0]?.pullRequests.map((pr) => pr.number)).toEqual([17, 18]);
+    expect(results[0]?.deferred).toBe(1);
+    expect(results[1]).toEqual(results[0]);
+    expect(results[2]).toEqual(results[0]);
+  });
+
+  it("picks up next run a PR that an update moved into already-read pages", async () => {
+    // #13 is updated just before run 1 reads page 1, then unread #8 is
+    // updated in the same second (both after GitHub's Date header) and jumps
+    // into the already-read pages, so run 1 never sees #8. With the host clock
+    // a day ahead, a local-clock cutoff would include #13 and advance the
+    // checkpoint to (#13's second, #13), past #8's (same second, #8), losing
+    // #8 for good. The server-time cutoff defers #13 instead, so the
+    // checkpoint stays before #8's new updatedAt and run 2 collects both.
+    const run1ServerMs = timestampMs(30);
+    const updatedEightMs = run1ServerMs + ONE_SECOND_MS;
+    vi.useFakeTimers({ now: run1ServerMs + ONE_DAY_MS, toFake: ["Date"] });
+
+    const run1 = await new GitHubPullRequestEnumerator({
+      ghRunner: pagedRunner([
+        page([node(13, updatedEightMs), node(12), node(11)], "cursor-1"),
+        // Offset-based page 2 after #8 moved to the top: #11 repeats, #8 is gone.
+        page([node(11), node(10), node(9), node(7)], null),
+      ]).withServerTime(run1ServerMs),
+    }).enumerateUpdatedPullRequests({
+      cursor: cursorAt(6, timestampMs(6)),
+      repo: REPO_NAME,
+    });
+
+    expect(run1.pullRequests.map((pr) => pr.number)).toEqual([
+      7, 9, 10, 11, 12,
+    ]);
+    expect(run1.deferred).toBe(1);
+    expect(run1.nextCursor).toMatchObject({ last_pr_number: 12 });
+
+    vi.setSystemTime(timestampMs(60) + ONE_DAY_MS);
+    const run2 = await new GitHubPullRequestEnumerator({
+      ghRunner: pagedRunner([
+        page(
+          [node(8, updatedEightMs), node(13, updatedEightMs), node(12)],
+          "cursor-1",
+        ),
+        page([node(10), node(9), node(7)], null),
+      ]).withServerTime(timestampMs(60)),
+    }).enumerateUpdatedPullRequests({
+      cursor: run1.nextCursor ?? undefined,
+      repo: REPO_NAME,
+    });
+
+    expect(run2.pullRequests).toEqual(
+      [8, 13].map((number) => ({
+        id: `PR_node_${String(number)}`,
+        number,
+        updatedAt: new Date(updatedEightMs).toISOString(),
+      })),
+    );
+  });
+
+  it("fails closed with a retryable code when the Date header is missing", async () => {
+    const runner = pagedRunner([page([node(1)], null)]);
+    runner.serverTimeResponse = () =>
+      ["HTTP/2.0 200 OK", "Content-Type: application/json", "", "{}"].join(
+        "\r\n",
+      );
+
+    await expect(
+      new GitHubPullRequestEnumerator({
+        ghRunner: runner,
+      }).enumerateUpdatedPullRequests({ repo: REPO_NAME }),
+    ).rejects.toMatchObject({ code: "GITHUB_SERVER_TIME_UNAVAILABLE" });
+    // No page is read without a trustworthy cutoff.
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  it("fails closed with a retryable code when the server time request fails", async () => {
+    const runner = pagedRunner([page([node(1)], null)]);
+    runner.serverTimeResponse = () => {
+      throw new Error("network down");
+    };
+
+    await expect(
+      new GitHubPullRequestEnumerator({
+        ghRunner: runner,
+      }).enumerateUpdatedPullRequests({ repo: REPO_NAME }),
+    ).rejects.toMatchObject({ code: "GITHUB_SERVER_TIME_UNAVAILABLE" });
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  it("parses only a single well-formed Date header from a 2xx response", () => {
+    const response = (status: string, ...headers: string[]): string =>
+      [status, ...headers, "", '{"date":"Mon, 01 Jan 2001 00:00:00 GMT"}'].join(
+        "\r\n",
+      );
+
+    expect(
+      parseGitHubServerDate(
+        response("HTTP/2.0 200 OK", "date:  Mon, 02 Nov 2026 09:33:22 GMT"),
+      ).toISOString(),
+    ).toBe("2026-11-02T09:33:22.000Z");
+    expect(
+      parseGitHubServerDate(
+        "HTTP/1.1 200 OK\nDate: Mon, 02 Nov 2026 09:33:22 GMT\n\n{}",
+      ).toISOString(),
+    ).toBe("2026-11-02T09:33:22.000Z");
+    for (const invalid of [
+      response("HTTP/2.0 200 OK"),
+      response(
+        "HTTP/2.0 304 Not Modified",
+        "Date: Mon, 02 Nov 2026 09:33:22 GMT",
+      ),
+      response("HTTP/2.0 200 OK", "Date: 2026-11-02T09:33:22Z"),
+      response("HTTP/2.0 200 OK", "Date: Mon, 32 Nov 2026 09:33:22 GMT"),
+      response(
+        "HTTP/2.0 200 OK",
+        "Date: Mon, 02 Nov 2026 09:33:22 GMT",
+        "Date: Mon, 02 Nov 2026 09:33:23 GMT",
+      ),
+      "",
+    ]) {
+      expect(() => parseGitHubServerDate(invalid)).toThrow(
+        expect.objectContaining({ code: "GITHUB_SERVER_TIME_UNAVAILABLE" }),
+      );
+    }
+  });
+
+  it("parses a Date header padded with tabs in linear time", () => {
+    const padding = "\t".repeat(200_000);
+    const started = performance.now();
+    expect(
+      parseGitHubServerDate(
+        `HTTP/2.0 200 OK\r\nDate:${padding}Mon, 02 Nov 2026 09:33:22 GMT${padding}\r\n\r\n{}`,
+      ).toISOString(),
+    ).toBe("2026-11-02T09:33:22.000Z");
+    expect(() =>
+      parseGitHubServerDate(`HTTP/2.0 200 OK\r\ndate:${padding}x\r\n\r\n{}`),
+    ).toThrow(
+      expect.objectContaining({ code: "GITHUB_SERVER_TIME_UNAVAILABLE" }),
+    );
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   it("enumerates more than 100 PRs across pages in deterministic ascending order", async () => {
     const total = 105;
     // DESC listing: newest first (PR number == minutes offset from BASE_MS).
@@ -94,6 +297,7 @@ describe("GitHubPullRequestEnumerator", () => {
 
     const result = await new GitHubPullRequestEnumerator({
       ghRunner: runner,
+      sortLagToleranceMs: 0,
     }).enumerateUpdatedPullRequests({
       cursor: cursorAt(5, sharedMs),
       repo: REPO_NAME,
@@ -155,10 +359,270 @@ describe("GitHubPullRequestEnumerator", () => {
     expect(result.nextCursor).toEqual(cursor);
   });
 
-  it("fails closed when a PR repeats across pages during traversal", async () => {
+  it("defers a PR updated mid-enumeration instead of failing the listing", async () => {
+    // #13 was updated after the run started: it resurfaces out of order with
+    // a timestamp past the run cutoff, which used to abort the whole sync.
+    const runner = pagedRunner([
+      page([node(12), node(11)], "cursor-1"),
+      page([node(13, timestampMs(40)), node(10), node(9)], null),
+    ]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner.withServerTime(timestampMs(30)),
+    }).enumerateUpdatedPullRequests({
+      cursor: cursorAt(9, timestampMs(9)),
+      repo: REPO_NAME,
+    });
+
+    expect(result.pullRequests.map((pr) => pr.number)).toEqual([10, 11, 12]);
+    expect(result.deferred).toBe(1);
+    // The checkpoint still advances; #13's new updatedAt lies after it, so
+    // the next run picks it up.
+    expect(result.nextCursor).toMatchObject({
+      last_pr_number: 12,
+      last_updated_at: isoAt(12),
+    });
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  it("defers PRs updated at or after the settle cutoff fixed at run start", async () => {
+    const nowMs = timestampMs(20);
+    const cutoffMs = nowMs - DEFAULT_SYNC_UPDATE_SETTLE_MS;
+    const runner = pagedRunner([
+      page(
+        [
+          node(21, cutoffMs + 1),
+          node(20, cutoffMs),
+          node(19, cutoffMs - 1),
+          node(18),
+        ],
+        null,
+      ),
+    ]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner.withServerTime(nowMs),
+    }).enumerateUpdatedPullRequests({
+      cursor: cursorAt(17, timestampMs(17)),
+      repo: REPO_NAME,
+    });
+
+    expect(result.pullRequests.map((pr) => pr.number)).toEqual([18, 19]);
+    expect(result.deferred).toBe(2);
+    expect(result.nextCursor).toMatchObject({ last_pr_number: 19 });
+  });
+
+  it("does not count deferred PRs that are not after the boundary", async () => {
+    const runner = pagedRunner([page([node(5, timestampMs(30))], null)]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner.withServerTime(timestampMs(30)),
+      updateSettleMs: 0,
+    }).enumerateUpdatedPullRequests({
+      repo: REPO_NAME,
+      since: new Date(timestampMs(31)).toISOString(),
+    });
+
+    expect(result.pullRequests).toEqual([]);
+    expect(result.deferred).toBe(0);
+  });
+
+  it("skips the identical repeat that a page shift produces", async () => {
+    // An update moving a PR to the top shifts offset-based pages by one, so
+    // the last node of page 1 is served again at the start of page 2.
+    const runner = pagedRunner([
+      page([node(12), node(11)], "cursor-1"),
+      page([node(11), node(10)], null),
+    ]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner,
+    }).enumerateUpdatedPullRequests({ repo: REPO_NAME });
+
+    expect(result.pullRequests.map((pr) => pr.number)).toEqual([10, 11, 12]);
+    expect(result.deferred).toBe(0);
+  });
+
+  it("rejects an invalid update settle window", () => {
+    for (const updateSettleMs of [-1, 1.5, 24 * 60 * 60 * 1_000 + 1]) {
+      expect(
+        () =>
+          new GitHubPullRequestEnumerator({
+            ghRunner: pagedRunner([]),
+            updateSettleMs,
+          }),
+      ).toThrow(TypeError);
+    }
+  });
+
+  it("rejects an invalid sort lag tolerance", () => {
+    for (const sortLagToleranceMs of [-1, 1.5, 90 * ONE_DAY_MS + 1]) {
+      expect(
+        () =>
+          new GitHubPullRequestEnumerator({
+            ghRunner: pagedRunner([]),
+            sortLagToleranceMs,
+          }),
+      ).toThrow(TypeError);
+    }
+  });
+
+  it("bounds retries when a PR keeps repeating below the cutoff with a different updatedAt", async () => {
+    // The server-time cutoff keeps mid-run updates out of this range, so a
+    // repeat below it with a new updatedAt means GitHub's own clocks
+    // disagree; the listing is restarted, but only a bounded number of times.
+    const pages = Array.from(
+      { length: DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS },
+      (_, index) => [
+        page([node(10)], `cursor-${String(index)}`),
+        page([node(10, timestampMs(9))], null),
+      ],
+    ).flat();
+    const runner = pagedRunner(pages);
+
+    await expect(
+      new GitHubPullRequestEnumerator({
+        ghRunner: runner,
+      }).enumerateUpdatedPullRequests({ repo: REPO_NAME }),
+    ).rejects.toMatchObject({ code: "PULL_REQUEST_LIST_CHANGED" });
+    expect(runner.calls).toHaveLength(
+      DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS * 2,
+    );
+  });
+
+  it("restarts the listing when a PR repeats below the cutoff with a different updatedAt", async () => {
+    const runner = pagedRunner([
+      page([node(11), node(10)], "cursor-1"),
+      page([node(10, timestampMs(12))], null),
+      page([node(10, timestampMs(12)), node(11)], null),
+    ]);
+    const cursor = cursorAt(9, timestampMs(9));
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner.withServerTime(timestampMs(30)),
+    }).enumerateUpdatedPullRequests({ cursor, repo: REPO_NAME });
+
+    expect(result.pullRequests).toEqual([
+      { id: "PR_node_11", number: 11, updatedAt: isoAt(11) },
+      { id: "PR_node_10", number: 10, updatedAt: isoAt(12) },
+    ]);
+    expect(result.deferred).toBe(0);
+    expect(runner.calls.map((call) => call.variables.after ?? null)).toEqual([
+      null,
+      "cursor-1",
+      null,
+    ]);
+  });
+
+  it("collects PRs that GitHub lists out of updatedAt order", async () => {
+    // Anonymized shape of a real listing (orderBy UPDATED_AT DESC) that made
+    // every sync fail with PULL_REQUEST_LIST_CHANGED: GitHub sorts by an
+    // internal key that can lag the returned updatedAt, so some PRs show up
+    // later than their updatedAt implies (+620s, +3s, and one +4h15m14s lag
+    // listed below the checkpoint). The listing is static, so retrying never
+    // helped. Everything after the checkpoint must be collected exactly once.
+    const boundaryMs = BASE_MS;
+    const at = (offsetMs: number): number => boundaryMs + offsetMs;
+    const runner = pagedRunner([
+      page(
+        [
+          node(21, at(3 * ONE_HOUR_MS)),
+          node(20, at(2 * ONE_HOUR_MS)),
+          node(19, at(ONE_HOUR_MS)),
+          node(22, at(ONE_HOUR_MS + 620 * ONE_SECOND_MS)),
+          node(18, at(30 * ONE_MINUTE_MS)),
+        ],
+        "cursor-1",
+      ),
+      page(
+        [
+          node(17, at(10 * ONE_MINUTE_MS)),
+          node(16, at(5 * ONE_MINUTE_MS)),
+          node(23, at(5 * ONE_MINUTE_MS + 3 * ONE_SECOND_MS)),
+          // The first node older than the checkpoint: the old traversal
+          // stopped here and would never have reached #24.
+          node(15, at(-10 * ONE_MINUTE_MS)),
+          node(24, at(-10 * ONE_MINUTE_MS + 15_314 * ONE_SECOND_MS)),
+        ],
+        "cursor-2",
+      ),
+      page(
+        [
+          node(14, at(-2 * ONE_DAY_MS)),
+          // Older than the checkpoint by more than the lag tolerance: no
+          // later node can be after the checkpoint, so page 4 is not read.
+          node(13, at(-DEFAULT_SYNC_SORT_LAG_TOLERANCE_MS - ONE_SECOND_MS)),
+        ],
+        "cursor-3",
+      ),
+    ]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner.withServerTime(at(ONE_DAY_MS)),
+    }).enumerateUpdatedPullRequests({
+      cursor: cursorAt(12, boundaryMs),
+      repo: REPO_NAME,
+    });
+
+    expect(result.pullRequests.map((pr) => pr.number)).toEqual([
+      16, 23, 17, 18, 19, 22, 20, 21, 24,
+    ]);
+    expect(result.deferred).toBe(0);
+    expect(result.nextCursor).toMatchObject({
+      last_pr_number: 24,
+      last_updated_at: new Date(
+        at(-10 * ONE_MINUTE_MS + 15_314 * ONE_SECOND_MS),
+      ).toISOString(),
+    });
+    expect(runner.calls).toHaveLength(3);
+  });
+
+  it("keeps reading while a node is within the lag tolerance of the boundary", async () => {
+    const boundaryMs = BASE_MS;
+    const runner = pagedRunner([
+      page([node(13, boundaryMs + ONE_MINUTE_MS)], "cursor-1"),
+      // Exactly at the tolerance: a node lagging by the full tolerance could
+      // still follow with an updatedAt equal to the boundary.
+      page([node(9, boundaryMs - ONE_HOUR_MS)], "cursor-2"),
+      page(
+        [node(12, boundaryMs), node(8, boundaryMs - 2 * ONE_HOUR_MS)],
+        "cursor-3",
+      ),
+    ]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner,
+      sortLagToleranceMs: ONE_HOUR_MS,
+    }).enumerateUpdatedPullRequests({
+      cursor: cursorAt(11, boundaryMs),
+      repo: REPO_NAME,
+    });
+
+    expect(result.pullRequests.map((pr) => pr.number)).toEqual([12, 13]);
+    expect(runner.calls).toHaveLength(3);
+  });
+
+  it("defers a PR seen below the cutoff and again after it was updated mid-run", async () => {
+    const runner = pagedRunner([
+      page([node(12), node(11)], "cursor-1"),
+      page([node(11, timestampMs(40)), node(10)], null),
+    ]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner.withServerTime(timestampMs(30)),
+    }).enumerateUpdatedPullRequests({
+      cursor: cursorAt(9, timestampMs(9)),
+      repo: REPO_NAME,
+    });
+
+    expect(result.pullRequests.map((pr) => pr.number)).toEqual([10, 12]);
+    expect(result.deferred).toBe(1);
+  });
+
+  it("fails closed when two node IDs claim the same PR number", async () => {
     const runner = pagedRunner([
       page([node(10)], "cursor-1"),
-      page([node(10)], null),
+      page([{ ...(node(10) as object), id: "PR_node_other" }], null),
     ]);
 
     await expect(
@@ -168,24 +632,10 @@ describe("GitHubPullRequestEnumerator", () => {
     ).rejects.toMatchObject({ code: "DUPLICATE_GRAPHQL_NODE" });
   });
 
-  it("fails closed when the updatedAt ordering regresses mid-traversal", async () => {
-    const runner = pagedRunner([
-      page([node(10)], "cursor-1"),
-      page([node(11)], null),
-    ]);
-
-    await expect(
-      new GitHubPullRequestEnumerator({
-        ghRunner: runner,
-        maxListChangeAttempts: 1,
-      }).enumerateUpdatedPullRequests({ repo: REPO_NAME }),
-    ).rejects.toMatchObject({ code: "PULL_REQUEST_LIST_CHANGED" });
-  });
-
   it("restarts a changed listing from the same cursor boundary", async () => {
     const runner = pagedRunner([
-      page([node(10)], "stale-cursor"),
-      page([node(11)], null),
+      page([node(11)], "stale-cursor"),
+      page([node(10)], null, { id: "R_other_repo" }),
       page([node(11), node(10), node(9)], null),
     ]);
     const cursor = cursorAt(9, timestampMs(9));
@@ -209,8 +659,8 @@ describe("GitHubPullRequestEnumerator", () => {
     const pages = Array.from(
       { length: DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS },
       (_, index) => [
-        page([node(10)], `stale-cursor-${String(index)}`),
-        page([node(11)], null),
+        page([node(11)], `stale-cursor-${String(index)}`),
+        page([node(10)], null, { id: "R_other_repo" }),
       ],
     ).flat();
     const runner = pagedRunner(pages);
@@ -315,6 +765,7 @@ describe("GitHubPullRequestEnumerator", () => {
     await expect(
       new GitHubPullRequestEnumerator({
         ghRunner: runner,
+        sortLagToleranceMs: 0,
       }).enumerateUpdatedPullRequests({
         cursor: cursorAt(5, boundaryMs),
         repo: REPO_NAME,
@@ -354,13 +805,28 @@ interface FixtureRequest {
 }
 
 class FixtureGhRunner implements GhRunnerLike {
+  /** GraphQL requests only; server time reads are counted separately. */
   readonly calls: FixtureRequest[] = [];
+  readonly log: ("graphql" | "server-time")[] = [];
+  serverTimeResponse: () => string = () =>
+    serverTimeResponse(DEFAULT_SERVER_MS);
 
   constructor(private readonly handler: (request: FixtureRequest) => unknown) {}
+
+  withServerTime(serverMs: number): this {
+    this.serverTimeResponse = () => serverTimeResponse(serverMs);
+    return this;
+  }
 
   async run(
     args: readonly string[],
   ): Promise<{ stderr: string; stdout: string }> {
+    if (args[0] === "api" && args[1] !== "graphql") {
+      expect(args).toEqual(GITHUB_SERVER_TIME_ARGS);
+      this.log.push("server-time");
+      return { stderr: "", stdout: this.serverTimeResponse() };
+    }
+    this.log.push("graphql");
     const request: FixtureRequest = {
       query: field(args, "query"),
       variables: variables(args),
@@ -371,6 +837,17 @@ class FixtureGhRunner implements GhRunnerLike {
       stdout: JSON.stringify(await Promise.resolve(this.handler(request))),
     };
   }
+}
+
+function serverTimeResponse(serverMs: number): string {
+  // Shape of `gh api --include` output; the Date header has 1 s precision.
+  return [
+    "HTTP/2.0 200 OK",
+    "Content-Type: application/json; charset=utf-8",
+    `Date: ${new Date(serverMs).toUTCString()}`,
+    "",
+    '{"resources":{}}',
+  ].join("\r\n");
 }
 
 function pagedRunner(pages: readonly unknown[]): FixtureGhRunner {

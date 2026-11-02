@@ -370,6 +370,13 @@ class SetupGhRunner implements GhRunnerLike {
     if (args[0] === "--version") {
       return { stderr: "", stdout: "gh version fixture\n" };
     }
+    if (args.join(" ") === "api --include /rate_limit") {
+      return {
+        stderr: "",
+        stdout:
+          "HTTP/2.0 200 OK\r\nDate: Mon, 02 Nov 2026 00:00:00 GMT\r\n\r\n{}",
+      };
+    }
     if (args[0] === "auth") {
       return { stderr: "", stdout: "authenticated\n" };
     }

@@ -266,6 +266,7 @@ const CANONICAL_STORE_RULES = {
 
 const SYNC_REPO_RULES = {
   SYNC_CHECKPOINT_REPOSITORY_MISMATCH: NON_RETRYABLE,
+  SYNC_MAX_PULL_REQUESTS_INVALID: NON_RETRYABLE,
   SYNC_REPOSITORY_MISMATCH: NON_RETRYABLE,
   SYNC_SINCE_BEYOND_CHECKPOINT: {
     nextAction:
@@ -301,6 +302,12 @@ const SYNC_CHECKPOINT_RULES = {
 const PULL_REQUEST_LIST_CHANGED_RULE = {
   nextAction:
     "Call sync_repo again with the same arguments; the unchanged checkpoint keeps the retry lossless. If repository updates remain continuous, retry during a quieter interval.",
+  retryable: true,
+} as const;
+
+const GITHUB_SERVER_TIME_UNAVAILABLE_RULE = {
+  nextAction:
+    "Check `gh auth status` and network access to GitHub, then call sync_repo again with the same arguments; the checkpoint was not changed.",
   retryable: true,
 } as const;
 
@@ -346,7 +353,7 @@ const MUTATION_ERROR_TRANSLATORS = [
   translateSyncRepoError,
   translateSyncCursorError,
   translateSyncCheckpointError,
-  translatePullRequestListChangedError,
+  translateRetryableSnapshotError,
   translateFileLockError,
   translateProviderPipelineError,
   translateGenericCodedError,
@@ -515,13 +522,17 @@ function translateSyncCheckpointError(
     : undefined;
 }
 
-function translatePullRequestListChangedError(
+function translateRetryableSnapshotError(
   error: unknown,
 ): MutationToolErrorPayload | undefined {
-  return error instanceof GitHubSnapshotError &&
-    error.code === "PULL_REQUEST_LIST_CHANGED"
-    ? mapKnownError(error, PULL_REQUEST_LIST_CHANGED_RULE)
-    : undefined;
+  if (!(error instanceof GitHubSnapshotError)) return undefined;
+  if (error.code === "PULL_REQUEST_LIST_CHANGED") {
+    return mapKnownError(error, PULL_REQUEST_LIST_CHANGED_RULE);
+  }
+  if (error.code === "GITHUB_SERVER_TIME_UNAVAILABLE") {
+    return mapKnownError(error, GITHUB_SERVER_TIME_UNAVAILABLE_RULE);
+  }
+  return undefined;
 }
 
 function translateFileLockError(

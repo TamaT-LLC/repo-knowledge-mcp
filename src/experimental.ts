@@ -253,6 +253,8 @@ export {
 export {
   DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS,
   DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE,
+  DEFAULT_SYNC_SORT_LAG_TOLERANCE_MS,
+  DEFAULT_SYNC_UPDATE_SETTLE_MS,
   LIST_UPDATED_PULL_REQUESTS_PAGE_QUERY,
   LIST_UPDATED_PULL_REQUESTS_QUERY,
   GitHubPullRequestEnumerator,
@@ -262,6 +264,11 @@ export {
   type SyncRepositoryIdentity,
   type UpdatedPullRequestRef,
 } from "./github-pull-request-enumerator.js";
+export {
+  GITHUB_SERVER_TIME_ARGS,
+  parseGitHubServerDate,
+  readGitHubServerTime,
+} from "./github-server-time.js";
 export {
   SYNC_CURSOR_VERSION,
   SyncCursorError,
@@ -294,6 +301,7 @@ export {
 } from "./sync-checkpoint-store.js";
 export {
   DEFAULT_SYNC_LOCK_TIMEOUT_MS,
+  MAX_SYNC_PULL_REQUESTS_PER_RUN,
   SYNC_LOCK_FILE_NAME,
   SyncRepoError,
   SyncRepoService,

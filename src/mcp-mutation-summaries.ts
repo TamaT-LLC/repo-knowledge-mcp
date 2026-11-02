@@ -48,10 +48,16 @@ export function summarizeSync(
     firstFailure === undefined
       ? ""
       : ` Stopped at PR #${String(firstFailure.pr_number)} after the first failure.`;
+  const moreNote = !result.has_more
+    ? ""
+    : result.deferred > 0
+      ? ` More work remains, including **${result.deferred}** recently updated pull request(s) deferred to the next run.`
+      : " More work remains for the next run.";
   return {
-    body: `### Repository synced\n\nDiscovered **${result.discovered}** updated pull request(s); **${result.ingested}** ingested and **${result.unchanged}** unchanged.${failureNote}`,
+    body: `### Repository synced\n\nDiscovered **${result.discovered}** updated pull request(s); **${result.ingested}** ingested and **${result.unchanged}** unchanged.${failureNote}${moreNote}`,
     summary: {
       counts: {
+        deferred: result.deferred,
         discovered: result.discovered,
         failed: result.failed,
         ingested: result.ingested,
@@ -61,9 +67,11 @@ export function summarizeSync(
       next_action:
         result.failed > 0
           ? "Call sync_repo again without since; the checkpoint stopped at the last contiguous success, so the failed pull request is retried first."
-          : result.jobs_created > 0
-            ? "If host-assisted distillation is explicitly enabled, call prepare_distillation; otherwise leave the jobs pending."
-            : "No further action is required until new review activity arrives.",
+          : result.has_more
+            ? "Call sync_repo again without since; it resumes from the advanced checkpoint. Repeat while has_more is true."
+            : result.jobs_created > 0
+              ? "If host-assisted distillation is explicitly enabled, call prepare_distillation; otherwise leave the jobs pending."
+              : "No further action is required until new review activity arrives.",
       retryable: true,
     },
   };

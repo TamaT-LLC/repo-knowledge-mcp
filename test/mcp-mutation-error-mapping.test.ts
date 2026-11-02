@@ -289,6 +289,7 @@ const CANONICAL_STORE_RULES = {
 
 const SYNC_REPO_RULES = {
   SYNC_CHECKPOINT_REPOSITORY_MISMATCH: NON_RETRYABLE,
+  SYNC_MAX_PULL_REQUESTS_INVALID: NON_RETRYABLE,
   SYNC_REPOSITORY_MISMATCH: NON_RETRYABLE,
   SYNC_SINCE_BEYOND_CHECKPOINT: {
     nextAction:
@@ -581,6 +582,21 @@ describe("mapMutationError", () => {
 
     expect(mapMutationError(error)).toEqual({
       code: "PULL_REQUEST_LIST_CHANGED",
+      message: error.message,
+      next_action: expect.stringContaining("same arguments"),
+      retryable: true,
+    });
+  });
+
+  it("maps an unreadable GitHub server time as retryable", () => {
+    const error = new GitHubSnapshotError(
+      "GITHUB_SERVER_TIME_UNAVAILABLE",
+      "GitHub server time",
+      "could not read GitHub's server time: missing Date header",
+    );
+
+    expect(mapMutationError(error)).toEqual({
+      code: "GITHUB_SERVER_TIME_UNAVAILABLE",
       message: error.message,
       next_action: expect.stringContaining("same arguments"),
       retryable: true,

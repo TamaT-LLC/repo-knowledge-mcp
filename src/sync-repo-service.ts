@@ -29,6 +29,7 @@ import {
 
 export const SYNC_LOCK_FILE_NAME = ".sync.lock";
 export const DEFAULT_SYNC_LOCK_TIMEOUT_MS = 5_000;
+export const MAX_SYNC_PULL_REQUESTS_PER_RUN = 10_000;
 
 export interface SyncPullRequestEnumerator {
   enumerateUpdatedPullRequests(
@@ -55,6 +56,12 @@ export interface SyncPullRequestIngester {
 }
 
 export interface SyncRepoRequest {
+  /**
+   * Upper bound on PRs processed by this run. The oldest PRs are processed
+   * first and the rest stay after the checkpoint for the next run, so large
+   * backlogs converge over repeated bounded runs. Unbounded when omitted.
+   */
+  readonly maxPullRequests?: number;
   readonly since?: string;
 }
 
@@ -64,9 +71,13 @@ export interface SyncPullRequestFailure {
 }
 
 export interface SyncRepoSummary {
+  /** PRs updated too recently for this run; the next run picks them up. */
+  readonly deferred: number;
   readonly discovered: number;
   readonly failed: number;
   readonly failures: readonly SyncPullRequestFailure[];
+  /** True when known work remains after next_cursor for a later run. */
+  readonly has_more: boolean;
   readonly ingested: number;
   readonly jobs_created: number;
   readonly next_cursor: SyncCursor | null;
@@ -87,6 +98,7 @@ export interface SyncRepoServiceOptions {
 
 export type SyncRepoErrorCode =
   | "SYNC_CHECKPOINT_REPOSITORY_MISMATCH"
+  | "SYNC_MAX_PULL_REQUESTS_INVALID"
   | "SYNC_REPOSITORY_MISMATCH"
   | "SYNC_SINCE_BEYOND_CHECKPOINT";
 
@@ -111,6 +123,9 @@ export class SyncRepoError extends Error {
  *   and therefore never held across network I/O.
  * - The checkpoint advances atomically to each successfully ingested PR, so
  *   a crash after any ingest resumes at (not past) the next unprocessed PR.
+ * - A run may stop early at `maxPullRequests`; the unprocessed tail stays
+ *   strictly after the checkpoint (ties on updatedAt are ordered by PR
+ *   number), so repeated bounded runs converge without gaps or duplicates.
  * - Advancement is deterministic on failure: processing stops at the first
  *   failed PR and the checkpoint stays at the last contiguous success, so no
  *   PR behind a failure is ever skipped. Re-ingesting already-synced PRs on
@@ -145,6 +160,7 @@ export class SyncRepoService {
   }
 
   async sync(request: SyncRepoRequest = {}): Promise<SyncRepoSummary> {
+    assertMaxPullRequests(request.maxPullRequests);
     const repository = await this.repositoryResolver.resolve({
       repo: this.repo,
     });
@@ -216,7 +232,11 @@ export class SyncRepoService {
     let jobsCreated = 0;
     let unchanged = 0;
     const failures: SyncPullRequestFailure[] = [];
-    for (const pullRequest of enumeration.pullRequests) {
+    const batch = enumeration.pullRequests.slice(
+      0,
+      request.maxPullRequests ?? enumeration.pullRequests.length,
+    );
+    for (const pullRequest of batch) {
       let result: IngestPullRequestResult;
       try {
         result = await this.ingester.ingestPullRequest({
@@ -255,9 +275,13 @@ export class SyncRepoService {
     }
 
     return {
+      deferred: enumeration.deferred,
       discovered: enumeration.pullRequests.length,
       failed: failures.length,
       failures,
+      has_more:
+        ingested + unchanged < enumeration.pullRequests.length ||
+        enumeration.deferred > 0,
       ingested,
       jobs_created: jobsCreated,
       next_cursor: current?.cursor ?? null,
@@ -315,6 +339,20 @@ function assertSinceWithinCheckpoint(
     throw new SyncRepoError(
       "SYNC_SINCE_BEYOND_CHECKPOINT",
       `--since ${request.since} is not strictly older than the stored checkpoint boundary (${checkpoint.cursor.last_updated_at}, #${String(checkpoint.cursor.last_pr_number)}); PRs between them would be skipped permanently. Run without --since to resume from the checkpoint.`,
+    );
+  }
+}
+
+function assertMaxPullRequests(value: number | undefined): void {
+  if (value === undefined) return;
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > MAX_SYNC_PULL_REQUESTS_PER_RUN
+  ) {
+    throw new SyncRepoError(
+      "SYNC_MAX_PULL_REQUESTS_INVALID",
+      `maxPullRequests must be between 1 and ${String(MAX_SYNC_PULL_REQUESTS_PER_RUN)}`,
     );
   }
 }

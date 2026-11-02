@@ -83,9 +83,11 @@ describe("sync CLI and MCP E2E over a real CLI process and stdio client", () => 
     const resumed = await runCliSync(environment);
     expect(resumed.exitCode).toBe(0);
     expect(SyncRepoResultSchema.parse(JSON.parse(resumed.stdout))).toEqual({
+      deferred: 0,
       discovered: 0,
       failed: 0,
       failures: [],
+      has_more: false,
       ingested: 0,
       jobs_created: 0,
       next_cursor: firstSummary.next_cursor,
@@ -109,9 +111,11 @@ describe("sync CLI and MCP E2E over a real CLI process and stdio client", () => 
     expect(structured.ok).toBe(true);
     // Identical summary schema and identical resume point across surfaces.
     expect(structured.result).toEqual({
+      deferred: 0,
       discovered: 2,
       failed: 0,
       failures: [],
+      has_more: false,
       ingested: 0,
       jobs_created: 0,
       next_cursor: firstSummary.next_cursor,
@@ -249,9 +253,9 @@ function isoAt(prNumber: number): string {
 }
 
 /**
- * Deterministic `gh` stand-in: answers exactly the GraphQL operations a sync
- * run issues (repository resolution, updated-PR listing, snapshot fetch, and
- * snapshot validation) without any network access.
+ * Deterministic `gh` stand-in: answers exactly the requests a sync run issues
+ * (the server time read, repository resolution, updated-PR listing, snapshot
+ * fetch, and snapshot validation) without any network access.
  */
 function fakeGhSource(): string {
   const fixture = {
@@ -265,6 +269,13 @@ function fakeGhSource(): string {
   return `#!/usr/bin/env node
 const FIXTURE = ${JSON.stringify(fixture)};
 const args = process.argv.slice(2);
+if (args.join(" ") === "api --include /rate_limit") {
+  // GitHub's server time for the sync cutoff, after every fixture timestamp.
+  process.stdout.write(
+    "HTTP/2.0 200 OK\\r\\nDate: " + new Date().toUTCString() + "\\r\\n\\r\\n{}",
+  );
+  process.exit(0);
+}
 if (args[0] !== "api" || args[1] !== "graphql") {
   process.stderr.write("fake gh: unsupported invocation\\n");
   process.exit(1);
