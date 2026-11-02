@@ -24,6 +24,7 @@ import type {
   ReviewInboxResult,
 } from "./review-inbox-service.js";
 import type { TerminalActivityUpdate } from "./terminal-progress.js";
+import type { SyncScheduleFormat, SyncSchedulerLike } from "./sync-schedule.js";
 
 export interface RepoKnowledgeCliIo {
   activity?(update: TerminalActivityUpdate): void;
@@ -143,6 +144,8 @@ export interface RunRepoKnowledgeCliOptions {
   readonly io: RepoKnowledgeCliIo;
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
   readonly operationsResolver: CliRepositoryOperationsResolver;
+  /** OS scheduler integration for `schedule`; unavailable when omitted. */
+  readonly scheduler?: SyncSchedulerLike;
   serve(request: RepoKnowledgeServeRequest): Promise<void> | void;
   setup(
     request: GuidedSetupRequest,
@@ -170,6 +173,26 @@ export type ParsedCliCommand =
       readonly maxPullRequests?: number;
       readonly selection: CliRepositorySelection;
       readonly since?: string;
+    }
+  | {
+      readonly action: "install" | "print";
+      readonly dryRun?: true;
+      readonly format?: SyncScheduleFormat;
+      readonly intervalMinutes: number;
+      readonly kind: "schedule";
+      readonly maxPullRequests?: number;
+      readonly repo: string;
+    }
+  | {
+      readonly action: "uninstall";
+      readonly dryRun?: true;
+      readonly kind: "schedule";
+      readonly repo: string;
+    }
+  | {
+      readonly action: "status";
+      readonly kind: "schedule";
+      readonly repo?: string;
     }
   | {
       readonly kind: "stats";

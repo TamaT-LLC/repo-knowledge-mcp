@@ -8,6 +8,7 @@ import {
   type StatsReadErrorCode,
 } from "./stats-read-service.js";
 import type { SyncRepoSummary } from "./sync-repo-service.js";
+import { SyncScheduleError } from "./sync-schedule.js";
 
 export async function runCliActivity<Result>(
   io: RepoKnowledgeCliIo,
@@ -64,6 +65,16 @@ export function cliDiagnostic(error: unknown): {
     return {
       code: error.code,
       exitCode: error.exitCode,
+      message: safeDiagnosticMessage(error.message.replace(/^.*?:\s*/u, "")),
+    };
+  }
+  if (error instanceof SyncScheduleError) {
+    return {
+      code: error.code,
+      exitCode:
+        error.code === "SCHEDULE_INTERVAL_UNSUPPORTED"
+          ? REPO_KNOWLEDGE_CLI_EXIT.usage
+          : REPO_KNOWLEDGE_CLI_EXIT.failure,
       message: safeDiagnosticMessage(error.message.replace(/^.*?:\s*/u, "")),
     };
   }

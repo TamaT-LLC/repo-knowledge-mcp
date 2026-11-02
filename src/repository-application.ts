@@ -49,6 +49,7 @@ import { RuntimeFinalizeContextStore } from "./runtime-finalize-context-store.js
 import { StatsReadService } from "./stats-read-service.js";
 import { SubmitDistillationService } from "./submit-distillation-service.js";
 import { SyncCheckpointStore } from "./sync-checkpoint-store.js";
+import { SyncStatusStore } from "./sync-status-store.js";
 import { TrustedHumanAutoActivationPolicy } from "./trusted-human-auto-activation-policy.js";
 import {
   SyncRepoService,
@@ -288,6 +289,7 @@ export class DefaultRepositoryApplicationFactory
       repoId: repository.repoId,
       repository: repositoryStore,
       syncCheckpoints: new SyncCheckpointStore(repository.absolutePath),
+      syncStatus: new SyncStatusStore(repository.absolutePath),
     });
     const cli = new CanonicalCliRepositoryService({
       config: this.config,

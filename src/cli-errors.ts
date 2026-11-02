@@ -1,4 +1,6 @@
 export const REPO_KNOWLEDGE_CLI_EXIT = Object.freeze({
+  /** sync skipped because another sync of the repository is running (EX_TEMPFAIL). */
+  alreadyRunning: 75,
   failure: 1,
   success: 0,
   usage: 2,

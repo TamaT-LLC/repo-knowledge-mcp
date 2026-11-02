@@ -19,6 +19,11 @@ import type {
 import { parseRepositoryName } from "./repository-resolver.js";
 import { StatsBucketSchema } from "./stats-read-service.js";
 import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
+import {
+  DEFAULT_SYNC_SCHEDULE_INTERVAL_MINUTES,
+  MAX_SYNC_SCHEDULE_INTERVAL_MINUTES,
+  MIN_SYNC_SCHEDULE_INTERVAL_MINUTES,
+} from "./sync-schedule.js";
 
 export function parseRepoKnowledgeCliArguments(
   argv: readonly string[],
@@ -53,6 +58,8 @@ function parseNamedCommand(
       return parseServe(args);
     case "sync":
       return parseSync(args);
+    case "schedule":
+      return parseSchedule(args);
     case "stats":
       return parseStats(args);
     case "doctor":
@@ -175,6 +182,109 @@ function parseMaxPullRequests(value: string): number {
     );
   }
   return maxPullRequests;
+}
+
+function parseSchedule(args: readonly string[]): ParsedCliCommand {
+  const action = args[0];
+  const rest = args.slice(1);
+  switch (action) {
+    case "install":
+    case "print": {
+      const parsed = parseOptions(rest, {
+        booleans: action === "install" ? ["dry-run"] : [],
+        values: [
+          "repo",
+          "interval",
+          "max-prs",
+          ...(action === "print" ? ["format"] : []),
+        ],
+      });
+      const interval = parsed.values.get("interval");
+      const maxPrs = parsed.values.get("max-prs");
+      const format = parsed.values.get("format");
+      if (format !== undefined && format !== "launchd" && format !== "cron") {
+        throw usage("format must be launchd or cron");
+      }
+      return {
+        action,
+        ...(parsed.booleans.has("dry-run") ? { dryRun: true as const } : {}),
+        ...(format === undefined ? {} : { format }),
+        intervalMinutes:
+          interval === undefined
+            ? DEFAULT_SYNC_SCHEDULE_INTERVAL_MINUTES
+            : parseScheduleInterval(interval),
+        kind: "schedule",
+        ...(maxPrs === undefined
+          ? {}
+          : { maxPullRequests: parseMaxPullRequests(maxPrs) }),
+        repo: scheduleRepository(parsed, action, true),
+      };
+    }
+    case "uninstall": {
+      const parsed = parseOptions(rest, {
+        booleans: ["dry-run"],
+        values: ["repo"],
+      });
+      return {
+        action,
+        ...(parsed.booleans.has("dry-run") ? { dryRun: true as const } : {}),
+        kind: "schedule",
+        repo: scheduleRepository(parsed, action, true),
+      };
+    }
+    case "status": {
+      const parsed = parseOptions(rest, { values: ["repo"] });
+      const repo = scheduleRepository(parsed, action, false);
+      return {
+        action,
+        kind: "schedule",
+        ...(repo === undefined ? {} : { repo }),
+      };
+    }
+    default:
+      throw usage(
+        "schedule requires one of install, uninstall, status, or print",
+      );
+  }
+}
+
+function scheduleRepository(
+  parsed: ParsedOptions,
+  action: string,
+  required: true,
+): string;
+function scheduleRepository(
+  parsed: ParsedOptions,
+  action: string,
+  required: false,
+): string | undefined;
+function scheduleRepository(
+  parsed: ParsedOptions,
+  action: string,
+  required: boolean,
+): string | undefined {
+  assertPositionalCount(parsed, 0, 1, `schedule ${action}`);
+  const repo = selection(parsed, parsed.positionals[0]).repo;
+  if (repo === undefined && required) {
+    throw usage(
+      `schedule ${action} requires an explicit owner/name repository`,
+    );
+  }
+  return repo;
+}
+
+function parseScheduleInterval(value: string): number {
+  const minutes = Number(value);
+  if (
+    !/^[1-9][0-9]*$/u.test(value) ||
+    minutes < MIN_SYNC_SCHEDULE_INTERVAL_MINUTES ||
+    minutes > MAX_SYNC_SCHEDULE_INTERVAL_MINUTES
+  ) {
+    throw usage(
+      `interval must be an integer number of minutes between ${String(MIN_SYNC_SCHEDULE_INTERVAL_MINUTES)} and ${String(MAX_SYNC_SCHEDULE_INTERVAL_MINUTES)}`,
+    );
+  }
+  return minutes;
 }
 
 function parseStats(args: readonly string[]): ParsedCliCommand {

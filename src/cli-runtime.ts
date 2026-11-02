@@ -54,6 +54,10 @@ import {
 import { SetupStateStore } from "./setup-state-store.js";
 import { captureCanonicalStateReadOnly } from "./sqlite-projection.js";
 import { SyncCheckpointStore } from "./sync-checkpoint-store.js";
+import {
+  createProcessSyncScheduleSystem,
+  SyncScheduler,
+} from "./sync-schedule.js";
 import { createTerminalProgressRenderer } from "./terminal-progress.js";
 
 export interface DefaultCliRuntime {
@@ -165,6 +169,13 @@ export async function runDefaultRepoKnowledgeCli(
       storageRoot,
     }),
     io: options.io ?? createProcessCliIo(),
+    scheduler: new SyncScheduler(
+      createProcessSyncScheduleSystem({
+        binPath: fileURLToPath(new URL("./bin.js", import.meta.url)),
+        homeDir: homedir(),
+        storageRoot,
+      }),
+    ),
     mutationServiceResolver: {
       async resolve(input) {
         return (await loadRuntime()).mutationServiceResolver.resolve(input);

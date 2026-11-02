@@ -7,6 +7,7 @@ import {
   REPO_KNOWLEDGE_CLI_HELP,
   RepoKnowledgeCliError,
   StatsReadError,
+  SyncRepoError,
   parseRepoKnowledgeCliArguments,
   runRepoKnowledgeCli,
   type CliRepositoryOperations,
@@ -949,6 +950,29 @@ describe("repo-knowledge CLI", () => {
     );
   });
 
+  it("reports an overlapping sync as a structured skip with exit 75", async () => {
+    const current = fixture(["sync", REPOSITORY]);
+    current.syncRepo.mockRejectedValueOnce(
+      new SyncRepoError(
+        "SYNC_ALREADY_RUNNING",
+        "another sync of owner/repository holds the lock",
+      ),
+    );
+
+    await expect(runRepoKnowledgeCli(current.options)).resolves.toBe(
+      REPO_KNOWLEDGE_CLI_EXIT.alreadyRunning,
+    );
+
+    expect(REPO_KNOWLEDGE_CLI_EXIT.alreadyRunning).toBe(75);
+    expect(JSON.parse(current.stdout())).toEqual({
+      reason: "SYNC_ALREADY_RUNNING",
+      skipped: true,
+    });
+    expect(current.stderr()).toBe(
+      "SYNC_ALREADY_RUNNING: another sync of owner/repository holds the lock\n",
+    );
+  });
+
   it("propagates sync service error codes to stderr with a failure exit", async () => {
     const current = fixture(["sync", REPOSITORY]);
     current.syncRepo.mockRejectedValueOnce(
@@ -1331,6 +1355,7 @@ function zeroStats(): RepositoryStats {
     operations: {
       failed_jobs: 0,
       last_sync_checkpoint_at: null,
+      last_sync_success_at: null,
       pending_jobs: 0,
     },
     outcomes: {
@@ -1344,7 +1369,7 @@ function zeroStats(): RepositoryStats {
     },
     repo: REPOSITORY,
     stats_schema_version: 1,
-    sync: { last_checkpoint: null },
+    sync: { last_checkpoint: null, last_run: null, last_success_at: null },
     window: { bucket: "total", since: null, timezone: "UTC", until: null },
   };
 }

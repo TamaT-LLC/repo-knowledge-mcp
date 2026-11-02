@@ -61,6 +61,7 @@ import {
   type RepositoryStatsRequest,
 } from "./stats-read-service.js";
 import { SyncCheckpointStore } from "./sync-checkpoint-store.js";
+import { SyncRunOutcomeSchema, SyncStatusStore } from "./sync-status-store.js";
 
 export const REPO_KNOWLEDGE_SERVER_NAME = "repo-knowledge";
 export const REPO_KNOWLEDGE_SERVER_VERSION = REPO_KNOWLEDGE_PACKAGE_VERSION;
@@ -308,6 +309,7 @@ export const StatsOutputSchema = z
       .object({
         failed_jobs: StatsCountSchema,
         last_sync_checkpoint_at: IsoDateTimeSchema.nullable(),
+        last_sync_success_at: IsoDateTimeSchema.nullable(),
         pending_jobs: StatsCountSchema,
       })
       .strict(),
@@ -326,6 +328,18 @@ export const StatsOutputSchema = z
           })
           .strict()
           .nullable(),
+        last_run: z
+          .object({
+            consecutive_failures: StatsCountSchema,
+            error_code: z.string().min(1).nullable(),
+            finished_at: IsoDateTimeSchema,
+            has_more: z.boolean().nullable(),
+            outcome: SyncRunOutcomeSchema,
+            started_at: IsoDateTimeSchema,
+          })
+          .strict()
+          .nullable(),
+        last_success_at: IsoDateTimeSchema.nullable(),
       })
       .strict(),
     window: z
@@ -409,6 +423,7 @@ export class CanonicalKnowledgeReadServiceResolver
       repoId: resolution.repoId,
       repository: repositoryStore,
       syncCheckpoints: new SyncCheckpointStore(resolution.absolutePath),
+      syncStatus: new SyncStatusStore(resolution.absolutePath),
     });
     return {
       getKnowledge: (request) => knowledgeReads.getKnowledge(request),

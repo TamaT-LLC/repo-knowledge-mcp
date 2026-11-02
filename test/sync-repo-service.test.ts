@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,8 +12,11 @@ import {
   RepoKnowledgeConfigSchema,
   SYNC_CHECKPOINT_SCHEMA_VERSION,
   SYNC_CURSOR_VERSION,
+  SYNC_LOCK_FILE_NAME,
+  SYNC_STATUS_SCHEMA_VERSION,
   SyncCheckpointStore,
   SyncRepoService,
+  SyncStatusStore,
   compareSyncOrder,
   computeOutputSchemaDigest,
   computePromptDigest,
@@ -842,4 +846,174 @@ function actor(
   login: string,
 ): GitHubReviewActor {
   return { __typename: type, id, login };
+}
+
+describe("SyncRepoService run exclusivity and status", () => {
+  it("skips an overlapping run while the first run is still enumerating", async () => {
+    const repository = await createRepository();
+    const enumerator = new BlockingEnumerator(
+      new FixtureEnumerator(PULL_REQUESTS),
+    );
+    const first = syncService(repository, { enumerator }).sync();
+    await enumerator.entered;
+
+    // The second run must not wait behind the network I/O of the first.
+    await expect(
+      syncService(repository, { syncLockTimeoutMs: 50 }).sync(),
+    ).rejects.toMatchObject({
+      code: "SYNC_ALREADY_RUNNING",
+      name: "SyncRepoError",
+    });
+
+    enumerator.release();
+    await expect(first).resolves.toMatchObject({ failed: 0, ingested: 3 });
+    await expect(new SyncStatusStore(repository).read()).resolves.toMatchObject(
+      { consecutive_failures: 0, last_outcome: "succeeded" },
+    );
+    await expect(
+      readFile(join(repository, SYNC_LOCK_FILE_NAME)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reclaims a sync lock left behind by a crashed process", async () => {
+    const repository = await createRepository();
+    const deadPid = spawnSync(process.execPath, ["-e", ""]).pid;
+    await writeFile(
+      join(repository, SYNC_LOCK_FILE_NAME),
+      `${JSON.stringify({ acquired_at: isoAt(0), pid: deadPid, token: "stale" })}\n`,
+    );
+
+    const summary = await syncService(repository, {
+      syncLockTimeoutMs: 50,
+    }).sync();
+
+    expect(summary).toMatchObject({ failed: 0, ingested: 3 });
+    await expect(
+      readFile(join(repository, SYNC_LOCK_FILE_NAME)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("records the last successful sync even when work remains", async () => {
+    const repository = await createRepository();
+    const clock = steppingClock();
+
+    await syncService(repository, { now: clock }).sync({ maxPullRequests: 2 });
+
+    await expect(new SyncStatusStore(repository).read()).resolves.toEqual({
+      consecutive_failures: 0,
+      last_attempt_finished_at: expect.any(String),
+      last_attempt_started_at: expect.any(String),
+      last_error_code: null,
+      last_has_more: true,
+      last_outcome: "succeeded",
+      last_success_at: expect.any(String),
+      repo_id: REPO_ID,
+      schema_version: SYNC_STATUS_SCHEMA_VERSION,
+    });
+    const status = await new SyncStatusStore(repository).read();
+    expect(status?.last_success_at).toBe(status?.last_attempt_finished_at);
+    expect(Date.parse(status!.last_attempt_started_at)).toBeLessThan(
+      Date.parse(status!.last_attempt_finished_at),
+    );
+  });
+
+  it("keeps the previous success time across partial and aborted runs", async () => {
+    const repository = await createRepository();
+    const clock = steppingClock();
+    await syncService(repository, {
+      enumerator: new FixtureEnumerator([pullRequestRef(1)]),
+      now: clock,
+    }).sync();
+    const succeeded = await new SyncStatusStore(repository).read();
+
+    await syncService(repository, {
+      ingester: new FlakyIngester(buildIngester(repository), new Set([2])),
+      now: clock,
+    }).sync();
+    const partial = await new SyncStatusStore(repository).read();
+
+    await expect(
+      syncService(repository, {
+        enumerator: new FailingEnumerator(),
+        now: clock,
+      }).sync(),
+    ).rejects.toMatchObject({ code: "GRAPHQL_REQUEST_FAILED" });
+    const aborted = await new SyncStatusStore(repository).read();
+
+    expect(partial).toMatchObject({
+      consecutive_failures: 1,
+      last_error_code: "SYNC_PARTIAL_FAILURE",
+      last_has_more: true,
+      last_outcome: "partial_failure",
+      last_success_at: succeeded?.last_success_at,
+    });
+    expect(aborted).toMatchObject({
+      consecutive_failures: 2,
+      last_error_code: "GRAPHQL_REQUEST_FAILED",
+      last_has_more: null,
+      last_outcome: "failed",
+      last_success_at: succeeded?.last_success_at,
+    });
+
+    await syncService(repository, { now: clock }).sync();
+    await expect(new SyncStatusStore(repository).read()).resolves.toMatchObject(
+      { consecutive_failures: 0, last_error_code: null },
+    );
+  });
+
+  it("does not record a status for runs rejected before taking the lock", async () => {
+    const repository = await createRepository();
+
+    await expect(
+      syncService(repository).sync({ maxPullRequests: 0 }),
+    ).rejects.toMatchObject({ code: "SYNC_MAX_PULL_REQUESTS_INVALID" });
+
+    await expect(new SyncStatusStore(repository).read()).resolves.toBeNull();
+  });
+});
+
+/** Holds enumeration (the network I/O phase) open until released. */
+class BlockingEnumerator implements SyncPullRequestEnumerator {
+  readonly entered: Promise<void>;
+
+  private markEntered!: () => void;
+  private readonly gate: Promise<void>;
+  private openGate!: () => void;
+
+  constructor(private readonly inner: SyncPullRequestEnumerator) {
+    this.entered = new Promise((resolve) => {
+      this.markEntered = resolve;
+    });
+    this.gate = new Promise((resolve) => {
+      this.openGate = resolve;
+    });
+  }
+
+  release(): void {
+    this.openGate();
+  }
+
+  async enumerateUpdatedPullRequests(
+    request: EnumerateUpdatedPullRequestsRequest,
+  ): Promise<EnumerateUpdatedPullRequestsResult> {
+    this.markEntered();
+    await this.gate;
+    return this.inner.enumerateUpdatedPullRequests(request);
+  }
+}
+
+class FailingEnumerator implements SyncPullRequestEnumerator {
+  async enumerateUpdatedPullRequests(): Promise<EnumerateUpdatedPullRequestsResult> {
+    throw Object.assign(new Error("gh fixture failure"), {
+      code: "GRAPHQL_REQUEST_FAILED",
+    });
+  }
+}
+
+function steppingClock(): () => Date {
+  let tick = 0;
+  return () => {
+    tick += 1;
+    return new Date(BASE_MS + 3_600_000 + tick * 1_000);
+  };
 }

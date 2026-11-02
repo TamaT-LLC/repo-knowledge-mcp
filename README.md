@@ -381,6 +381,7 @@ MCP plane には承認・却下を直接指示する tool を公開しません�
 | --- | --- |
 | `setup [repo]` | private storage、privacy、trust、初回同期を設定 |
 | `sync [repo]` | 更新された Pull Request を増分同期。`--max-prs <n>` で 1 回の件数を制限 |
+| `schedule install <repo>` | OS の scheduler で sync を定期実行（既定 60 分、`--interval <minutes>`）。macOS は launchd、Linux は crontab 行を出力 |
 | `distill [repo]` | Provider Adapter で pending job を処理 |
 | `review [repo]` | proposed knowledge を一つの TTY session で処理 |
 | `list [repo]` | canonical knowledge を列挙 |
@@ -391,6 +392,9 @@ MCP plane には承認・却下を直接指示する tool を公開しません�
 
 command と主要 option は `repo-knowledge --help` と [CLI 操作一覧](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md#cli-commands)で確認できます。
 `record_outcome` は MCP tool です。同名の CLI command はありません。
+sync を手動で呼び忘れないよう、`repo-knowledge schedule install owner/repository` で定期実行を登録できます。
+同期は MCP server の外で CLI として動き、同一 repository の同期は同時に一つしか走りません。
+最後に成功した同期時刻は `repo-knowledge stats owner/repository` の `sync.last_success_at` で確認できます。
 定期同期、outcome、stats、storage の詳細は[利用と運用の詳細ガイド](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md)にあります。
 
 <a id="node-api"></a>
@@ -428,6 +432,7 @@ process.exitCode = await runDefaultRepoKnowledgeCli({ argv: ["--help"] });
 | `readiness.state` が `empty` | 新しい review の後に `repo-knowledge sync owner/repository` を実行する |
 | `ready` だが `rules` が空 | 正常な検索不一致。file path と task を確認して作業を続ける |
 | lock timeout | 同じ repository を更新する別 process を確認し、終了後に再実行する |
+| `SYNC_ALREADY_RUNNING`（exit 75） | 同じ repository の同期が実行中のため skip された。対処不要で、次回の同期が続きから再開する |
 | MCP client から接続できない | `repo-knowledge doctor owner/repository` と client 側の MCP 登録内容を確認する |
 
 sync の失敗 code と再試行方法は [sync cron 運用 runbook](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/sync-cron-runbook.md) にあります。

@@ -362,6 +362,7 @@ const read = {
       operations: {
         failed_jobs: 0,
         last_sync_checkpoint_at: null,
+        last_sync_success_at: null,
         pending_jobs: 1,
       },
       outcomes: {
@@ -375,7 +376,7 @@ const read = {
       },
       repo,
       stats_schema_version: 1,
-      sync: { last_checkpoint: null },
+      sync: { last_checkpoint: null, last_run: null, last_success_at: null },
       window: { bucket: "total", since: null, timezone: "UTC", until: null },
     };
   },
