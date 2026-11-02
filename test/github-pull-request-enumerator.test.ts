@@ -272,17 +272,52 @@ describe("GitHubPullRequestEnumerator", () => {
     }
   });
 
-  it("fails closed when a PR repeats across pages with a different updatedAt", async () => {
-    const runner = pagedRunner([
-      page([node(10)], "cursor-1"),
-      page([node(10, timestampMs(9))], null),
-    ]);
+  it("bounds retries when a PR keeps repeating below the cutoff with a different updatedAt", async () => {
+    // A host clock running ahead of GitHub by more than the settle window
+    // lets a mid-run update land below the cutoff; the listing is restarted
+    // instead of failing permanently, but only a bounded number of times.
+    const pages = Array.from(
+      { length: DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS },
+      (_, index) => [
+        page([node(10)], `cursor-${String(index)}`),
+        page([node(10, timestampMs(9))], null),
+      ],
+    ).flat();
+    const runner = pagedRunner(pages);
 
     await expect(
       new GitHubPullRequestEnumerator({
         ghRunner: runner,
       }).enumerateUpdatedPullRequests({ repo: REPO_NAME }),
-    ).rejects.toMatchObject({ code: "DUPLICATE_GRAPHQL_NODE" });
+    ).rejects.toMatchObject({ code: "PULL_REQUEST_LIST_CHANGED" });
+    expect(runner.calls).toHaveLength(
+      DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS * 2,
+    );
+  });
+
+  it("restarts the listing when a PR repeats below the cutoff with a different updatedAt", async () => {
+    const runner = pagedRunner([
+      page([node(11), node(10)], "cursor-1"),
+      page([node(10, timestampMs(12))], null),
+      page([node(10, timestampMs(12)), node(11)], null),
+    ]);
+    const cursor = cursorAt(9, timestampMs(9));
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner,
+      now: () => new Date(timestampMs(30)),
+    }).enumerateUpdatedPullRequests({ cursor, repo: REPO_NAME });
+
+    expect(result.pullRequests).toEqual([
+      { id: "PR_node_11", number: 11, updatedAt: isoAt(11) },
+      { id: "PR_node_10", number: 10, updatedAt: isoAt(12) },
+    ]);
+    expect(result.deferred).toBe(0);
+    expect(runner.calls.map((call) => call.variables.after ?? null)).toEqual([
+      null,
+      "cursor-1",
+      null,
+    ]);
   });
 
   it("collects PRs that GitHub lists out of updatedAt order", async () => {

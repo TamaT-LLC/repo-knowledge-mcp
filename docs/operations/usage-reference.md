@@ -410,11 +410,12 @@ checkpoint は最後に連続成功した Pull Request に留まるため、失�
 
 同期は実行開始時刻の 60 秒前を上限として固定し、それ以降に更新された Pull Request は次回実行へ繰り延べます（summary の `deferred`）。
 列挙中に Pull Request が更新されても同期は失敗せず、更新された Pull Request は次回取り込まれます。
+ただしこれはホストの時計が GitHub より 60 秒を超えて進んでいない場合です。それを超えるずれがあると更新後の `updatedAt` が上限より前になることがあり、その場合は次に述べる再試行の対象になります。
 未同期の Pull Request が多いときは `--max-prs <n>`（MCP は `max_pull_requests`）で 1 回の処理件数を制限し、summary の `has_more` が `false` になるまで再実行してください。
 checkpoint は 1 件ごとに進むため、途中で中断しても欠落や重複なく再開します。
 
 GitHub の更新順の並びは `updatedAt` と厳密には一致しないため、checkpoint よりさらに 7 日分古い Pull Request まで読み進めてから手元で並べ替えます。
-走査中に repository が変化した場合だけ、結果を破棄して同じ checkpoint から再試行します。
+走査中に repository が変化した場合と、上限より前の範囲で同じ Pull Request が異なる `updatedAt` で返った場合は、結果を破棄して同じ checkpoint と上限で再試行します。
 試行は初回を含めて最大 3 回です。
 それでも整合しない場合、MCP の `sync_repo` は `PULL_REQUEST_LIST_CHANGED` を `retryable: true` で返すため、同じ引数で再実行してください。
 
