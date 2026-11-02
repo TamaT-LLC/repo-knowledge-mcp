@@ -39,9 +39,25 @@ export const DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS = 3;
  * also absorbs clock skew between this host and GitHub.
  */
 export const DEFAULT_SYNC_UPDATE_SETTLE_MS = 60_000;
+/**
+ * How far GitHub's `UPDATED_AT` sort key may lag behind a PR's returned
+ * `updatedAt` before the traversal stops reading past the sync boundary.
+ *
+ * GitHub (GraphQL, REST `sort=updated`, the issues `since` filter and search
+ * `updated:` all alike) orders PRs by an internal timestamp that some updates
+ * never bump, so a PR can be listed far below where its `updatedAt` would
+ * place it; the key has never been observed ahead of `updatedAt`. On a real
+ * 12k-PR repository the lag was a few minutes to 4.25 hours for PRs updated
+ * in recent months, and up to 41 days for two PRs from 2025. A PR whose lag
+ * exceeds this window is listed too deep for an incremental run to reach;
+ * GitHub's own incremental filters miss it too, and a `--since` replay picks
+ * it up. Reading one more week past the boundary costs a few pages.
+ */
+export const DEFAULT_SYNC_SORT_LAG_TOLERANCE_MS = 7 * 24 * 60 * 60 * 1_000;
 
 const MAX_SYNC_PULL_REQUEST_LIST_ATTEMPTS = 10;
 const MAX_SYNC_UPDATE_SETTLE_MS = 24 * 60 * 60 * 1_000;
+const MAX_SYNC_SORT_LAG_TOLERANCE_MS = 90 * 24 * 60 * 60 * 1_000;
 
 const PULL_REQUEST_LIST_FIELDS = `
   id
@@ -148,6 +164,7 @@ export interface GitHubPullRequestEnumeratorOptions {
   readonly maxListChangeAttempts?: number;
   readonly now?: () => Date;
   readonly pageSize?: number;
+  readonly sortLagToleranceMs?: number;
   readonly updateSettleMs?: number;
 }
 
@@ -156,15 +173,20 @@ export interface GitHubPullRequestEnumeratorOptions {
  * (updatedAt, PR number) ascending. The run is bounded above by a cutoff
  * fixed when it starts: PRs updated at or after it are deferred to the next
  * run instead of aborting this one, so concurrent PR activity never blocks
- * the checkpoint from advancing. Below the cutoff the listing cannot move,
- * so only an incoherent listing there is discarded and restarted from the
- * same boundary a bounded number of times.
+ * the checkpoint from advancing. GitHub only approximately orders the listing
+ * by `updatedAt`, so the traversal never relies on monotonic order: it
+ * collects every node down to the sort-lag window past the boundary, dedupes
+ * by node ID and sorts locally. Below the cutoff a PR's `updatedAt` cannot
+ * change, so a listing that contradicts itself there fails closed; a
+ * repository identity change mid-traversal discards the listing and restarts
+ * it from the same boundary a bounded number of times.
  */
 export class GitHubPullRequestEnumerator {
   private readonly ghRunner: GhRunnerLike;
   private readonly maxListChangeAttempts: number;
   private readonly now: () => Date;
   private readonly pageSize: number;
+  private readonly sortLagToleranceMs: number;
   private readonly updateSettleMs: number;
 
   constructor(options: GitHubPullRequestEnumeratorOptions = {}) {
@@ -178,8 +200,15 @@ export class GitHubPullRequestEnumerator {
       options.pageSize ?? DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE,
       "pageSize",
     );
-    this.updateSettleMs = assertUpdateSettleMs(
+    this.updateSettleMs = assertWindowMs(
       options.updateSettleMs ?? DEFAULT_SYNC_UPDATE_SETTLE_MS,
+      "updateSettleMs",
+      MAX_SYNC_UPDATE_SETTLE_MS,
+    );
+    this.sortLagToleranceMs = assertWindowMs(
+      options.sortLagToleranceMs ?? DEFAULT_SYNC_SORT_LAG_TOLERANCE_MS,
+      "sortLagToleranceMs",
+      MAX_SYNC_SORT_LAG_TOLERANCE_MS,
     );
   }
 
@@ -221,7 +250,11 @@ export class GitHubPullRequestEnumerator {
     owner: string,
     name: string,
   ): Promise<EnumerateUpdatedPullRequestsResult> {
-    const traversal = new PullRequestListTraversal(boundary, cutoffMs);
+    const traversal = new PullRequestListTraversal(
+      boundary,
+      cutoffMs,
+      this.sortLagToleranceMs,
+    );
     let repository: SyncRepositoryIdentity | null = null;
     let cursor: string | null = null;
     const seenCursors = new Set<string>();
@@ -275,66 +308,83 @@ export class GitHubPullRequestEnumerator {
 }
 
 /**
- * Validates the updatedAt-descending listing while it is consumed. Nodes at
- * or after the run cutoff are PRs updated too recently (including during
- * this traversal, which may surface them out of order); they are deferred to
- * the next run, whose boundary still lies before their new updatedAt. A
- * repeat of an already seen node with the same updatedAt is the page shift an
- * update causes and is skipped. Any other repeat or ordering regression
- * below the cutoff means the listing itself is incoherent, so the whole
- * enumeration fails closed.
+ * Collects the `UPDATED_AT`-descending listing without assuming it is
+ * strictly ordered by `updatedAt`.
+ *
+ * Assumptions about GitHub's listing, checked against real data:
+ * - The sort key never runs ahead of `updatedAt` and lags it by at most
+ *   `sortLagToleranceMs`. Every node listed after a node N then has
+ *   `updatedAt <= N.updatedAt + sortLagToleranceMs`, so the traversal stops
+ *   at the first node where that bound falls outside the boundary window.
+ *   Using N's own `updatedAt` as the bound for its sort key is conservative:
+ *   a lagging node only delays the stop.
+ * - A PR's sort key only ever moves forward. An update moving a PR up the
+ *   listing shifts later pages down, which repeats nodes (deduped here) but
+ *   never skips one; a PR that jumps over the read position was updated at
+ *   or after the cutoff and is left to the next run anyway.
+ *
+ * Nodes at or after the run cutoff are deferred to the next run, whose
+ * boundary still lies before their `updatedAt`. A PR observed with a
+ * timestamp at or after the cutoff is deferred even if an earlier page showed
+ * it older, since it changed during this run. Below the cutoff a repeat must
+ * carry the same `updatedAt`; anything else means the listing contradicts
+ * itself and the enumeration fails closed.
  */
 class PullRequestListTraversal {
   private readonly deferredIds = new Set<string>();
-  private readonly included: (UpdatedPullRequestRef & {
-    readonly updatedAtMs: number;
-  })[] = [];
-  private previousUpdatedAtMs = Number.POSITIVE_INFINITY;
-  private readonly seenIds = new Map<string, string>();
-  private readonly seenNumbers = new Set<number>();
+  private readonly included = new Map<
+    string,
+    UpdatedPullRequestRef & { readonly updatedAtMs: number }
+  >();
+  private readonly seenIds = new Map<string, number>();
+  private readonly seenNumbers = new Map<number, string>();
 
   constructor(
     private readonly boundary: SyncBoundary,
     private readonly cutoffMs: number,
+    private readonly sortLagToleranceMs: number,
   ) {}
 
-  /** Returns false once every remaining node is older than the boundary. */
+  /** Returns false once no remaining node can be after the boundary. */
   append(nodes: readonly PullRequestListNode[], operation: string): boolean {
     for (const node of nodes) {
       const updatedAtMs = parseIsoTimestampMs(node.updatedAt);
+      this.recordIdentity(node, operation);
+      const seenUpdatedAtMs = this.seenIds.get(node.id);
+      this.seenIds.set(
+        node.id,
+        Math.max(seenUpdatedAtMs ?? updatedAtMs, updatedAtMs),
+      );
       if (updatedAtMs >= this.cutoffMs) {
         if (isAfterSyncBoundary(this.boundary, updatedAtMs, node.number)) {
           this.deferredIds.add(node.id);
         }
+        this.included.delete(node.id);
         continue;
       }
-      const seenUpdatedAt = this.seenIds.get(node.id);
-      if (seenUpdatedAt !== undefined) {
-        if (parseIsoTimestampMs(seenUpdatedAt) === updatedAtMs) continue;
+      if (seenUpdatedAtMs !== undefined && seenUpdatedAtMs !== updatedAtMs) {
+        if (seenUpdatedAtMs >= this.cutoffMs) continue;
         throw duplicateGraphqlNode(operation, `pull request ${node.id}`);
       }
-      if (this.seenNumbers.has(node.number)) {
-        throw duplicateGraphqlNode(
-          operation,
-          `pull request #${String(node.number)}`,
-        );
-      }
-      if (updatedAtMs > this.previousUpdatedAtMs) {
-        throw listChangedError(operation);
-      }
-      this.seenIds.set(node.id, node.updatedAt);
-      this.seenNumbers.add(node.number);
-      this.previousUpdatedAtMs = updatedAtMs;
-      if (isBeyondSyncBoundaryWindow(this.boundary, updatedAtMs)) {
-        return false;
-      }
-      if (isAfterSyncBoundary(this.boundary, updatedAtMs, node.number)) {
-        this.included.push({
+      if (
+        seenUpdatedAtMs === undefined &&
+        isAfterSyncBoundary(this.boundary, updatedAtMs, node.number)
+      ) {
+        this.included.set(node.id, {
           id: node.id,
           number: node.number,
           updatedAt: node.updatedAt,
           updatedAtMs,
         });
+      }
+      if (
+        isBeyondSyncBoundaryWindow(
+          this.boundary,
+          updatedAtMs,
+          this.sortLagToleranceMs,
+        )
+      ) {
+        return false;
       }
     }
     return true;
@@ -345,9 +395,20 @@ class PullRequestListTraversal {
   }
 
   sortedAscending(): readonly UpdatedPullRequestRef[] {
-    return [...this.included]
+    return [...this.included.values()]
       .sort(compareSyncOrder)
       .map(({ id, number, updatedAt }) => ({ id, number, updatedAt }));
+  }
+
+  private recordIdentity(node: PullRequestListNode, operation: string): void {
+    const knownId = this.seenNumbers.get(node.number);
+    if (knownId !== undefined && knownId !== node.id) {
+      throw duplicateGraphqlNode(
+        operation,
+        `pull request #${String(node.number)}`,
+      );
+    }
+    this.seenNumbers.set(node.number, node.id);
   }
 }
 
@@ -417,15 +478,9 @@ function assertListChangeAttempts(value: number): number {
   return value;
 }
 
-function assertUpdateSettleMs(value: number): number {
-  if (
-    !Number.isSafeInteger(value) ||
-    value < 0 ||
-    value > MAX_SYNC_UPDATE_SETTLE_MS
-  ) {
-    throw new TypeError(
-      `updateSettleMs must be between 0 and ${String(MAX_SYNC_UPDATE_SETTLE_MS)}`,
-    );
+function assertWindowMs(value: number, name: string, max: number): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > max) {
+    throw new TypeError(`${name} must be between 0 and ${String(max)}`);
   }
   return value;
 }

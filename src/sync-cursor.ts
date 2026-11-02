@@ -146,21 +146,30 @@ export function isAfterSyncBoundary(
 }
 
 /**
- * True when every PR at or below this timestamp is outside the boundary
- * window, letting an updatedAt-descending traversal stop early without
- * losing same-timestamp PRs at a cursor boundary.
+ * True when no PR listed at or after a node with this `updatedAt` can lie
+ * inside the boundary window, letting an updatedAt-descending traversal stop
+ * early without losing same-timestamp PRs at a cursor boundary.
+ *
+ * GitHub sorts `orderBy: UPDATED_AT` by an internal key that may lag behind
+ * the returned `updatedAt` (never ahead of it), so a PR can be listed later
+ * than its `updatedAt` implies. With that lag bounded by
+ * `sortLagToleranceMs`, every node after this one has
+ * `updatedAt <= this.updatedAt + sortLagToleranceMs`; the traversal may stop
+ * only once that bound itself falls outside the window.
  */
 export function isBeyondSyncBoundaryWindow(
   boundary: SyncBoundary,
   updatedAtMs: number,
+  sortLagToleranceMs = 0,
 ): boolean {
+  const latestFollowingMs = updatedAtMs + sortLagToleranceMs;
   switch (boundary.kind) {
     case "full":
       return false;
     case "since":
-      return updatedAtMs <= boundary.sinceMs;
+      return latestFollowingMs <= boundary.sinceMs;
     case "cursor":
-      return updatedAtMs < boundary.lastUpdatedAtMs;
+      return latestFollowingMs < boundary.lastUpdatedAtMs;
   }
 }
 

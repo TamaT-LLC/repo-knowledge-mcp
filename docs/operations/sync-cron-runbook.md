@@ -107,10 +107,18 @@ PR を `updatedAt` 順に複数ページ走査している間に更新が入っ�
 新しい `updatedAt` が cutoff 以降になるため、順序が乱れて現れても今回は読み飛ばし（`deferred`）、
 次回実行で取り込む。更新によってページがずれて同じ PR が同一内容で再度返った場合も読み飛ばす。
 
-cutoff より前の範囲で重複（内容が異なるもの）や順序退行が起きた場合だけ、一覧そのものが不整合と
-みなして列挙結果を破棄し、同じ checkpoint 境界から初回を含めて最大 3 回試行する。3 回とも
-`PULL_REQUEST_LIST_CHANGED` になった場合、checkpoint は変更されない。MCP 応答は `retryable: true` と
-同じ引数での再実行を案内するため、呼び出し側は境界を変更せずに再試行する。
+GitHub の `UPDATED_AT` 並びは内部の時刻で決まり、返却される `updatedAt` より遅れることがある。
+そのため一部の PR は `updatedAt` から想定される位置より後ろに現れる（実データでは数分〜4 時間程度、
+古い PR では 41 日の例もあった）。列挙は順序の単調性を前提にせず、checkpoint 境界よりさらに
+7 日分（sort lag tolerance）古い PR が現れるまで読み進め、node ID で重複を除いてから手元で並べ替える。
+この許容幅を超えて並びが遅れた PR は GitHub の `since` 絞り込みや検索の `updated:` でも拾えないため、
+増分同期では検出されない。必要なら古い `--since` で履歴を再送（replay）する。
+
+cutoff より前の範囲で同じ PR が異なる `updatedAt` で返った場合や、同じ PR 番号に異なる node ID が
+返った場合は、一覧が自己矛盾しているとみなして fail-closed で停止し、checkpoint は変更しない。
+走査中に repository の node ID が変わった場合は列挙結果を破棄し、同じ checkpoint 境界から初回を
+含めて最大 3 回試行する。3 回とも `PULL_REQUEST_LIST_CHANGED` になった場合、checkpoint は変更されない。
+MCP 応答は `retryable: true` と同じ引数での再実行を案内するため、呼び出し側は境界を変更せずに再試行する。
 
 ### 再実行時の不変条件
 
@@ -131,7 +139,7 @@ cutoff より前の範囲で重複（内容が異なるもの）や順序退行�
 | `SYNC_REPOSITORY_MISMATCH`                                        | 解決された repository と ingest 先の repo_id が不一致           | `--repo` 指定と config の workspaceMappings を確認                                                   |
 | `SYNC_CHECKPOINT_REPOSITORY_MISMATCH`                             | checkpoint が別リポジトリのもの                                 | storage の取り違えを調査。安易に checkpoint を削除しない                                             |
 | `SYNC_CHECKPOINT_INVALID` / `SYNC_CHECKPOINT_VERSION_UNSUPPORTED` | checkpoint 破損または将来 version                               | バックアップから復旧するか、全期間再同期を許容できる場合のみ checkpoint を退避して初回同期をやり直す |
-| `PULL_REQUEST_LIST_CHANGED`                                      | cutoff より前の PR 一覧が自動再試行中も不整合                   | 同じ引数で再実行。checkpoint は未変更なので `since` を新しくしない                                  |
+| `PULL_REQUEST_LIST_CHANGED`                                      | 走査中の repository 変化が自動再試行中も解消しない              | 同じ引数で再実行。checkpoint は未変更なので `since` を新しくしない                                  |
 | `LOCK_TIMEOUT`                                                    | 同時実行による lock 待ちタイムアウト                            | 放置してよい。次回実行が再開する                                                                     |
 | `GRAPHQL_REQUEST_FAILED` ほか `GH_*`                              | `gh` 実行失敗（未認証・ネットワーク等）                         | `gh auth status` と接続を確認して再実行                                                              |
 
