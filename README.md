@@ -358,7 +358,7 @@ MCP server は次の 11 tools を公開します。
 | `search_knowledge` | active knowledge を検索する |
 | `get_knowledge` | detail、コード例、evidence を読む |
 | `ingest_pr` | 一つの Pull Request snapshot を取得する |
-| `sync_repo` | checkpoint から増分同期する |
+| `sync_repo` | checkpoint から増分同期する。`max_pull_requests` で 1 回の件数を制限し、`has_more` が `true` の間は再実行する |
 | `record_outcome` | 実際に観測した rule の利用結果を冪等に記録する |
 | `add_knowledge` | manual knowledge を proposed で追加する |
 | `update_knowledge` | ETag を使って変更 proposal を作る |
@@ -380,7 +380,7 @@ MCP plane には承認・却下を直接指示する tool を公開しません�
 | command | 用途 |
 | --- | --- |
 | `setup [repo]` | private storage、privacy、trust、初回同期を設定 |
-| `sync [repo]` | 更新された Pull Request を増分同期 |
+| `sync [repo]` | 更新された Pull Request を増分同期。`--max-prs <n>` で 1 回の件数を制限 |
 | `distill [repo]` | Provider Adapter で pending job を処理 |
 | `review [repo]` | proposed knowledge を一つの TTY session で処理 |
 | `list [repo]` | canonical knowledge を列挙 |

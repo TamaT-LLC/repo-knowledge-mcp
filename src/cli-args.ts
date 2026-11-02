@@ -18,6 +18,7 @@ import type {
 } from "./cli-types.js";
 import { parseRepositoryName } from "./repository-resolver.js";
 import { StatsBucketSchema } from "./stats-read-service.js";
+import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
 
 export function parseRepoKnowledgeCliArguments(
   argv: readonly string[],
@@ -146,17 +147,34 @@ function parseServe(args: readonly string[]): ParsedCliCommand {
 
 function parseSync(args: readonly string[]): ParsedCliCommand {
   const parsed = parseOptions(args, {
-    values: ["repo", "workspace", "since"],
+    values: ["repo", "workspace", "since", "max-prs"],
   });
   assertPositionalCount(parsed, 0, 1, "sync");
   const since = parsed.values.get("since");
+  const maxPrs = parsed.values.get("max-prs");
   return {
     kind: "sync",
+    ...(maxPrs === undefined
+      ? {}
+      : { maxPullRequests: parseMaxPullRequests(maxPrs) }),
     selection: selection(parsed, parsed.positionals[0]),
     ...(since === undefined
       ? {}
       : { since: parseSchema(IsoDateTimeSchema, since, "since") }),
   };
+}
+
+function parseMaxPullRequests(value: string): number {
+  const maxPullRequests = Number(value);
+  if (
+    !/^[1-9][0-9]*$/u.test(value) ||
+    maxPullRequests > MAX_SYNC_PULL_REQUESTS_PER_RUN
+  ) {
+    throw usage(
+      `max-prs must be an integer between 1 and ${String(MAX_SYNC_PULL_REQUESTS_PER_RUN)}`,
+    );
+  }
+  return maxPullRequests;
 }
 
 function parseStats(args: readonly string[]): ParsedCliCommand {

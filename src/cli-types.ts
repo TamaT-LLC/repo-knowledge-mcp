@@ -167,6 +167,7 @@ export type ParsedCliCommand =
     }
   | {
       readonly kind: "sync";
+      readonly maxPullRequests?: number;
       readonly selection: CliRepositorySelection;
       readonly since?: string;
     }

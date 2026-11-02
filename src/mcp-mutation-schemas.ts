@@ -31,6 +31,7 @@ import {
 } from "./record-outcome-mutation-service.js";
 import { SensitiveContentFindingSchema } from "./sensitive-content.js";
 import { SyncCursorSchema } from "./sync-cursor.js";
+import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
 
 const RawSha256Schema = z
   .string()
@@ -182,6 +183,15 @@ export const IngestPrOutputSchema = mutationOutputSchema(IngestPrResultSchema);
 export const SyncRepoInputSchema = z
   .object({
     ...RepositorySelectionShape,
+    max_pull_requests: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_SYNC_PULL_REQUESTS_PER_RUN)
+      .optional()
+      .describe(
+        "Process at most this many pull requests in this run, oldest first. The checkpoint advances past each one, so call sync_repo again while has_more is true to converge on a large backlog.",
+      ),
     since: IsoDateTimeSchema.optional().describe(
       "Initial ISO-8601 boundary; only pull requests updated strictly after it are synced. With a stored checkpoint it must be strictly older than the checkpoint boundary.",
     ),
@@ -197,9 +207,11 @@ const SyncPullRequestFailureMcpSchema = z
 
 export const SyncRepoResultSchema = z
   .object({
+    deferred: z.number().int().nonnegative(),
     discovered: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
     failures: z.array(SyncPullRequestFailureMcpSchema),
+    has_more: z.boolean(),
     ingested: z.number().int().nonnegative(),
     jobs_created: z.number().int().nonnegative(),
     next_cursor: SyncCursorSchema.nullable(),

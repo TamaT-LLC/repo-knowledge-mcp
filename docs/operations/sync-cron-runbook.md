@@ -1,8 +1,8 @@
 # sync cron 運用 runbook
 
-`v0.4.1` の `repo-knowledge sync [repo] [--since <iso>]` は、cron から非対話で継続実行できる。
+`repo-knowledge sync [repo] [--since <iso>] [--max-prs <n>]` は、cron から非対話で継続実行できる。
 MCP の `sync_repo` tool と CLI `sync` は同一の同期サービスを共有し、同じ summary schema
-`{ discovered, ingested, unchanged, jobs_created, failed, failures[], next_cursor }` を返す。
+`{ discovered, deferred, ingested, unchanged, jobs_created, failed, failures[], has_more, next_cursor }` を返す。
 設計上の背景は [repo-knowledge-mcp v0.3 設計書](../design/repo-knowledge-mcp-v0.3.md) の §16（CLI）と §19 M2 を参照。
 
 ## 前提条件
@@ -28,6 +28,12 @@ host-assisted は同期だけでは起動せず、MCP client が `prepare_distil
   `SYNC_SINCE_BEYOND_CHECKPOINT` で拒否される（未同期 PR が永久にスキップされるのを防ぐ fail-closed）
 - checkpoint より厳密に古い `--since` は履歴の再送（replay）として許可される。ingest は冪等なので
   同じ期間を CLI と MCP から重複同期しても canonical state は変化しない
+- 実行開始時刻の 60 秒前を上限（cutoff）として固定する。cutoff 以降に更新された PR は今回の対象外
+  （`deferred` に計上）となり、次回実行で取り込まれる。列挙中に更新された PR も必ず cutoff 以降になる
+- `--max-prs <n>`（MCP は `max_pull_requests`）は 1 回の実行で処理する PR 数の上限。古い順に n 件だけ
+  処理して checkpoint を進め、残りは次回へ回す。未同期 PR が数千件ある場合は上限付きで繰り返し実行する
+- `has_more: true` は checkpoint 以降に処理待ちの PR が残っていること（上限到達、失敗での停止、
+  cutoff による繰り延べ）を示す。`false` になるまで引数なしで再実行すれば最新の checkpoint に到達する
 - cursor と `--since` の同時指定は `SYNC_BOUNDARY_CONFLICT` で拒否される
 
 ## cron 設定
@@ -97,13 +103,14 @@ MCP `sync_repo` との同時実行は片方が lock 待ちになり、既定 5 �
 
 ### PR 一覧の走査中変更
 
-PR を `updatedAt` 順に複数ページ走査している間に更新が入ると、ページ間の重複や順序退行を
-検知して不安定な列挙結果を破棄する。`sync` / `sync_repo` は同じ checkpoint 境界から列挙全体を
-初回を含めて最大 3 回試行し、安定した一覧を得た場合だけ ingest と checkpoint 更新へ進む。
+PR を `updatedAt` 順に複数ページ走査している間に更新が入っても、同期は失敗しない。更新された PR は
+新しい `updatedAt` が cutoff 以降になるため、順序が乱れて現れても今回は読み飛ばし（`deferred`）、
+次回実行で取り込む。更新によってページがずれて同じ PR が同一内容で再度返った場合も読み飛ばす。
 
-3 回とも `PULL_REQUEST_LIST_CHANGED` になった場合、checkpoint は変更されない。MCP 応答は
-`retryable: true` と同じ引数での再実行を案内するため、呼び出し側は境界を変更せずに再試行する。
-更新が継続する高頻度リポジトリでは、短い待機を挟むか更新の少ない時間帯に再実行する。
+cutoff より前の範囲で重複（内容が異なるもの）や順序退行が起きた場合だけ、一覧そのものが不整合と
+みなして列挙結果を破棄し、同じ checkpoint 境界から初回を含めて最大 3 回試行する。3 回とも
+`PULL_REQUEST_LIST_CHANGED` になった場合、checkpoint は変更されない。MCP 応答は `retryable: true` と
+同じ引数での再実行を案内するため、呼び出し側は境界を変更せずに再試行する。
 
 ### 再実行時の不変条件
 
@@ -118,12 +125,13 @@ PR を `updatedAt` 順に複数ページ走査している間に更新が入る�
 | code                                                              | 原因                                                            | 対処                                                                                                 |
 | ----------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `SYNC_SINCE_BEYOND_CHECKPOINT`                                    | `--since` が checkpoint 境界時刻以上                            | `--since` を外して再実行。replay したい場合は checkpoint より厳密に古い境界を指定                    |
+| `SYNC_MAX_PULL_REQUESTS_INVALID`                                  | `max_pull_requests` が 1〜10000 の整数でない（CLI では `CLI_ARGUMENT_INVALID`） | 値を修正                                                                                             |
 | `SYNC_BOUNDARY_CONFLICT`                                          | cursor と `--since` の同時指定                                  | どちらか一方だけを指定                                                                               |
 | `SYNC_SINCE_INVALID`                                              | `--since` が ISO-8601 でない（CLI では `CLI_ARGUMENT_INVALID`） | タイムスタンプ形式を修正                                                                             |
 | `SYNC_REPOSITORY_MISMATCH`                                        | 解決された repository と ingest 先の repo_id が不一致           | `--repo` 指定と config の workspaceMappings を確認                                                   |
 | `SYNC_CHECKPOINT_REPOSITORY_MISMATCH`                             | checkpoint が別リポジトリのもの                                 | storage の取り違えを調査。安易に checkpoint を削除しない                                             |
 | `SYNC_CHECKPOINT_INVALID` / `SYNC_CHECKPOINT_VERSION_UNSUPPORTED` | checkpoint 破損または将来 version                               | バックアップから復旧するか、全期間再同期を許容できる場合のみ checkpoint を退避して初回同期をやり直す |
-| `PULL_REQUEST_LIST_CHANGED`                                      | 自動再試行中も PR 一覧が継続して変化                            | 同じ引数で再実行。checkpoint は未変更なので `since` を新しくしない                                  |
+| `PULL_REQUEST_LIST_CHANGED`                                      | cutoff より前の PR 一覧が自動再試行中も不整合                   | 同じ引数で再実行。checkpoint は未変更なので `since` を新しくしない                                  |
 | `LOCK_TIMEOUT`                                                    | 同時実行による lock 待ちタイムアウト                            | 放置してよい。次回実行が再開する                                                                     |
 | `GRAPHQL_REQUEST_FAILED` ほか `GH_*`                              | `gh` 実行失敗（未認証・ネットワーク等）                         | `gh auth status` と接続を確認して再実行                                                              |
 

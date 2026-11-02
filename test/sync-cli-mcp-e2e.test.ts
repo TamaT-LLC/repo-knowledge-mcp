@@ -83,9 +83,11 @@ describe("sync CLI and MCP E2E over a real CLI process and stdio client", () => 
     const resumed = await runCliSync(environment);
     expect(resumed.exitCode).toBe(0);
     expect(SyncRepoResultSchema.parse(JSON.parse(resumed.stdout))).toEqual({
+      deferred: 0,
       discovered: 0,
       failed: 0,
       failures: [],
+      has_more: false,
       ingested: 0,
       jobs_created: 0,
       next_cursor: firstSummary.next_cursor,
@@ -109,9 +111,11 @@ describe("sync CLI and MCP E2E over a real CLI process and stdio client", () => 
     expect(structured.ok).toBe(true);
     // Identical summary schema and identical resume point across surfaces.
     expect(structured.result).toEqual({
+      deferred: 0,
       discovered: 2,
       failed: 0,
       failures: [],
+      has_more: false,
       ingested: 0,
       jobs_created: 0,
       next_cursor: firstSummary.next_cursor,

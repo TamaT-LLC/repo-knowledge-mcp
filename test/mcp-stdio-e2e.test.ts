@@ -461,9 +461,11 @@ const mutation = {
   },
   async syncRepo() {
     return {
+      deferred: 0,
       discovered: 1,
       failed: 0,
       failures: [],
+      has_more: false,
       ingested: 1,
       jobs_created: 1,
       next_cursor: {

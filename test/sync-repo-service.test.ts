@@ -77,9 +77,11 @@ describe("SyncRepoService", () => {
     const checkpoint = await new SyncCheckpointStore(repository).read();
 
     expect(summary).toEqual({
+      deferred: 0,
       discovered: 3,
       failed: 0,
       failures: [],
+      has_more: false,
       ingested: 3,
       jobs_created: 3,
       next_cursor: cursorAt(3),
@@ -171,9 +173,11 @@ describe("SyncRepoService", () => {
     ).readSnapshot();
 
     expect(resumed).toEqual({
+      deferred: 0,
       discovered: 2,
       failed: 0,
       failures: [],
+      has_more: false,
       ingested: 1,
       jobs_created: 1,
       next_cursor: cursorAt(3),
@@ -191,9 +195,11 @@ describe("SyncRepoService", () => {
     const failedRun = await service.sync();
 
     expect(failedRun).toEqual({
+      deferred: 0,
       discovered: 3,
       failed: 1,
       failures: [{ message: "ingest fixture failure", pr_number: 2 }],
+      has_more: true,
       ingested: 1,
       jobs_created: 1,
       next_cursor: cursorAt(1),
@@ -208,14 +214,141 @@ describe("SyncRepoService", () => {
     const healed = await syncService(repository).sync();
 
     expect(healed).toEqual({
+      deferred: 0,
       discovered: 2,
       failed: 0,
       failures: [],
+      has_more: false,
       ingested: 2,
       jobs_created: 2,
       next_cursor: cursorAt(3),
       unchanged: 0,
     });
+  });
+
+  it("converges on a backlog over bounded runs without gaps or duplicates", async () => {
+    const repository = await createRepository();
+    // #3, #4 and #5 share one updatedAt, so a run boundary splits the tie.
+    const tiedAt = isoAt(3);
+    const backlog = [
+      pullRequestRef(1),
+      pullRequestRef(2),
+      { ...pullRequestRef(5), updatedAt: tiedAt },
+      { ...pullRequestRef(4), updatedAt: tiedAt },
+      pullRequestRef(3),
+      pullRequestRef(6),
+      pullRequestRef(7),
+    ];
+    const recorder = new FlakyIngester(buildIngester(repository), new Set());
+    const service = syncService(repository, {
+      enumerator: new FixtureEnumerator(backlog),
+      ingester: recorder,
+    });
+
+    const runs = [];
+    for (let run = 0; run < 5; run += 1) {
+      runs.push(await service.sync({ maxPullRequests: 2 }));
+    }
+
+    expect(
+      runs.map(({ discovered, has_more, ingested, next_cursor }) => ({
+        discovered,
+        has_more,
+        ingested,
+        last: next_cursor?.last_pr_number,
+      })),
+    ).toEqual([
+      { discovered: 7, has_more: true, ingested: 2, last: 2 },
+      { discovered: 5, has_more: true, ingested: 2, last: 4 },
+      { discovered: 3, has_more: true, ingested: 2, last: 6 },
+      { discovered: 1, has_more: false, ingested: 1, last: 7 },
+      { discovered: 0, has_more: false, ingested: 0, last: 7 },
+    ]);
+    expect(runs[1]?.next_cursor).toMatchObject({ last_updated_at: tiedAt });
+    // Every PR is ingested exactly once, in (updatedAt, number) order.
+    expect(recorder.calls).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    await expect(
+      new SyncCheckpointStore(repository).read(),
+    ).resolves.toMatchObject({ cursor: cursorAt(7) });
+  });
+
+  it("resumes an interrupted bounded run from the last committed PR", async () => {
+    const repository = await createRepository();
+    const crashing = new CrashAfterIngestIngester(buildIngester(repository), 2);
+
+    await expect(
+      syncService(repository, { ingester: crashing }).sync({
+        maxPullRequests: 2,
+      }),
+    ).resolves.toMatchObject({
+      failures: [{ message: "simulated crash after ingest", pr_number: 2 }],
+      has_more: true,
+    });
+    await expect(
+      new SyncCheckpointStore(repository).read(),
+    ).resolves.toMatchObject({ cursor: cursorAt(1) });
+
+    const recorder = new FlakyIngester(buildIngester(repository), new Set());
+    const resumed = await syncService(repository, { ingester: recorder }).sync({
+      maxPullRequests: 2,
+    });
+
+    // #2 is replayed idempotently, #3 waits for the next run.
+    expect(recorder.calls).toEqual([2, 3]);
+    expect(resumed).toMatchObject({
+      discovered: 2,
+      has_more: false,
+      ingested: 1,
+      next_cursor: cursorAt(3),
+      unchanged: 1,
+    });
+  });
+
+  it("re-ingests a PR updated again after it was synced", async () => {
+    const repository = await createRepository();
+    const listing = [...PULL_REQUESTS];
+    const service = syncService(repository, {
+      enumerator: new FixtureEnumerator(listing),
+    });
+    await service.sync();
+
+    listing[0] = { ...pullRequestRef(1), updatedAt: isoAt(10) };
+    const second = await service.sync();
+
+    expect(second).toMatchObject({
+      discovered: 1,
+      failed: 0,
+      has_more: false,
+      next_cursor: { last_pr_number: 1, last_updated_at: isoAt(10) },
+      unchanged: 1,
+    });
+  });
+
+  it("reports deferred PRs as remaining work while still advancing", async () => {
+    const repository = await createRepository();
+    const summary = await syncService(repository, {
+      enumerator: new FixtureEnumerator(PULL_REQUESTS, 2),
+    }).sync();
+
+    expect(summary).toMatchObject({
+      deferred: 2,
+      discovered: 3,
+      has_more: true,
+      ingested: 3,
+      next_cursor: cursorAt(3),
+    });
+  });
+
+  it("rejects an invalid per-run pull request cap before any mutation", async () => {
+    const repository = await createRepository();
+    for (const maxPullRequests of [0, 1.5, 10_001]) {
+      await expect(
+        syncService(repository).sync({ maxPullRequests }),
+      ).rejects.toMatchObject({ code: "SYNC_MAX_PULL_REQUESTS_INVALID" });
+    }
+    await expect(new SyncCheckpointStore(repository).read()).resolves.toBe(
+      null,
+    );
   });
 
   it("serializes concurrent syncs of the same repository", async () => {
@@ -388,6 +521,7 @@ describe("SyncRepoService", () => {
 class FixtureEnumerator implements SyncPullRequestEnumerator {
   constructor(
     private readonly pullRequests: readonly UpdatedPullRequestRef[],
+    private readonly deferred = 0,
   ) {}
 
   async enumerateUpdatedPullRequests(
@@ -419,6 +553,7 @@ class FixtureEnumerator implements SyncPullRequestEnumerator {
       );
     const last = included.at(-1);
     return {
+      deferred: this.deferred,
       nextCursor:
         last !== undefined
           ? nextSyncCursor(REPO_ID, last)

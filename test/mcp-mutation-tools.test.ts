@@ -774,6 +774,53 @@ describe("MCP mutation tools", () => {
     });
   });
 
+  it("forwards the per-run cap and asks for another run while has_more is true", async () => {
+    const fixture = createMutationFixture();
+    const remaining = {
+      deferred: 0,
+      discovered: 5,
+      failed: 0,
+      failures: [],
+      has_more: true,
+      ingested: 2,
+      jobs_created: 0,
+      next_cursor: null,
+      unchanged: 0,
+    };
+    fixture.syncRepo
+      .mockResolvedValueOnce(remaining)
+      .mockResolvedValueOnce({ ...remaining, deferred: 3 });
+    const connection = await connect(fixture.resolver);
+
+    const capped = await callTool(connection.client, "sync_repo", {
+      max_pull_requests: 2,
+      repo: REPOSITORY,
+    });
+    expect(fixture.syncRepo).toHaveBeenCalledWith({ maxPullRequests: 2 });
+    expect(toolText(capped)).toContain("More work remains for the next run.");
+    expect(toolStructuredContent(capped)).toMatchObject({
+      result: { has_more: true },
+      summary: {
+        counts: { deferred: 0 },
+        next_action: expect.stringContaining("while has_more is true"),
+      },
+    });
+
+    const deferred = await callTool(connection.client, "sync_repo", {
+      repo: REPOSITORY,
+    });
+    expect(toolText(deferred)).toContain(
+      "**3** recently updated pull request(s) deferred",
+    );
+
+    const invalid = await callTool(connection.client, "sync_repo", {
+      max_pull_requests: 0,
+      repo: REPOSITORY,
+    });
+    expect(toolResult(invalid)).toMatchObject({ isError: true });
+    expect(fixture.syncRepo).toHaveBeenCalledTimes(2);
+  });
+
   it("maps sync boundary, checkpoint, and lock errors to structured sync_repo errors", async () => {
     const fixture = createMutationFixture();
     fixture.syncRepo
@@ -1049,9 +1096,11 @@ function createMutationFixture(): {
     }),
   );
   const syncRepo = vi.fn<KnowledgeMutationOperations["syncRepo"]>(async () => ({
+    deferred: 0,
     discovered: 2,
     failed: 0,
     failures: [],
+    has_more: false,
     ingested: 1,
     jobs_created: 1,
     next_cursor: {

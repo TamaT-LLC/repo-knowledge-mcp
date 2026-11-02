@@ -432,6 +432,7 @@ class FixtureEnumerator implements SyncPullRequestEnumerator {
       );
     const last = included.at(-1);
     return {
+      deferred: 0,
       nextCursor:
         last !== undefined
           ? nextSyncCursor(REPOSITORY_ID, last)

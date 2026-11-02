@@ -16,7 +16,7 @@ repository を位置引数と `--repo` の両方で指定しないでくださ�
 | --- | --- |
 | `setup [repo]` | 対話設定と初回同期。`--since <iso>` または `--all-history`、機械可読出力には `--json` |
 | `doctor [repo]` | 認証、設定、storage、canonical data、projection の診断 |
-| `sync [repo]` | 増分同期。`--since <iso>` の境界規則は後述 |
+| `sync [repo]` | 増分同期。`--since <iso>` の境界規則は後述。`--max-prs <n>` で 1 回の処理件数を制限 |
 | `ingest [repo] <pr>` | PR 番号を指定して一件取得 |
 | `distill [repo]` | Provider Adapter が許可された pending job の処理 |
 | `list [repo]` | knowledge の一覧。`--status proposed` などで絞り込み |
@@ -408,9 +408,14 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin
 部分失敗時は最初に失敗した Pull Request で停止します。
 checkpoint は最後に連続成功した Pull Request に留まるため、失敗より新しい Pull Request が先に取り込まれることはありません。
 
-複数ページの列挙中に Pull Request 一覧が変化した場合は、不安定な結果を破棄して同じ checkpoint から再試行します。
+同期は実行開始時刻の 60 秒前を上限として固定し、それ以降に更新された Pull Request は次回実行へ繰り延べます（summary の `deferred`）。
+列挙中に Pull Request が更新されても同期は失敗せず、更新された Pull Request は次回取り込まれます。
+未同期の Pull Request が多いときは `--max-prs <n>`（MCP は `max_pull_requests`）で 1 回の処理件数を制限し、summary の `has_more` が `false` になるまで再実行してください。
+checkpoint は 1 件ごとに進むため、途中で中断しても欠落や重複なく再開します。
+
+上限より前の一覧が不整合な場合だけ、結果を破棄して同じ checkpoint から再試行します。
 試行は初回を含めて最大 3 回です。
-それでも安定しない場合、MCP の `sync_repo` は `PULL_REQUEST_LIST_CHANGED` を `retryable: true` で返すため、同じ引数で再実行してください。
+それでも整合しない場合、MCP の `sync_repo` は `PULL_REQUEST_LIST_CHANGED` を `retryable: true` で返すため、同じ引数で再実行してください。
 
 境界規則、最小権限、lock contention、再試行は [sync cron 運用 runbook](./sync-cron-runbook.md) を参照してください。
 

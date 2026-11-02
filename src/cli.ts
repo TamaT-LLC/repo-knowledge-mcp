@@ -54,7 +54,8 @@ Commands:
   setup [repo] [--json] [--since <iso> | --all-history]
                                 Configure private storage, repository, privacy,
                                 trust candidates, and the initial sync
-  sync [repo] [--since <iso>]   Incrementally sync updated pull requests
+  sync [repo] [--since <iso>] [--max-prs <n>]
+                                Incrementally sync updated pull requests
   stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]
                                 Print versioned machine-readable repository
                                 aggregates as one JSON document on stdout
@@ -88,6 +89,8 @@ Sync options:
   --since <iso-datetime>        Initial boundary for a first sync; with a stored
                                 checkpoint it must be strictly older than the
                                 checkpoint boundary
+  --max-prs <n>                 Process at most n pull requests (oldest first);
+                                rerun while the summary reports has_more
 
 Setup options:
   --workspace <path>            Resolve and register the workspace Git remote
@@ -311,9 +314,12 @@ async function executeSyncCommand(
   const service = await options.mutationServiceResolver.resolve(
     command.selection,
   );
-  const summary = await service.syncRepo(
-    command.since === undefined ? {} : { since: command.since },
-  );
+  const summary = await service.syncRepo({
+    ...(command.maxPullRequests === undefined
+      ? {}
+      : { maxPullRequests: command.maxPullRequests }),
+    ...(command.since === undefined ? {} : { since: command.since }),
+  });
   writeJson(options.io, summary);
   if (summary.failed === 0) return;
   // Machine-readable summary stays on stdout; the operator diagnostic and

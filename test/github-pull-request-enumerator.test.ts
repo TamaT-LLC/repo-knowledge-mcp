@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS,
   DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE,
+  DEFAULT_SYNC_UPDATE_SETTLE_MS,
   LIST_UPDATED_PULL_REQUESTS_PAGE_QUERY,
   LIST_UPDATED_PULL_REQUESTS_QUERY,
   GitHubPullRequestEnumerator,
@@ -155,10 +156,109 @@ describe("GitHubPullRequestEnumerator", () => {
     expect(result.nextCursor).toEqual(cursor);
   });
 
-  it("fails closed when a PR repeats across pages during traversal", async () => {
+  it("defers a PR updated mid-enumeration instead of failing the listing", async () => {
+    // #13 was updated after the run started: it resurfaces out of order with
+    // a timestamp past the run cutoff, which used to abort the whole sync.
+    const runner = pagedRunner([
+      page([node(12), node(11)], "cursor-1"),
+      page([node(13, timestampMs(40)), node(10), node(9)], null),
+    ]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner,
+      now: () => new Date(timestampMs(30)),
+    }).enumerateUpdatedPullRequests({
+      cursor: cursorAt(9, timestampMs(9)),
+      repo: REPO_NAME,
+    });
+
+    expect(result.pullRequests.map((pr) => pr.number)).toEqual([10, 11, 12]);
+    expect(result.deferred).toBe(1);
+    // The checkpoint still advances; #13's new updatedAt lies after it, so
+    // the next run picks it up.
+    expect(result.nextCursor).toMatchObject({
+      last_pr_number: 12,
+      last_updated_at: isoAt(12),
+    });
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  it("defers PRs updated at or after the settle cutoff fixed at run start", async () => {
+    const nowMs = timestampMs(20);
+    const cutoffMs = nowMs - DEFAULT_SYNC_UPDATE_SETTLE_MS;
+    const runner = pagedRunner([
+      page(
+        [
+          node(21, cutoffMs + 1),
+          node(20, cutoffMs),
+          node(19, cutoffMs - 1),
+          node(18),
+        ],
+        null,
+      ),
+    ]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner,
+      now: () => new Date(nowMs),
+    }).enumerateUpdatedPullRequests({
+      cursor: cursorAt(17, timestampMs(17)),
+      repo: REPO_NAME,
+    });
+
+    expect(result.pullRequests.map((pr) => pr.number)).toEqual([18, 19]);
+    expect(result.deferred).toBe(2);
+    expect(result.nextCursor).toMatchObject({ last_pr_number: 19 });
+  });
+
+  it("does not count deferred PRs that are not after the boundary", async () => {
+    const runner = pagedRunner([page([node(5, timestampMs(30))], null)]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner,
+      now: () => new Date(timestampMs(30)),
+      updateSettleMs: 0,
+    }).enumerateUpdatedPullRequests({
+      repo: REPO_NAME,
+      since: new Date(timestampMs(31)).toISOString(),
+    });
+
+    expect(result.pullRequests).toEqual([]);
+    expect(result.deferred).toBe(0);
+  });
+
+  it("skips the identical repeat that a page shift produces", async () => {
+    // An update moving a PR to the top shifts offset-based pages by one, so
+    // the last node of page 1 is served again at the start of page 2.
+    const runner = pagedRunner([
+      page([node(12), node(11)], "cursor-1"),
+      page([node(11), node(10)], null),
+    ]);
+
+    const result = await new GitHubPullRequestEnumerator({
+      ghRunner: runner,
+    }).enumerateUpdatedPullRequests({ repo: REPO_NAME });
+
+    expect(result.pullRequests.map((pr) => pr.number)).toEqual([10, 11, 12]);
+    expect(result.deferred).toBe(0);
+  });
+
+  it("rejects an invalid update settle window", () => {
+    for (const updateSettleMs of [-1, 1.5, 24 * 60 * 60 * 1_000 + 1]) {
+      expect(
+        () =>
+          new GitHubPullRequestEnumerator({
+            ghRunner: pagedRunner([]),
+            updateSettleMs,
+          }),
+      ).toThrow(TypeError);
+    }
+  });
+
+  it("fails closed when a PR repeats across pages with a different updatedAt", async () => {
     const runner = pagedRunner([
       page([node(10)], "cursor-1"),
-      page([node(10)], null),
+      page([node(10, timestampMs(9))], null),
     ]);
 
     await expect(
