@@ -34,9 +34,11 @@ export const DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE = 50;
 export const DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS = 3;
 /**
  * PRs updated within this window before the run starts are deferred to the
- * next run. Any update landing mid-enumeration carries a GitHub timestamp at
- * or after the run start, so it always falls behind the cutoff; the window
- * also absorbs clock skew between this host and GitHub.
+ * next run. An update landing mid-enumeration carries a GitHub timestamp at or
+ * after the run start, so it falls behind the cutoff as long as this host's
+ * clock runs no more than this window ahead of GitHub. Beyond that skew such
+ * an update can land below the cutoff; the traversal then sees the PR repeat
+ * with a different `updatedAt` and restarts the listing.
  */
 export const DEFAULT_SYNC_UPDATE_SETTLE_MS = 60_000;
 /**
@@ -176,10 +178,11 @@ export interface GitHubPullRequestEnumeratorOptions {
  * the checkpoint from advancing. GitHub only approximately orders the listing
  * by `updatedAt`, so the traversal never relies on monotonic order: it
  * collects every node down to the sort-lag window past the boundary, dedupes
- * by node ID and sorts locally. Below the cutoff a PR's `updatedAt` cannot
- * change, so a listing that contradicts itself there fails closed; a
- * repository identity change mid-traversal discards the listing and restarts
- * it from the same boundary a bounded number of times.
+ * by node ID and sorts locally. A PR repeating below the cutoff with a
+ * different `updatedAt` (an update that landed below the cutoff because of
+ * clock skew) or a repository identity change mid-traversal discards the
+ * listing and restarts it from the same boundary and cutoff a bounded number
+ * of times; two node IDs claiming one PR number fail closed immediately.
  */
 export class GitHubPullRequestEnumerator {
   private readonly ghRunner: GhRunnerLike;
@@ -327,8 +330,10 @@ export class GitHubPullRequestEnumerator {
  * boundary still lies before their `updatedAt`. A PR observed with a
  * timestamp at or after the cutoff is deferred even if an earlier page showed
  * it older, since it changed during this run. Below the cutoff a repeat must
- * carry the same `updatedAt`; anything else means the listing contradicts
- * itself and the enumeration fails closed.
+ * carry the same `updatedAt`; otherwise the PR was updated mid-run but
+ * landed below the cutoff (host clock ahead of GitHub by more than the settle
+ * window), and the listing is reported as changed so the enumeration restarts
+ * with the same cutoff.
  */
 class PullRequestListTraversal {
   private readonly deferredIds = new Set<string>();
@@ -364,7 +369,7 @@ class PullRequestListTraversal {
       }
       if (seenUpdatedAtMs !== undefined && seenUpdatedAtMs !== updatedAtMs) {
         if (seenUpdatedAtMs >= this.cutoffMs) continue;
-        throw duplicateGraphqlNode(operation, `pull request ${node.id}`);
+        throw listChangedError(operation);
       }
       if (
         seenUpdatedAtMs === undefined &&

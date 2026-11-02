@@ -29,7 +29,8 @@ host-assisted は同期だけでは起動せず、MCP client が `prepare_distil
 - checkpoint より厳密に古い `--since` は履歴の再送（replay）として許可される。ingest は冪等なので
   同じ期間を CLI と MCP から重複同期しても canonical state は変化しない
 - 実行開始時刻の 60 秒前を上限（cutoff）として固定する。cutoff 以降に更新された PR は今回の対象外
-  （`deferred` に計上）となり、次回実行で取り込まれる。列挙中に更新された PR も必ず cutoff 以降になる
+  （`deferred` に計上）となり、次回実行で取り込まれる。列挙中に更新された PR も、ホストの時計が
+  GitHub より 60 秒を超えて進んでいない限り cutoff 以降になる
 - `--max-prs <n>`（MCP は `max_pull_requests`）は 1 回の実行で処理する PR 数の上限。古い順に n 件だけ
   処理して checkpoint を進め、残りは次回へ回す。未同期 PR が数千件ある場合は上限付きで繰り返し実行する
 - `has_more: true` は checkpoint 以降に処理待ちの PR が残っていること（上限到達、失敗での停止、
@@ -197,8 +198,8 @@ run 全体で保持されるため、CLI、scheduler、MCP `sync_repo` のどの
 ### PR 一覧の走査中変更
 
 PR を `updatedAt` 順に複数ページ走査している間に更新が入っても、同期は失敗しない。更新された PR は
-新しい `updatedAt` が cutoff 以降になるため、順序が乱れて現れても今回は読み飛ばし（`deferred`）、
-次回実行で取り込む。更新によってページがずれて同じ PR が同一内容で再度返った場合も読み飛ばす。
+ホストと GitHub の時計のずれが 60 秒以内なら新しい `updatedAt` が cutoff 以降になるため、順序が乱れて
+現れても今回は読み飛ばし（`deferred`）、次回実行で取り込む。更新によってページがずれて同じ PR が同一内容で再度返った場合も読み飛ばす。
 
 GitHub の `UPDATED_AT` 並びは内部の時刻で決まり、返却される `updatedAt` より遅れることがある。
 そのため一部の PR は `updatedAt` から想定される位置より後ろに現れる（実データでは数分〜4 時間程度、
@@ -207,10 +208,13 @@ GitHub の `UPDATED_AT` 並びは内部の時刻で決まり、返却される `
 この許容幅を超えて並びが遅れた PR は GitHub の `since` 絞り込みや検索の `updated:` でも拾えないため、
 増分同期では検出されない。必要なら古い `--since` で履歴を再送（replay）する。
 
-cutoff より前の範囲で同じ PR が異なる `updatedAt` で返った場合や、同じ PR 番号に異なる node ID が
-返った場合は、一覧が自己矛盾しているとみなして fail-closed で停止し、checkpoint は変更しない。
-走査中に repository の node ID が変わった場合は列挙結果を破棄し、同じ checkpoint 境界から初回を
-含めて最大 3 回試行する。3 回とも `PULL_REQUEST_LIST_CHANGED` になった場合、checkpoint は変更されない。
+ホストの時計が GitHub より 60 秒を超えて進んでいると、走査中の更新が cutoff より前の `updatedAt` を持つことがある。
+このため cutoff より前の範囲で同じ PR が異なる `updatedAt` で返った場合は、走査中に一覧が変化したとみなす。
+走査中に repository の node ID が変わった場合も同様に扱う。どちらの場合も列挙結果を破棄し、同じ
+checkpoint 境界と cutoff で初回を含めて最大 3 回試行する。3 回とも `PULL_REQUEST_LIST_CHANGED` に
+なった場合、checkpoint は変更されない。同じ PR 番号に異なる node ID が返った場合は一覧が自己矛盾して
+いるとみなし、再試行せず `DUPLICATE_GRAPHQL_NODE` で fail-closed に停止する（checkpoint は変更しない）。
+ホストの時計を NTP 等で同期しておくと再試行の発生を避けられる。
 MCP 応答は `retryable: true` と同じ引数での再実行を案内するため、呼び出し側は境界を変更せずに再試行する。
 
 ### 再実行時の不変条件
