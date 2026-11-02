@@ -774,30 +774,42 @@ describe("MCP mutation tools", () => {
     });
   });
 
-  it("waits for the settle window when only deferred PRs remain", async () => {
-    const fixture = createMutationFixture();
-    fixture.syncRepo.mockResolvedValueOnce({
-      deferred: 3,
-      discovered: 2,
-      failed: 0,
-      failures: [],
-      has_more: true,
-      ingested: 1,
-      jobs_created: 0,
-      next_cursor: null,
-      unchanged: 1,
-    });
-    const connection = await connect(fixture.resolver);
-    const result = await callTool(connection.client, "sync_repo", {
-      repo: REPOSITORY,
-    });
-    expect(toolStructuredContent(result)).toMatchObject({
-      result: { deferred: 3, has_more: true },
-      summary: {
-        next_action: expect.stringContaining("Do not retry immediately"),
-      },
-    });
-  });
+  it.each([0, 1])(
+    "waits for deferred PRs while preserving guidance for %i new jobs",
+    async (jobsCreated) => {
+      const fixture = createMutationFixture();
+      fixture.syncRepo.mockResolvedValueOnce({
+        deferred: 3,
+        discovered: 2,
+        failed: 0,
+        failures: [],
+        has_more: true,
+        ingested: 1,
+        jobs_created: jobsCreated,
+        next_cursor: null,
+        unchanged: 1,
+      });
+      const connection = await connect(fixture.resolver);
+      const result = await callTool(connection.client, "sync_repo", {
+        repo: REPOSITORY,
+      });
+      expect(toolStructuredContent(result)).toMatchObject({
+        result: { deferred: 3, has_more: true },
+        summary: {
+          next_action: expect.stringContaining("Do not retry immediately"),
+        },
+      });
+      const nextAction = (
+        toolStructuredContent(result) as { summary: { next_action: string } }
+      ).summary.next_action;
+      if (jobsCreated > 0) {
+        expect(nextAction).toContain("prepare_distillation");
+        expect(nextAction).toContain("explicitly enabled");
+      } else {
+        expect(nextAction).not.toContain("prepare_distillation");
+      }
+    },
+  );
 
   it("forwards the per-run cap and asks for another run while eligible PRs remain", async () => {
     const fixture = createMutationFixture();

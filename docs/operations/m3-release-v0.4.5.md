@@ -58,7 +58,7 @@ Lifecycle script を無効にして install し、install-script decision、脆�
 | `npm audit --audit-level=high` | pass、0 vulnerabilities |
 | `npm audit signatures` | pass、113 signatures / 43 attestations |
 | `npm rebuild` | pass |
-| `npm run check` | pass、82 files / 1150 tests、lines 90.0% / branches 80.17% |
+| `npm run check` | pass、82 files / 1151 tests、lines 90.0% / branches 80.16% |
 | `npm run golden` | pass |
 | `npm run quality:gate` | pass |
 | `npm run package:smoke` | pass、261 files / 11 tools / server version 0.4.5 |
@@ -98,6 +98,7 @@ Node.js 22 / 24 の verify release、OIDC publish、provenance と exact-version
 CodeRabbit は cron の exit 75 通知と、繰り延べ PR に対する即時再試行案内の minor 2件を指摘した。
 通知例を修正し、MCP は処理可能な PR が残る場合だけ即時の継続を案内する。
 `deferred` だけが残る場合は次の定期同期か60秒以上待つよう案内し、MCP 回帰 test を追加した。
+再レビューでは新規蒸留 job の案内も維持するよう minor 1件があり、待機案内と併記して2条件を test した。
 `has_more` の応答契約は維持した。
 現在、保護条件の変更・bypass、main CI の手動起動は行っていない。
 

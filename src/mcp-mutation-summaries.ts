@@ -70,7 +70,7 @@ export function summarizeSync(
           : result.ingested + result.unchanged < result.discovered
             ? "Call sync_repo again without since; it resumes from the advanced checkpoint. Repeat while discovered exceeds ingested plus unchanged."
             : result.deferred > 0
-              ? "Wait for the next scheduled sync or at least 60 seconds before calling sync_repo again without since; only recently updated pull requests remain. Do not retry immediately."
+              ? `Wait for the next scheduled sync or at least 60 seconds before calling sync_repo again without since; only recently updated pull requests remain. Do not retry immediately.${result.jobs_created > 0 ? " If host-assisted distillation is explicitly enabled, call prepare_distillation for the newly created jobs; otherwise leave the jobs pending." : ""}`
               : result.jobs_created > 0
                 ? "If host-assisted distillation is explicitly enabled, call prepare_distillation; otherwise leave the jobs pending."
                 : "No further action is required until new review activity arrives.",
