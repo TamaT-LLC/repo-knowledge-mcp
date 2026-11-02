@@ -67,11 +67,13 @@ export function summarizeSync(
       next_action:
         result.failed > 0
           ? "Call sync_repo again without since; the checkpoint stopped at the last contiguous success, so the failed pull request is retried first."
-          : result.has_more
-            ? "Call sync_repo again without since; it resumes from the advanced checkpoint. Repeat while has_more is true."
-            : result.jobs_created > 0
-              ? "If host-assisted distillation is explicitly enabled, call prepare_distillation; otherwise leave the jobs pending."
-              : "No further action is required until new review activity arrives.",
+          : result.ingested + result.unchanged < result.discovered
+            ? "Call sync_repo again without since; it resumes from the advanced checkpoint. Repeat while discovered exceeds ingested plus unchanged."
+            : result.deferred > 0
+              ? "Wait for the next scheduled sync or at least 60 seconds before calling sync_repo again without since; only recently updated pull requests remain. Do not retry immediately."
+              : result.jobs_created > 0
+                ? "If host-assisted distillation is explicitly enabled, call prepare_distillation; otherwise leave the jobs pending."
+                : "No further action is required until new review activity arrives.",
       retryable: true,
     },
   };

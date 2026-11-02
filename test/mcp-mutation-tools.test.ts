@@ -774,7 +774,32 @@ describe("MCP mutation tools", () => {
     });
   });
 
-  it("forwards the per-run cap and asks for another run while has_more is true", async () => {
+  it("waits for the settle window when only deferred PRs remain", async () => {
+    const fixture = createMutationFixture();
+    fixture.syncRepo.mockResolvedValueOnce({
+      deferred: 3,
+      discovered: 2,
+      failed: 0,
+      failures: [],
+      has_more: true,
+      ingested: 1,
+      jobs_created: 0,
+      next_cursor: null,
+      unchanged: 1,
+    });
+    const connection = await connect(fixture.resolver);
+    const result = await callTool(connection.client, "sync_repo", {
+      repo: REPOSITORY,
+    });
+    expect(toolStructuredContent(result)).toMatchObject({
+      result: { deferred: 3, has_more: true },
+      summary: {
+        next_action: expect.stringContaining("Do not retry immediately"),
+      },
+    });
+  });
+
+  it("forwards the per-run cap and asks for another run while eligible PRs remain", async () => {
     const fixture = createMutationFixture();
     const remaining = {
       deferred: 0,
@@ -802,7 +827,9 @@ describe("MCP mutation tools", () => {
       result: { has_more: true },
       summary: {
         counts: { deferred: 0 },
-        next_action: expect.stringContaining("while has_more is true"),
+        next_action: expect.stringContaining(
+          "while discovered exceeds ingested plus unchanged",
+        ),
       },
     });
 

@@ -58,11 +58,11 @@ Lifecycle script を無効にして install し、install-script decision、脆�
 | `npm audit --audit-level=high` | pass、0 vulnerabilities |
 | `npm audit signatures` | pass、113 signatures / 43 attestations |
 | `npm rebuild` | pass |
-| `npm run check` | pass、82 files / 1149 tests、lines 90.0% / branches 80.16% |
+| `npm run check` | pass、82 files / 1150 tests、lines 90.0% / branches 80.17% |
 | `npm run golden` | pass |
 | `npm run quality:gate` | pass |
 | `npm run package:smoke` | pass、261 files / 11 tools / server version 0.4.5 |
-| CodeRabbit（v0.4.4 からの source 差分） | 実行中 |
+| CodeRabbit（v0.4.4 からの source 差分） | review_completed、minor 2件、critical / major 0件。下記の修正を実施 |
 
 差分の security review は subprocess の `shell: false`、cron の shell quoting / percent escaping、plist の XML escaping、repository 名検証、storage path、同期 lock の境界を対象にした。
 自動送信、trust、approval policy は変更しない。
@@ -71,7 +71,7 @@ GitHub secret scanning の open alert 0件は確認済みだが、独立した�
 
 ## 5. Pull Request CI
 
-準備 PR の exact head で Node.js 22 / 24 と CodeQL を確認する。現在は PR 作成前。
+準備 PR の exact head で Node.js 22 / 24 と CodeQL を確認する。現在は [PR #210](https://github.com/TamaT-LLC/repo-knowledge-mcp/pull/210) の最終 head を確認中。
 source base `8327fa1` の [CI](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/41435821002) と [CodeQL](https://github.com/TamaT-LLC/repo-knowledge-mcp/actions/runs/41435820809) は成功済み。
 main の full CI を手動起動・再実行しない。
 
@@ -95,6 +95,10 @@ Node.js 22 / 24 の verify release、OIDC publish、provenance と exact-version
 ## 9. Incident と差分
 
 公開前の失敗、再実行、保護条件の例外が生じた場合はここへ追記する。
+CodeRabbit は cron の exit 75 通知と、繰り延べ PR に対する即時再試行案内の minor 2件を指摘した。
+通知例を修正し、MCP は処理可能な PR が残る場合だけ即時の継続を案内する。
+`deferred` だけが残る場合は次の定期同期か60秒以上待つよう案内し、MCP 回帰 test を追加した。
+`has_more` の応答契約は維持した。
 現在、保護条件の変更・bypass、main CI の手動起動は行っていない。
 
 ## 10. Go / no-go

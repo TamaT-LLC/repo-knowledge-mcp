@@ -434,7 +434,7 @@ echo "exit=$?"
 ```crontab
 MAILTO=ops@example.com
 PATH=/opt/homebrew/bin:/usr/bin:/bin
-*/15 * * * * repo-knowledge sync owner/repository >> "$HOME/log/repo-knowledge-sync.jsonl" 2>> "$HOME/log/repo-knowledge-sync.err" || echo "repo-knowledge sync failed with exit $?"
+*/15 * * * * repo-knowledge sync owner/repository </dev/null >> "$HOME/log/repo-knowledge-sync.jsonl" 2>> "$HOME/log/repo-knowledge-sync.err"; rc=$?; [ "$rc" -eq 0 ] || [ "$rc" -eq 75 ] || echo "repo-knowledge sync failed with exit $rc"
 ```
 
 | exit | 意味 | 対処 |
@@ -451,7 +451,8 @@ checkpoint は最後に連続成功した Pull Request に留まるため、失�
 ホストの時計は使わないため、時計がずれていても結果は変わりません。
 列挙中に Pull Request が更新されても同期は失敗せず、更新後の `updatedAt` は必ず上限より後になるので、更新された Pull Request は次回取り込まれます。
 サーバー時刻を読めない場合は Pull Request を読む前に `GITHUB_SERVER_TIME_UNAVAILABLE` で停止します。MCP の `sync_repo` はこれを `retryable: true` で返すため、`gh` の認証と接続を確認して同じ引数で再実行してください。
-未同期の Pull Request が多いときは `--max-prs <n>`（MCP は `max_pull_requests`）で 1 回の処理件数を制限し、summary の `has_more` が `false` になるまで再実行してください。
+未同期の Pull Request が多いときは `--max-prs <n>`（MCP は `max_pull_requests`）で 1 回の処理件数を制限し、`discovered` が `ingested + unchanged` を超える間は再実行してください。
+`deferred` だけが残る場合は即時に繰り返さず、次の定期実行か60秒以上待ってから再実行してください。
 checkpoint は 1 件ごとに進むため、途中で中断しても欠落や重複なく再開します。
 
 GitHub の更新順の並びは `updatedAt` と厳密には一致しないため、checkpoint よりさらに 7 日分古い Pull Request まで読み進めてから手元で並べ替えます。
