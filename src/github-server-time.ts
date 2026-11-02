@@ -47,7 +47,7 @@ export function parseGitHubServerDate(stdout: string): Date {
   }
   const dates = lines
     .slice(1)
-    .map((line) => /^date:[ \t]*(.*?)[ \t]*$/i.exec(line)?.[1])
+    .map(dateHeaderValue)
     .filter((value): value is string => value !== undefined);
   if (dates.length !== 1) {
     throw serverTimeUnavailable(
@@ -62,6 +62,24 @@ export function parseGitHubServerDate(stdout: string): Date {
     throw serverTimeUnavailable("Date header is not a valid IMF-fixdate");
   }
   return new Date(ms);
+}
+
+/**
+ * Returns the value of a `Date` header line with surrounding spaces and tabs
+ * removed, or `undefined` for any other line. Linear-time on purpose: header
+ * lines come from the network, so no backtracking regular expression.
+ */
+function dateHeaderValue(line: string): string | undefined {
+  if (line.slice(0, 5).toLowerCase() !== "date:") return undefined;
+  let start = 5;
+  let end = line.length;
+  while (start < end && isSpaceOrTab(line[start])) start += 1;
+  while (end > start && isSpaceOrTab(line[end - 1])) end -= 1;
+  return line.slice(start, end);
+}
+
+function isSpaceOrTab(char: string | undefined): boolean {
+  return char === " " || char === "\t";
 }
 
 function serverTimeUnavailable(

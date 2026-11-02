@@ -204,6 +204,22 @@ describe("GitHubPullRequestEnumerator", () => {
     }
   });
 
+  it("parses a Date header padded with tabs in linear time", () => {
+    const padding = "\t".repeat(200_000);
+    const started = performance.now();
+    expect(
+      parseGitHubServerDate(
+        `HTTP/2.0 200 OK\r\nDate:${padding}Mon, 02 Nov 2026 09:33:22 GMT${padding}\r\n\r\n{}`,
+      ).toISOString(),
+    ).toBe("2026-11-02T09:33:22.000Z");
+    expect(() =>
+      parseGitHubServerDate(`HTTP/2.0 200 OK\r\ndate:${padding}x\r\n\r\n{}`),
+    ).toThrow(
+      expect.objectContaining({ code: "GITHUB_SERVER_TIME_UNAVAILABLE" }),
+    );
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   it("enumerates more than 100 PRs across pages in deterministic ascending order", async () => {
     const total = 105;
     // DESC listing: newest first (PR number == minutes offset from BASE_MS).
