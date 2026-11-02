@@ -35,7 +35,8 @@ host-assisted は同期だけでは起動せず、MCP client が `prepare_distil
 - `--max-prs <n>`（MCP は `max_pull_requests`）は 1 回の実行で処理する PR 数の上限。古い順に n 件だけ
   処理して checkpoint を進め、残りは次回へ回す。未同期 PR が数千件ある場合は上限付きで繰り返し実行する
 - `has_more: true` は checkpoint 以降に処理待ちの PR が残っていること（上限到達、失敗での停止、
-  cutoff による繰り延べ）を示す。`false` になるまで引数なしで再実行すれば最新の checkpoint に到達する
+  cutoff による繰り延べ）を示す。`discovered > ingested + unchanged` の間は引数なしで再実行する。
+  `deferred` だけが残る場合は次の定期実行か60秒以上待ち、即時の再実行を繰り返さない
 - cursor と `--since` の同時指定は `SYNC_BOUNDARY_CONFLICT` で拒否される
 
 ## 定期実行の登録（schedule）

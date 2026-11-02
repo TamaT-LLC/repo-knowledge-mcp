@@ -1,4 +1,8 @@
-# M3 v0.4.4 release preparation report
+# M3 v0.4.4 release preparation report（公開前の履歴）
+
+`v0.4.4` は2026-10-02に公開済みである。公開結果は [post-publication report](./m3-release-v0.4.4-postpublish.md) を参照する。
+以下は公開前に作成した準備記録であり、当時の pending / 未実施を保存している。
+公開後の判定には、上記 report の OIDC、provenance、registry smoke の成功と environment protection の例外記録を使う。
 
 `@tamat-llc/repo-knowledge-mcp@0.4.4` は公開準備中であり、release 完了ではない。
 この report は準備段階の実測と未完了 gate を分けて記録する。
