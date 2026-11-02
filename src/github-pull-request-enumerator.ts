@@ -18,6 +18,7 @@ import {
   nextConnectionCursor,
   requireGraphqlRepository,
 } from "./github-graphql.js";
+import { readGitHubServerTime } from "./github-server-time.js";
 import {
   SyncCursorError,
   compareSyncOrder,
@@ -34,11 +35,13 @@ export const DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE = 50;
 export const DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS = 3;
 /**
  * PRs updated within this window before the run starts are deferred to the
- * next run. An update landing mid-enumeration carries a GitHub timestamp at or
- * after the run start, so it falls behind the cutoff as long as this host's
- * clock runs no more than this window ahead of GitHub. Beyond that skew such
- * an update can land below the cutoff; the traversal then sees the PR repeat
- * with a different `updatedAt` and restarts the listing.
+ * next run. The run start is GitHub's own time (the `Date` header read before
+ * the first page), never this host's clock, so the host's clock skew plays no
+ * part. An update landing mid-enumeration happens after that response was
+ * produced, so its `updatedAt` (seconds) is at or after the truncated `Date`
+ * (seconds) and thus strictly after the cutoff even with a zero window. The
+ * window is a margin for clock differences between GitHub's own servers and
+ * keeps PRs still being edited out of the run.
  */
 export const DEFAULT_SYNC_UPDATE_SETTLE_MS = 60_000;
 /**
@@ -164,8 +167,12 @@ export interface EnumerateUpdatedPullRequestsResult {
 export interface GitHubPullRequestEnumeratorOptions {
   readonly ghRunner?: GhRunnerLike;
   readonly maxListChangeAttempts?: number;
-  readonly now?: () => Date;
   readonly pageSize?: number;
+  /**
+   * GitHub's current time, read once before the first page. Defaults to the
+   * `Date` header of `gh api --include /rate_limit` through `ghRunner`.
+   */
+  readonly serverTime?: () => Promise<Date>;
   readonly sortLagToleranceMs?: number;
   readonly updateSettleMs?: number;
 }
@@ -173,22 +180,24 @@ export interface GitHubPullRequestEnumeratorOptions {
 /**
  * Enumerates the PRs a sync run must revisit, ordered deterministically by
  * (updatedAt, PR number) ascending. The run is bounded above by a cutoff
- * fixed when it starts: PRs updated at or after it are deferred to the next
+ * fixed from GitHub's server time before the first page is read (never from
+ * the local clock): PRs updated at or after it are deferred to the next
  * run instead of aborting this one, so concurrent PR activity never blocks
  * the checkpoint from advancing. GitHub only approximately orders the listing
  * by `updatedAt`, so the traversal never relies on monotonic order: it
  * collects every node down to the sort-lag window past the boundary, dedupes
  * by node ID and sorts locally. A PR repeating below the cutoff with a
- * different `updatedAt` (an update that landed below the cutoff because of
- * clock skew) or a repository identity change mid-traversal discards the
+ * different `updatedAt` (which the server-time cutoff rules out unless
+ * GitHub's own clocks disagree by more than the settle window) or a
+ * repository identity change mid-traversal discards the
  * listing and restarts it from the same boundary and cutoff a bounded number
  * of times; two node IDs claiming one PR number fail closed immediately.
  */
 export class GitHubPullRequestEnumerator {
   private readonly ghRunner: GhRunnerLike;
   private readonly maxListChangeAttempts: number;
-  private readonly now: () => Date;
   private readonly pageSize: number;
+  private readonly serverTime: () => Promise<Date>;
   private readonly sortLagToleranceMs: number;
   private readonly updateSettleMs: number;
 
@@ -198,7 +207,8 @@ export class GitHubPullRequestEnumerator {
       options.maxListChangeAttempts ??
         DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS,
     );
-    this.now = options.now ?? (() => new Date());
+    this.serverTime =
+      options.serverTime ?? (() => readGitHubServerTime(this.ghRunner));
     this.pageSize = assertGraphqlPageSize(
       options.pageSize ?? DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE,
       "pageSize",
@@ -224,8 +234,10 @@ export class GitHubPullRequestEnumerator {
       ...(request.since === undefined ? {} : { since: request.since }),
     });
     const [owner, name] = repo.split("/") as [string, string];
-    // Fixed once per run so every retry shares the same upper bound.
-    const cutoffMs = this.now().getTime() - this.updateSettleMs;
+    // Read from GitHub before the first page and fixed once per run, so
+    // every retry shares the same upper bound and any update made while the
+    // listing is read lands at or after it whatever this host's clock says.
+    const cutoffMs = await this.readCutoffMs();
 
     for (let attempt = 1; ; attempt += 1) {
       try {
@@ -244,6 +256,18 @@ export class GitHubPullRequestEnumerator {
         }
       }
     }
+  }
+
+  private async readCutoffMs(): Promise<number> {
+    const serverMs = (await this.serverTime()).getTime();
+    if (!Number.isFinite(serverMs)) {
+      throw new GitHubSnapshotError(
+        "GITHUB_SERVER_TIME_UNAVAILABLE",
+        "GitHub server time",
+        "could not read GitHub's server time: invalid date",
+      );
+    }
+    return serverMs - this.updateSettleMs;
   }
 
   /** Restarts from the same sync boundary after an incoherent listing. */
@@ -323,16 +347,18 @@ export class GitHubPullRequestEnumerator {
  *   a lagging node only delays the stop.
  * - A PR's sort key only ever moves forward. An update moving a PR up the
  *   listing shifts later pages down, which repeats nodes (deduped here) but
- *   never skips one; a PR that jumps over the read position was updated at
- *   or after the cutoff and is left to the next run anyway.
+ *   never skips one; a PR that jumps over the read position was updated
+ *   after GitHub's server time read before the first page, so its
+ *   `updatedAt` is after the cutoff and the next run's boundary (at most the
+ *   cutoff) still lies before it.
  *
  * Nodes at or after the run cutoff are deferred to the next run, whose
  * boundary still lies before their `updatedAt`. A PR observed with a
  * timestamp at or after the cutoff is deferred even if an earlier page showed
  * it older, since it changed during this run. Below the cutoff a repeat must
- * carry the same `updatedAt`; otherwise the PR was updated mid-run but
- * landed below the cutoff (host clock ahead of GitHub by more than the settle
- * window), and the listing is reported as changed so the enumeration restarts
+ * carry the same `updatedAt`; a mid-run update cannot land there unless
+ * GitHub's own clocks disagree by more than the settle window, so such a
+ * repeat is treated as an incoherent listing and the enumeration restarts
  * with the same cutoff.
  */
 class PullRequestListTraversal {
