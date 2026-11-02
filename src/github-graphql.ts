@@ -24,6 +24,7 @@ const GraphqlEnvelopeSchema = z
 
 export type GitHubSnapshotErrorCode =
   | "DUPLICATE_GRAPHQL_NODE"
+  | "GITHUB_SERVER_TIME_UNAVAILABLE"
   | "GRAPHQL_PAGINATION_INVALID"
   | "GRAPHQL_PARTIAL_RESPONSE"
   | "GRAPHQL_REQUEST_FAILED"

@@ -588,6 +588,21 @@ describe("mapMutationError", () => {
     });
   });
 
+  it("maps an unreadable GitHub server time as retryable", () => {
+    const error = new GitHubSnapshotError(
+      "GITHUB_SERVER_TIME_UNAVAILABLE",
+      "GitHub server time",
+      "could not read GitHub's server time: missing Date header",
+    );
+
+    expect(mapMutationError(error)).toEqual({
+      code: "GITHUB_SERVER_TIME_UNAVAILABLE",
+      message: error.message,
+      next_action: expect.stringContaining("same arguments"),
+      retryable: true,
+    });
+  });
+
   it("keeps the generic coded-error fallback", () => {
     const error = Object.assign(new Error("external failure"), {
       code: "EXTERNAL_FAILURE",
