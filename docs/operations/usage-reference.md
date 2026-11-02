@@ -17,6 +17,10 @@ repository を位置引数と `--repo` の両方で指定しないでくださ�
 | `setup [repo]` | 対話設定と初回同期。`--since <iso>` または `--all-history`、機械可読出力には `--json` |
 | `doctor [repo]` | 認証、設定、storage、canonical data、projection の診断 |
 | `sync [repo]` | 増分同期。`--since <iso>` の境界規則は後述。`--max-prs <n>` で 1 回の処理件数を制限 |
+| `schedule install <repo>` | sync の定期実行を登録。`--interval <minutes>`（既定 60）、`--max-prs <n>`、`--dry-run`。macOS は LaunchAgent を登録し、Linux は crontab 行を出力するだけ |
+| `schedule uninstall <repo>` | 定期実行を解除。`--dry-run` で確認のみ |
+| `schedule status [repo]` | 登録済みの定期実行を JSON で表示 |
+| `schedule print <repo>` | launchd plist または crontab 行だけを出力。`--format launchd\|cron` |
 | `ingest [repo] <pr>` | PR 番号を指定して一件取得 |
 | `distill [repo]` | Provider Adapter が許可された pending job の処理 |
 | `list [repo]` | knowledge の一覧。`--status proposed` などで絞り込み |
@@ -383,6 +387,40 @@ AI reviewer、未知 bot、外部 contributor、mixed trust、`must` candidate �
 保存済み checkpoint より厳密に古い `--since` を指定した履歴 replay も可能です。
 checkpoint と同じ時刻または新しい時刻を指定すると、未同期 PR のスキップを防ぐため拒否されます。
 
+同期は MCP server の中では動きません。OS の scheduler から CLI を起動して定期実行します。
+登録は `schedule install` で行い、既定の間隔は 60 分です。
+
+```console
+# 確認だけ（ファイル作成も launchctl 呼び出しもしない）
+repo-knowledge schedule install owner/repository --dry-run
+
+# 30 分ごと、1 回あたり最大 200 PR
+repo-knowledge schedule install owner/repository --interval 30 --max-prs 200
+
+repo-knowledge schedule status
+repo-knowledge schedule uninstall owner/repository
+```
+
+- macOS では `~/Library/LaunchAgents/io.github.tamat-llc.repo-knowledge.sync.<owner>.<name>.plist` を書き、`launchctl bootstrap gui/<uid>` で登録します。再実行すると同じ label の job を置き換えます
+- plist には実行中の `node` と CLI の絶対パス、`gh` の directory を含む `PATH`、`REPO_KNOWLEDGE_HOME` が入ります。Node.js を更新して path が変わったら `schedule install` を再実行してください
+- log は `REPO_KNOWLEDGE_HOME/logs/sync-<owner>.<name>.jsonl`（summary JSONL）と `.err.log`（diagnostic）に追記されます
+- `npx` で起動した CLI は npm cache 内の path を指すため警告します。`npm install -g` した CLI から登録してください
+- Linux では crontab を自動編集しません。`schedule install` は追加すべき行を stdout の JSON（`crontab_line`）と stderr に出力するので、`crontab -e` で追加してください。`schedule status` は `crontab -l` を読むだけです
+- cron で表せる間隔は 60 の約数の分（5、10、15、20、30）か、24 の約数の時間です。それ以外は `SCHEDULE_INTERVAL_UNSUPPORTED`（exit 2）になります
+
+同一 repository の同期は、CLI、scheduler、MCP の `sync_repo` のどれから起動しても同時に一つだけ実行されます。
+先行 run が lock を持っている間に起動した run は何も変更せず、stdout に `{"reason":"SYNC_ALREADY_RUNNING","skipped":true}` を出して exit 75 で終わります。
+次回の定期実行が続きから再開するため、対処は不要です。
+
+最後の同期結果は `stats` で確認できます。
+
+```console
+repo-knowledge stats owner/repository | jq '.sync.last_success_at, .sync.last_run'
+```
+
+`last_success_at` は失敗した PR がなく完了した最後の run の終了時刻です。
+`--max-prs` の上限到達などで `has_more` が `true` でも、run 自体は成功として扱います。残りは次回の run が処理します。
+
 cron へ登録する前に、同じ OS user と環境変数で非対話実行を確認してください。
 
 ```console
@@ -402,8 +440,9 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin
 | exit | 意味 | 対処 |
 | ---: | --- | --- |
 | 0 | 発見した Pull Request をすべて同期。0件も正常 | 通知しない |
-| 1 | 部分失敗、runtime error、lock timeout | 通知し、次回実行で再試行 |
+| 1 | 部分失敗、runtime error | 通知し、次回実行で再試行 |
 | 2 | 引数または `--since` が不正 | 設定を修正 |
+| 75 | 同じ repository の同期が実行中のため今回は skip（`SYNC_ALREADY_RUNNING`） | 通知しない。次回実行で再開 |
 
 部分失敗時は最初に失敗した Pull Request で停止します。
 checkpoint は最後に連続成功した Pull Request に留まるため、失敗より新しい Pull Request が先に取り込まれることはありません。
@@ -507,7 +546,7 @@ outcome がない rule の順位は outcome 導入前と同じです。
 
 ## stats の読み方
 
-`stats` は canonical snapshot と sync checkpoint から集計値を導出します。
+`stats` は canonical snapshot、sync checkpoint、最後の sync run の記録（`sync/status.json`）から集計値を導出します。
 同じ canonical state と request からは同じ response が得られ、集計自体は canonical data を変更しません。
 
 ```console
@@ -520,6 +559,10 @@ repo-knowledge stats owner/repository --bucket day \
 
 # cron 監視
 repo-knowledge stats owner/repository | jq -e '.operations.failed_jobs == 0'
+
+# 直近 2 時間に同期が成功しているか
+repo-knowledge stats owner/repository |
+  jq -e '.sync.last_success_at != null and (.sync.last_success_at | sub("\\.[0-9]+Z$"; "Z") | fromdate) > (now - 7200)'
 ```
 
 | key | 意味 |
@@ -531,7 +574,9 @@ repo-knowledge stats owner/repository | jq -e '.operations.failed_jobs == 0'
 | `outcomes` | 指定期間の outcome 件数 |
 | `jobs` | 現在の distillation job 件数 |
 | `sync.last_checkpoint` | 最後に保存した sync cursor |
-| `operations` | pending job、failed job、最終同期時刻 |
+| `sync.last_success_at` | 失敗なく完了した最後の sync run の終了時刻。未実行なら `null` |
+| `sync.last_run` | 最後の sync run の `outcome`（`succeeded`、`partial_failure`、`failed`）、`started_at`、`finished_at`、`error_code`、`has_more`、`consecutive_failures` |
+| `operations` | pending job、failed job、最終 checkpoint 時刻、最終成功同期時刻（`last_sync_success_at`） |
 | `buckets` | `--bucket day` で返す UTC 日次集計 |
 
 `since` と `until` は offset 付き ISO 8601 で指定し、半開区間 `[since, until)` として扱います。

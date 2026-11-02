@@ -36,6 +36,88 @@ host-assisted は同期だけでは起動せず、MCP client が `prepare_distil
   cutoff による繰り延べ）を示す。`false` になるまで引数なしで再実行すれば最新の checkpoint に到達する
 - cursor と `--since` の同時指定は `SYNC_BOUNDARY_CONFLICT` で拒否される
 
+## 定期実行の登録（schedule）
+
+同期は MCP server の中では動かさず、OS の scheduler から CLI を起動する。
+`repo-knowledge schedule install <owner/name>` が scheduler ごとの設定を生成する。既定の間隔は 60 分。
+
+| platform | `schedule install` の動作 |
+| --- | --- |
+| macOS | `~/Library/LaunchAgents/io.github.tamat-llc.repo-knowledge.sync.<owner>.<name>.plist` を書き、`launchctl bootstrap gui/<uid>` で登録する |
+| Linux | crontab を自動編集しない。追加する行を出力するだけ（`crontab -e` で追記する） |
+| その他 | `SCHEDULE_PLATFORM_UNSUPPORTED` |
+
+```console
+repo-knowledge schedule install owner/repository --dry-run     # 生成内容の確認のみ
+repo-knowledge schedule install owner/repository --interval 30 --max-prs 200
+repo-knowledge schedule status                                  # 登録済み job の一覧（JSON）
+repo-knowledge schedule print owner/repository --format cron    # crontab 行だけを出力
+repo-knowledge schedule uninstall owner/repository
+```
+
+- `--interval` は 5〜1440 分。cron 形式では 60 の約数の分か 24 の約数の時間だけを受け付ける
+- 生成される設定は `node` と CLI の絶対パス、`gh` の directory を含む `PATH`、`REPO_KNOWLEDGE_HOME` を固定する。
+  Node.js の更新や再インストールで path が変わったら `schedule install` を再実行する
+- `npx` 経由の CLI は npm cache 内を指すため警告が出る。`npm install -g` した CLI から登録する
+- log は `REPO_KNOWLEDGE_HOME/logs/sync-<owner>.<name>.jsonl`（stdout の summary JSONL）と `.err.log`（stderr）
+- 最後に成功した同期時刻は `repo-knowledge stats <owner/name>` の `sync.last_success_at`、
+  最後の run の結果は `sync.last_run`（`outcome`、`error_code`、`has_more`、`consecutive_failures`）で確認する
+
+### launchd（macOS）
+
+`schedule install` が生成する plist の要点。手で管理したい場合は `schedule print --format launchd` の出力を保存して
+`launchctl bootstrap gui/$(id -u) <plist>` で登録する。
+
+```xml
+<key>ProgramArguments</key>
+<array>
+  <string>/opt/homebrew/bin/node</string>
+  <string>/opt/homebrew/lib/node_modules/@tamat-llc/repo-knowledge-mcp/dist/bin.js</string>
+  <string>sync</string>
+  <string>owner/repository</string>
+</array>
+<key>StartInterval</key>
+<integer>3600</integer>
+<key>RunAtLoad</key>
+<true/>
+```
+
+- launchd は同じ job の実行中に次の起動を重ねない。加えて repository の sync lock が CLI と MCP の同時実行も防ぐ
+- スリープ中に過ぎた起動は復帰後にまとめて 1 回実行される
+- 解除は `repo-knowledge schedule uninstall owner/repository`（`launchctl bootout` と plist 削除）
+
+### GitHub Actions（self-hosted runner）
+
+`REPO_KNOWLEDGE_HOME` の canonical data と checkpoint は永続化が必要なため、GitHub-hosted runner の
+使い捨て環境ではなく、storage を保持する self-hosted runner で実行する。`concurrency` で run の重複も避ける。
+
+```yaml
+name: repo-knowledge sync
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: repo-knowledge-sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: [self-hosted, repo-knowledge]
+    timeout-minutes: 50
+    steps:
+      - name: Sync
+        env:
+          REPO_KNOWLEDGE_HOME: /srv/repo-knowledge
+        run: |
+          set +e
+          repo-knowledge sync owner/repository --max-prs 500 </dev/null
+          rc=$?
+          if [ "$rc" -eq 75 ]; then exit 0; fi
+          exit "$rc"
+```
+
+GitHub Actions の `schedule` は混雑時に遅延・間引きされることがある。厳密な間隔が必要なら launchd か cron を使う。
+
 ## cron 設定
 
 ### 最小権限
@@ -57,14 +139,19 @@ $ command -v node gh
 
 ### crontab 例
 
-15 分ごとに 1 リポジトリを同期し、summary をログへ追記し、失敗時のみメール通知する例。
+`repo-knowledge schedule install owner/repository --interval 15` を Linux で実行すると、追加すべき行が出力される
+（crontab は編集しない）。手で書く場合は次の例のように、15 分ごとに 1 リポジトリを同期し、summary をログへ追記し、
+失敗時のみメール通知する。exit 75（別の同期が実行中で skip）は通知しない。
 
 ```crontab
 MAILTO=ops@example.com
 PATH=/opt/homebrew/bin:/usr/bin:/bin
 # m h dom mon dow command
-*/15 * * * * repo-knowledge sync owner/repository >> "$HOME/log/repo-knowledge-sync.jsonl" 2>> "$HOME/log/repo-knowledge-sync.err" || echo "repo-knowledge sync failed with exit $?"
+*/15 * * * * repo-knowledge sync owner/repository </dev/null >> "$HOME/log/repo-knowledge-sync.jsonl" 2>> "$HOME/log/repo-knowledge-sync.err"; rc=$?; [ "$rc" -eq 0 ] || [ "$rc" -eq 75 ] || echo "repo-knowledge sync failed with exit $rc"
 ```
+
+`schedule install` が生成する行は末尾に `# repo-knowledge-sync owner/repository` の marker を付ける。
+`schedule status` はこの marker で `crontab -l` の行を探し、`schedule uninstall` は削除すべき marker を案内する。
 
 - stdout は 1 行 1 JSON の summary のみなので、そのまま JSONL としてログに追記できる
 - stderr には operator 向け diagnostic（エラーコードと対処）だけが出る
@@ -73,23 +160,29 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin
 
 ### 終了 code
 
-| exit | 意味                                                | cron での扱い                                          |
-| ---- | --------------------------------------------------- | ------------------------------------------------------ |
-| 0    | 発見した PR をすべて同期（0 件含む）                | 正常。通知不要                                         |
-| 1    | 部分失敗またはエラー（lock 待ちタイムアウト等含む） | 通知して次回実行で自動再試行                           |
-| 2    | 引数誤り（`--since` 形式不正など）                  | 設定ミス。crontab を修正するまで再試行しても回復しない |
+| exit | 意味                                                          | cron での扱い                                          |
+| ---- | ------------------------------------------------------------- | ------------------------------------------------------ |
+| 0    | 発見した PR をすべて同期（0 件含む）                          | 正常。通知不要                                         |
+| 1    | 部分失敗またはエラー                                          | 通知して次回実行で自動再試行                           |
+| 2    | 引数誤り（`--since` 形式不正など）                            | 設定ミス。crontab を修正するまで再試行しても回復しない |
+| 75   | 同じ repository の同期が実行中のため skip（`SYNC_ALREADY_RUNNING`） | 正常扱い。通知不要。次回実行が続きから再開する         |
 
 ## 失敗時の診断と再試行
 
 ### 二重起動と lock contention
 
-同一リポジトリの同期はリポジトリ配下の `.sync.lock` で直列化される。cron の重複起動や
-MCP `sync_repo` との同時実行は片方が lock 待ちになり、既定 5 秒で
-`LOCK_TIMEOUT: Timed out waiting for <path>/.sync.lock` を出して exit 1 で終わる。
+同一リポジトリの同期はリポジトリ配下の `.sync.lock` で排他される。lock は PR 一覧の取得（network I/O）を含む
+run 全体で保持されるため、CLI、scheduler、MCP `sync_repo` のどの組み合わせでも同時に一つしか走らない。
+後から起動した run は最大 5 秒だけ lock を待ち、取れなければ何も変更せずに終わる。
 
-- 対処: 何もしなくてよい。先行 run が checkpoint を進めるため、次回の cron 実行が続きから再開する
-- lock ファイルが残留しても、所有 PID の死活を確認して自動回収される（手動削除は不要）
-- 常時競合する場合は cron 間隔を広げるか、複数リポジトリの同期ジョブを時間帯でずらす
+- CLI: stdout に `{"reason":"SYNC_ALREADY_RUNNING","skipped":true}`、stderr に `SYNC_ALREADY_RUNNING: ...` を出して exit 75
+- MCP `sync_repo`: `SYNC_ALREADY_RUNNING` を `retryable: true` で返す
+- 対処: 何もしなくてよい。先行 run が checkpoint を進めるため、次回の実行が続きから再開する
+- skip された run は `sync/status.json`（`stats` の `sync.last_run`）を更新しない。記録するのは lock を取った run だけ
+- lock ファイルが残留しても、所有 PID が存在しなければ自動回収される（手動削除は不要）。
+  異常終了した process の PID が別の process に再利用されている場合だけは回収されないので、
+  `ps -p <pid>` で無関係な process と確認できたら `.sync.lock` を削除する
+- 常時競合する場合は実行間隔を広げるか、`--max-prs` で 1 回の処理量を抑える
 
 ### 部分失敗
 
@@ -132,7 +225,11 @@ cutoff より前の範囲で重複（内容が異なるもの）や順序退行�
 | `SYNC_CHECKPOINT_REPOSITORY_MISMATCH`                             | checkpoint が別リポジトリのもの                                 | storage の取り違えを調査。安易に checkpoint を削除しない                                             |
 | `SYNC_CHECKPOINT_INVALID` / `SYNC_CHECKPOINT_VERSION_UNSUPPORTED` | checkpoint 破損または将来 version                               | バックアップから復旧するか、全期間再同期を許容できる場合のみ checkpoint を退避して初回同期をやり直す |
 | `PULL_REQUEST_LIST_CHANGED`                                      | cutoff より前の PR 一覧が自動再試行中も不整合                   | 同じ引数で再実行。checkpoint は未変更なので `since` を新しくしない                                  |
-| `LOCK_TIMEOUT`                                                    | 同時実行による lock 待ちタイムアウト                            | 放置してよい。次回実行が再開する                                                                     |
+| `SYNC_ALREADY_RUNNING`                                            | 同じ repository の同期が実行中（CLI は exit 75）                | 放置してよい。次回実行が再開する                                                                     |
+| `LOCK_TIMEOUT`                                                    | run 内部の canonical lock 待ちタイムアウト                      | 次回実行で再試行。続く場合は他の書き込み処理を確認                                                   |
+| `SCHEDULE_INTERVAL_UNSUPPORTED`                                   | cron で表せない `--interval`（exit 2）                          | 60 の約数の分か 24 の約数の時間を指定                                                                |
+| `SCHEDULE_GH_NOT_FOUND`                                           | `schedule install` 実行時に `gh` が PATH にない                  | `gh` をインストールして再実行                                                                        |
+| `SCHEDULE_LAUNCHCTL_FAILED`                                       | `launchctl bootstrap` / `bootout` の失敗                        | stderr を確認。直前の bootout 直後なら少し待って再実行                                               |
 | `GRAPHQL_REQUEST_FAILED` ほか `GH_*`                              | `gh` 実行失敗（未認証・ネットワーク等）                         | `gh auth status` と接続を確認して再実行                                                              |
 
 ## 動作確認手順

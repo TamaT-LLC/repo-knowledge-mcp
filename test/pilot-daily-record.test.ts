@@ -181,6 +181,22 @@ describe("buildObservedDailyRecord", () => {
     expect(record.sync.retry_attempts).toBe(0);
   });
 
+  it("does not count a skipped overlapping sync as a run", () => {
+    const record = buildObservedDailyRecord({
+      date: "2026-08-01",
+      pilotId: PILOT_ID,
+      recordedAt: RECORDED_AT,
+      stats: statsSnapshot(),
+      syncSummaries: [
+        syncSummaryLine({ discovered: 2, ingested: 2 }),
+        { reason: "SYNC_ALREADY_RUNNING", skipped: true },
+      ],
+    });
+
+    expect(record.sync.runs_total).toBe(1);
+    expect(record.sync.runs_failed).toBe(0);
+  });
+
   it("rejects a malformed cron failure marker fail-closed", () => {
     for (const marker of [
       { cron_run_failed: true },

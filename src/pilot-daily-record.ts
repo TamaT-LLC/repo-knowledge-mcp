@@ -57,6 +57,15 @@ export const PilotCronRunFailureLineSchema = z.object({
   exit_code: z.number().int(),
 });
 
+/**
+ * Line `repo-knowledge sync` prints (exit 75) when another sync of the same
+ * repository already holds the lock. Nothing ran, so it is not a run.
+ */
+export const PilotSyncSkippedLineSchema = z.object({
+  reason: z.literal("SYNC_ALREADY_RUNNING"),
+  skipped: z.literal(true),
+});
+
 /** The subset of the `stats` CLI output the pilot records every day. */
 export const PilotStatsSnapshotSchema = z.object({
   canonical_digest: z.string().min(1),
@@ -215,7 +224,8 @@ export interface BuildObservedDailyRecordRequest {
  * ingest work surfaces as `unchanged` (idempotent re-ingests), and retries
  * surface as repeated failures of the same PR across runs. A sync log line
  * may be either a summary or a cron failure marker (see
- * `PilotCronRunFailureLineSchema`); markers count as failed runs, and any
+ * `PilotCronRunFailureLineSchema`); markers count as failed runs, skipped
+ * overlapping runs (`PilotSyncSkippedLineSchema`) are not runs, and any
  * other line stays a fail-closed validation error.
  */
 export function buildObservedDailyRecord(
@@ -235,6 +245,7 @@ export function buildObservedDailyRecord(
       abortedRuns += 1;
       continue;
     }
+    if (PilotSyncSkippedLineSchema.safeParse(line).success) continue;
     const parsed = PilotSyncSummaryLineSchema.safeParse(line);
     if (!parsed.success) {
       throw new PilotRecordError(

@@ -444,6 +444,7 @@ function statsFixtureResponse(): RepositoryStats {
     operations: {
       failed_jobs: 0,
       last_sync_checkpoint_at: null,
+      last_sync_success_at: null,
       pending_jobs: 1,
     },
     outcomes: {
@@ -457,7 +458,7 @@ function statsFixtureResponse(): RepositoryStats {
     },
     repo: REPOSITORY,
     stats_schema_version: 1,
-    sync: { last_checkpoint: null },
+    sync: { last_checkpoint: null, last_run: null, last_success_at: null },
     window: {
       bucket: "day",
       since: "2026-08-01T00:00:00.000Z",

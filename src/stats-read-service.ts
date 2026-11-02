@@ -18,6 +18,7 @@ import {
 } from "./domain-schemas.js";
 import type { CanonicalKnowledgeReadView } from "./sqlite-projection.js";
 import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
+import type { SyncRunOutcome, SyncStatus } from "./sync-status-store.js";
 
 export const STATS_SCHEMA_VERSION = 1;
 export const STATS_TIMEZONE = "UTC";
@@ -100,13 +101,26 @@ export interface SyncCheckpointStats {
   readonly updated_at: string;
 }
 
+/** Latest recorded sync run (`sync/status.json`); null before the first run. */
+export interface SyncLastRunStats {
+  readonly consecutive_failures: number;
+  readonly error_code: string | null;
+  readonly finished_at: string;
+  readonly has_more: boolean | null;
+  readonly outcome: SyncRunOutcome;
+  readonly started_at: string;
+}
+
 export interface SyncStatsSection {
   readonly last_checkpoint: SyncCheckpointStats | null;
+  readonly last_run: SyncLastRunStats | null;
+  readonly last_success_at: string | null;
 }
 
 export interface OperationsStatsSection {
   readonly failed_jobs: number;
   readonly last_sync_checkpoint_at: string | null;
+  readonly last_sync_success_at: string | null;
   readonly pending_jobs: number;
 }
 
@@ -135,6 +149,7 @@ export type StatsReadErrorCode =
   | "INVALID_STATS_REQUEST"
   | "INVALID_STATS_WINDOW"
   | "STATS_SYNC_CHECKPOINT_REPOSITORY_MISMATCH"
+  | "STATS_SYNC_STATUS_REPOSITORY_MISMATCH"
   | "STATS_WINDOW_REQUIRED"
   | "STATS_WINDOW_TOO_LARGE";
 
@@ -157,11 +172,17 @@ export interface StatsSyncCheckpointReader {
   read(): Promise<SyncCheckpoint | null>;
 }
 
+export interface StatsSyncStatusReader {
+  read(): Promise<SyncStatus | null>;
+}
+
 export interface StatsReadServiceOptions {
   readonly repo: string;
   readonly repoId: string;
   readonly repository: StatsReadRepository;
   readonly syncCheckpoints: StatsSyncCheckpointReader;
+  /** Last sync run record; omitted readers report no recorded run. */
+  readonly syncStatus?: StatsSyncStatusReader;
 }
 
 interface ResolvedStatsWindow {
@@ -183,12 +204,14 @@ export class StatsReadService {
 
   private readonly repository: StatsReadRepository;
   private readonly syncCheckpoints: StatsSyncCheckpointReader;
+  private readonly syncStatus: StatsSyncStatusReader | undefined;
 
   constructor(options: StatsReadServiceOptions) {
     this.repo = RepositoryNameSchema.parse(options.repo);
     this.repoId = RepositoryIdSchema.parse(options.repoId);
     this.repository = options.repository;
     this.syncCheckpoints = options.syncCheckpoints;
+    this.syncStatus = options.syncStatus;
   }
 
   async getStats(
@@ -197,6 +220,7 @@ export class StatsReadService {
     const window = resolveStatsWindow(parseStatsRequest(request));
     const snapshot = (await this.repository.readKnowledgeView()).snapshot;
     const checkpoint = await this.readRepositoryCheckpoint();
+    const syncStatus = await this.readRepositorySyncStatus();
 
     const knowledge = snapshot.domain.knowledge.filter(
       (item) => item.repoId === this.repoId,
@@ -253,6 +277,7 @@ export class StatsReadService {
         failed_jobs: jobsByState.failed,
         last_sync_checkpoint_at:
           checkpoint === null ? null : checkpoint.updated_at,
+        last_sync_success_at: syncStatus?.last_success_at ?? null,
         pending_jobs: jobsByState.pending,
       },
       outcomes: {
@@ -272,6 +297,18 @@ export class StatsReadService {
                 last_updated_at: checkpoint.cursor.last_updated_at,
                 updated_at: checkpoint.updated_at,
               },
+        last_run:
+          syncStatus === null
+            ? null
+            : {
+                consecutive_failures: syncStatus.consecutive_failures,
+                error_code: syncStatus.last_error_code,
+                finished_at: syncStatus.last_attempt_finished_at,
+                has_more: syncStatus.last_has_more,
+                outcome: syncStatus.last_outcome,
+                started_at: syncStatus.last_attempt_started_at,
+              },
+        last_success_at: syncStatus?.last_success_at ?? null,
       },
       window: {
         bucket: window.bucket,
@@ -296,6 +333,18 @@ export class StatsReadService {
       );
     }
     return checkpoint;
+  }
+
+  /** Same fail-closed ownership rule as the checkpoint. */
+  private async readRepositorySyncStatus(): Promise<SyncStatus | null> {
+    const status = (await this.syncStatus?.read()) ?? null;
+    if (status !== null && status.repo_id !== this.repoId) {
+      throw new StatsReadError(
+        "STATS_SYNC_STATUS_REPOSITORY_MISMATCH",
+        `stored sync status belongs to ${status.repo_id}, not ${this.repoId}`,
+      );
+    }
+    return status;
   }
 }
 

@@ -9,6 +9,7 @@ import {
   StatsReadError,
   StatsReadService,
   SyncCheckpointStore,
+  SyncStatusStore,
   createDomainId,
   serializeCanonicalJsonlRecord,
   serializeKnowledgeDocument,
@@ -103,6 +104,7 @@ describe("StatsReadService.getStats", () => {
       operations: {
         failed_jobs: 2,
         last_sync_checkpoint_at: "2026-08-05T10:00:05.000Z",
+        last_sync_success_at: null,
         pending_jobs: 3,
       },
       outcomes: {
@@ -122,6 +124,8 @@ describe("StatsReadService.getStats", () => {
           last_updated_at: "2026-08-05T10:00:00.000Z",
           updated_at: "2026-08-05T10:00:05.000Z",
         },
+        last_run: null,
+        last_success_at: null,
       },
       window: { bucket: "total", since: null, timezone: "UTC", until: null },
     } satisfies RepositoryStats);
@@ -211,9 +215,66 @@ describe("StatsReadService.getStats", () => {
     expect(stats.operations).toEqual({
       failed_jobs: 0,
       last_sync_checkpoint_at: null,
+      last_sync_success_at: null,
       pending_jobs: 0,
     });
     expect(stats.sync.last_checkpoint).toBeNull();
+    expect(stats.sync.last_run).toBeNull();
+  });
+
+  it("exposes the last sync run and last successful sync time", async () => {
+    const repository = await createRepository();
+    const statusStore = new SyncStatusStore(repository);
+    await statusStore.recordRun({
+      error_code: null,
+      finished_at: "2026-08-05T10:00:30.000Z",
+      has_more: false,
+      outcome: "succeeded",
+      repo_id: REPO_ID,
+      started_at: "2026-08-05T10:00:00.000Z",
+    });
+    await statusStore.recordRun({
+      error_code: "GH_EXIT_NON_ZERO",
+      finished_at: "2026-08-05T11:00:10.000Z",
+      has_more: null,
+      outcome: "failed",
+      repo_id: REPO_ID,
+      started_at: "2026-08-05T11:00:00.000Z",
+    });
+
+    const stats = await service(repository).getStats();
+
+    expect(stats.operations.last_sync_success_at).toBe(
+      "2026-08-05T10:00:30.000Z",
+    );
+    expect(stats.sync).toEqual({
+      last_checkpoint: null,
+      last_run: {
+        consecutive_failures: 1,
+        error_code: "GH_EXIT_NON_ZERO",
+        finished_at: "2026-08-05T11:00:10.000Z",
+        has_more: null,
+        outcome: "failed",
+        started_at: "2026-08-05T11:00:00.000Z",
+      },
+      last_success_at: "2026-08-05T10:00:30.000Z",
+    });
+  });
+
+  it("fails closed on a sync status that belongs to another repository", async () => {
+    const repository = await createRepository();
+    await new SyncStatusStore(repository).recordRun({
+      error_code: null,
+      finished_at: "2026-08-05T10:00:30.000Z",
+      has_more: false,
+      outcome: "succeeded",
+      repo_id: OTHER_REPO_ID,
+      started_at: "2026-08-05T10:00:00.000Z",
+    });
+
+    await expect(service(repository).getStats()).rejects.toMatchObject({
+      code: "STATS_SYNC_STATUS_REPOSITORY_MISMATCH",
+    });
   });
 
   it("treats the window as half-open: since is included and until is excluded", async () => {
@@ -511,6 +572,7 @@ function service(repository: string): StatsReadService {
     repoId: REPO_ID,
     repository: new CanonicalTransactionStore(repository),
     syncCheckpoints: new SyncCheckpointStore(repository),
+    syncStatus: new SyncStatusStore(repository),
   });
 }
 

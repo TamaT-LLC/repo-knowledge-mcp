@@ -288,6 +288,11 @@ const CANONICAL_STORE_RULES = {
 } satisfies ExpectedRuleTable<CanonicalStoreErrorCode>;
 
 const SYNC_REPO_RULES = {
+  SYNC_ALREADY_RUNNING: {
+    nextAction:
+      "Another sync of this repository is running; nothing was changed. Call sync_repo again after it finishes.",
+    retryable: true,
+  },
   SYNC_CHECKPOINT_REPOSITORY_MISMATCH: NON_RETRYABLE,
   SYNC_MAX_PULL_REQUESTS_INVALID: NON_RETRYABLE,
   SYNC_REPOSITORY_MISMATCH: NON_RETRYABLE,

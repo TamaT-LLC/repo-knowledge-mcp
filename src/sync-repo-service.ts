@@ -11,7 +11,7 @@ import type {
   EnumerateUpdatedPullRequestsResult,
   UpdatedPullRequestRef,
 } from "./github-pull-request-enumerator.js";
-import { withPosixFileLock } from "./posix-file-lock.js";
+import { FileLockTimeoutError, withPosixFileLock } from "./posix-file-lock.js";
 import type { RepositoryResolution } from "./repository-resolver.js";
 import {
   SYNC_CHECKPOINT_SCHEMA_VERSION,
@@ -26,6 +26,7 @@ import {
   type SyncCursor,
   type SyncOrderKey,
 } from "./sync-cursor.js";
+import { SyncStatusStore } from "./sync-status-store.js";
 
 export const SYNC_LOCK_FILE_NAME = ".sync.lock";
 export const DEFAULT_SYNC_LOCK_TIMEOUT_MS = 5_000;
@@ -94,9 +95,11 @@ export interface SyncRepoServiceOptions {
   readonly repo: string;
   readonly repositoryResolver: IngestRepositoryResolver;
   readonly syncLockTimeoutMs?: number;
+  readonly syncStatusStoreFactory?: (repositoryRoot: string) => SyncStatusStore;
 }
 
 export type SyncRepoErrorCode =
+  | "SYNC_ALREADY_RUNNING"
   | "SYNC_CHECKPOINT_REPOSITORY_MISMATCH"
   | "SYNC_MAX_PULL_REQUESTS_INVALID"
   | "SYNC_REPOSITORY_MISMATCH"
@@ -106,8 +109,9 @@ export class SyncRepoError extends Error {
   constructor(
     readonly code: SyncRepoErrorCode,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(`${code}: ${message}`);
+    super(`${code}: ${message}`, options);
     this.name = "SyncRepoError";
   }
 }
@@ -118,9 +122,16 @@ export class SyncRepoError extends Error {
  * deterministic (updatedAt, PR number) ascending order.
  *
  * Concurrency and crash-safety contract:
- * - A whole run holds the repository sync lock, so competing syncs of the
- *   same repository serialize; the canonical writer lock is never held here,
- *   and therefore never held across network I/O.
+ * - A whole run (enumeration network I/O included) holds the repository
+ *   sync lock, so syncs of the same repository never run concurrently, from
+ *   the CLI, a scheduler, or MCP `sync_repo`. A run that cannot take the lock
+ *   within `syncLockTimeoutMs` fails fast with `SYNC_ALREADY_RUNNING` without
+ *   touching any state; a lock left by a crashed process is reclaimed once
+ *   its owner PID is gone. The canonical writer lock is never held here, and
+ *   therefore never held across network I/O.
+ * - Every run that took the lock records its outcome in `sync/status.json`
+ *   (see `SyncStatusStore`), so the last successful sync time is observable
+ *   even when no pull request changed.
  * - The checkpoint advances atomically to each successfully ingested PR, so
  *   a crash after any ingest resumes at (not past) the next unprocessed PR.
  * - A run may stop early at `maxPullRequests`; the unprocessed tail stays
@@ -145,6 +156,9 @@ export class SyncRepoService {
   private readonly repo: string;
   private readonly repositoryResolver: IngestRepositoryResolver;
   private readonly syncLockTimeoutMs: number;
+  private readonly syncStatusStoreFactory: (
+    repositoryRoot: string,
+  ) => SyncStatusStore;
 
   constructor(options: SyncRepoServiceOptions) {
     this.checkpointStoreFactory =
@@ -157,6 +171,9 @@ export class SyncRepoService {
     this.repositoryResolver = options.repositoryResolver;
     this.syncLockTimeoutMs =
       options.syncLockTimeoutMs ?? DEFAULT_SYNC_LOCK_TIMEOUT_MS;
+    this.syncStatusStoreFactory =
+      options.syncStatusStoreFactory ??
+      ((repositoryRoot) => new SyncStatusStore(repositoryRoot));
   }
 
   async sync(request: SyncRepoRequest = {}): Promise<SyncRepoSummary> {
@@ -166,11 +183,67 @@ export class SyncRepoService {
     });
     await this.assertIngesterBinding(repository);
     await mkdir(repository.absolutePath, { mode: 0o700, recursive: true });
-    return withPosixFileLock(
-      join(repository.absolutePath, SYNC_LOCK_FILE_NAME),
-      this.syncLockTimeoutMs,
-      async () => this.syncSerialized(repository, request),
-    );
+    const lockPath = join(repository.absolutePath, SYNC_LOCK_FILE_NAME);
+    try {
+      return await withPosixFileLock(lockPath, this.syncLockTimeoutMs, () =>
+        this.syncRecorded(repository, request),
+      );
+    } catch (error) {
+      // Only contention on this run's own sync lock is "already running"; a
+      // lock timeout raised inside the run (e.g. the canonical writer lock)
+      // stays a genuine failure.
+      if (
+        error instanceof FileLockTimeoutError &&
+        error.lockPath === lockPath
+      ) {
+        throw new SyncRepoError(
+          "SYNC_ALREADY_RUNNING",
+          `another sync of ${repository.currentName} holds ${lockPath}; this run was skipped without changes`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Runs one serialized sync and records its outcome while still holding the
+   * sync lock. A failure to record a failed run never masks the run's own
+   * error.
+   */
+  private async syncRecorded(
+    repository: RepositoryResolution,
+    request: SyncRepoRequest,
+  ): Promise<SyncRepoSummary> {
+    const statusStore = this.syncStatusStoreFactory(repository.absolutePath);
+    const startedAt = this.now().toISOString();
+    let summary: SyncRepoSummary;
+    try {
+      summary = await this.syncSerialized(repository, request);
+    } catch (error) {
+      try {
+        await statusStore.recordRun({
+          error_code: syncErrorCode(error),
+          finished_at: this.now().toISOString(),
+          has_more: null,
+          outcome: "failed",
+          repo_id: repository.repoId,
+          started_at: startedAt,
+        });
+      } catch {
+        // The original sync error is the actionable diagnostic.
+      }
+      throw error;
+    }
+    await statusStore.recordRun({
+      error_code: summary.failed === 0 ? null : "SYNC_PARTIAL_FAILURE",
+      finished_at: this.now().toISOString(),
+      has_more: summary.has_more,
+      outcome: summary.failed === 0 ? "succeeded" : "partial_failure",
+      repo_id: repository.repoId,
+      started_at: startedAt,
+    });
+    return summary;
   }
 
   /**
@@ -370,6 +443,15 @@ function isUnchangedIngest(result: IngestPullRequestResult): boolean {
     result.changed_threads === 0 &&
     result.jobs_created === 0
   );
+}
+
+function syncErrorCode(error: unknown): string {
+  return error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code.length > 0
+    ? error.code
+    : "SYNC_FAILED";
 }
 
 function errorMessage(error: unknown): string {

@@ -4,6 +4,7 @@ import { parseRepoKnowledgeCliArguments } from "./cli-args.js";
 import {
   cliDiagnostic,
   runCliActivity,
+  safeDiagnosticMessage,
   syncFailureDiagnostic,
 } from "./cli-diagnostics.js";
 import {
@@ -21,6 +22,8 @@ import type {
   RunRepoKnowledgeCliOptions,
 } from "./cli-types.js";
 import { REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION } from "./mcp-server.js";
+import { SyncRepoError } from "./sync-repo-service.js";
+import type { SyncScheduleSpec } from "./sync-schedule.js";
 
 export { parseRepoKnowledgeCliArguments } from "./cli-args.js";
 export {
@@ -56,6 +59,16 @@ Commands:
                                 trust candidates, and the initial sync
   sync [repo] [--since <iso>] [--max-prs <n>]
                                 Incrementally sync updated pull requests
+  schedule install <repo> [--interval <minutes>] [--max-prs <n>] [--dry-run]
+                                Run sync for a repository on an OS schedule
+                                (launchd on macOS; prints a crontab line on
+                                Linux and never edits the crontab)
+  schedule uninstall <repo> [--dry-run]
+                                Remove the repository's sync schedule
+  schedule status [repo]        List installed sync schedules as JSON
+  schedule print <repo> [--format launchd|cron] [--interval <minutes>]
+                     [--max-prs <n>]
+                                Print the launchd plist or crontab line only
   stats [repo] [--bucket <mode>] [--since <iso>] [--until <iso>]
                                 Print versioned machine-readable repository
                                 aggregates as one JSON document on stdout
@@ -100,7 +113,16 @@ Setup options:
                                 progress remains disabled for machine use
 
 Sync exits 0 when every discovered pull request synced, 1 on any failure,
-and 2 on usage errors, so cron can alert on non-zero exits.
+2 on usage errors, and 75 when another sync of the same repository is
+already running (nothing changed; the next scheduled run continues).
+
+Schedule options:
+  --interval <minutes>          Minutes between runs (default 60, 5-1440);
+                                cron accepts only divisors of 60 minutes or
+                                whole hours dividing 24
+  --max-prs <n>                 Bound each scheduled run (see sync)
+  --dry-run                     Show what install/uninstall would do without
+                                writing files or calling launchctl
 
 Stats options:
   --bucket <total|day>          Aggregation mode; "total" (default) returns one
@@ -152,6 +174,8 @@ async function executeCliCommand(
       return executeSetupCommand(command, options);
     case "sync":
       return executeSyncCommand(command, options);
+    case "schedule":
+      return executeScheduleCommand(command, options);
 
     case "stats":
     case "distill":
@@ -314,18 +338,97 @@ async function executeSyncCommand(
   const service = await options.mutationServiceResolver.resolve(
     command.selection,
   );
-  const summary = await service.syncRepo({
-    ...(command.maxPullRequests === undefined
-      ? {}
-      : { maxPullRequests: command.maxPullRequests }),
-    ...(command.since === undefined ? {} : { since: command.since }),
-  });
+  let summary: Awaited<ReturnType<typeof service.syncRepo>>;
+  try {
+    summary = await service.syncRepo({
+      ...(command.maxPullRequests === undefined
+        ? {}
+        : { maxPullRequests: command.maxPullRequests }),
+      ...(command.since === undefined ? {} : { since: command.since }),
+    });
+  } catch (error) {
+    if (
+      !(error instanceof SyncRepoError) ||
+      error.code !== "SYNC_ALREADY_RUNNING"
+    ) {
+      throw error;
+    }
+    // Overlapping scheduled runs are expected: keep the JSONL log structured
+    // and use a dedicated exit code instead of a generic failure.
+    writeJson(options.io, { reason: error.code, skipped: true });
+    options.io.writeStderr(
+      `${error.code}: ${safeDiagnosticMessage(error.message.replace(/^.*?:\s*/u, ""))}\n`,
+    );
+    return REPO_KNOWLEDGE_CLI_EXIT.alreadyRunning;
+  }
   writeJson(options.io, summary);
   if (summary.failed === 0) return;
   // Machine-readable summary stays on stdout; the operator diagnostic and
   // the non-zero exit code make partial failures visible to cron.
   options.io.writeStderr(syncFailureDiagnostic(summary));
   return REPO_KNOWLEDGE_CLI_EXIT.failure;
+}
+
+async function executeScheduleCommand(
+  command: Extract<ParsedCliCommand, { readonly kind: "schedule" }>,
+  options: RunRepoKnowledgeCliOptions,
+): Promise<number | undefined> {
+  const scheduler = options.scheduler;
+  if (scheduler === undefined) {
+    throw new RepoKnowledgeCliError(
+      "CLI_COMMAND_UNAVAILABLE",
+      "schedule is unavailable in this runtime",
+      REPO_KNOWLEDGE_CLI_EXIT.failure,
+    );
+  }
+  switch (command.action) {
+    case "print":
+      options.io.writeStdout(
+        await scheduler.render(scheduleSpec(command), command.format),
+      );
+      return;
+    case "install": {
+      const result = await scheduler.install(scheduleSpec(command), {
+        dryRun: command.dryRun === true,
+      });
+      writeJson(options.io, result);
+      if (result.scheduler === "cron") {
+        options.io.writeStderr(`${result.next_step}\n${result.crontab_line}\n`);
+      }
+      for (const warning of result.warnings) {
+        options.io.writeStderr(`warning: ${warning}\n`);
+      }
+      return;
+    }
+    case "uninstall": {
+      const result = await scheduler.uninstall(command.repo, {
+        dryRun: command.dryRun === true,
+      });
+      writeJson(options.io, result);
+      if (result.scheduler === "cron") {
+        options.io.writeStderr(`${result.next_step}\n`);
+      }
+      return;
+    }
+    case "status":
+      writeJson(options.io, await scheduler.status(command.repo));
+      return;
+  }
+}
+
+function scheduleSpec(
+  command: Extract<
+    ParsedCliCommand,
+    { readonly action: "install" | "print"; readonly kind: "schedule" }
+  >,
+): SyncScheduleSpec {
+  return {
+    intervalMinutes: command.intervalMinutes,
+    ...(command.maxPullRequests === undefined
+      ? {}
+      : { maxPullRequests: command.maxPullRequests }),
+    repo: command.repo,
+  };
 }
 
 async function executeAdminCommand(
