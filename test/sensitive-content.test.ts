@@ -82,6 +82,39 @@ describe("sensitive-content scanner", () => {
     ).not.toContain(secretValue);
   });
 
+  it.each([
+    "alice@example.com",
+    "bob.smith+tag@sub.example.co.jp",
+    "contact: user@example.org.",
+    "Signed-off-by: Alice <alice@example.com>",
+    "user@163.com",
+    "ssh root@10.0.0.5",
+  ])("detects the email address in %s", (value) => {
+    expect(findSensitiveContent({ body: value })).toEqual([
+      { kind: "email_address", path: "$.body" },
+    ]);
+  });
+
+  it.each([
+    "https://raw.githubusercontent.com/brianc/node-postgres/pg@8.23.1/packages/x.js",
+    "npx drizzle-kit@0.31.10 migrate",
+    "https://docs.github.com/en/enterprise-server@3.11/rest",
+    "pnpm add react@19.2.0",
+    "pnpm add @scope/pkg@2.0.0-rc.1",
+    "npm install typescript@5.7.0-beta",
+    "uses: actions/checkout@v4.1.2",
+    "https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css",
+  ])("does not treat the package@version in %s as an email", (value) => {
+    expect(findSensitiveContent({ body: value })).toEqual([]);
+  });
+
+  it("scans long version-like input without quadratic backtracking", () => {
+    const value = `${"a".repeat(30_000)}@${"1000.".repeat(6_000)}`;
+    const started = performance.now();
+    expect(findSensitiveContent({ body: value })).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(250);
+  });
+
   it("leaves ordinary nested payloads unchanged", () => {
     expect(
       findSensitiveContent({
