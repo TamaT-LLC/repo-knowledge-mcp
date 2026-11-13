@@ -78,7 +78,8 @@ const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
   },
   {
     kind: "email_address",
-    pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/u,
+    pattern:
+      /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@(?:(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}|\d{1,3}(?:\.\d{1,3}){3})/u,
   },
 ];
 
