@@ -15,7 +15,9 @@
   "automergeType": "pr",
   "automergeStrategy": "squash",
   "platformAutomerge": true,
-  "dependencyDashboardAutoclose": true,
+  "dependencyDashboard": {
+    "autoclose": true
+  },
   "labels": ["dependencies"],
   "vulnerabilityAlerts": {
     "enabled": true,
