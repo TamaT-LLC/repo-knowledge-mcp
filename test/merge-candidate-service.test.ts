@@ -14,6 +14,7 @@ import {
   computeMatchSetDigest,
   createDomainId,
   parseRepoKnowledgeConfig,
+  scopesMayOverlap,
   serializeCanonicalJsonlRecord,
   serializeKnowledgeDocument,
   validateMergeDecisions,
@@ -381,6 +382,27 @@ describe("ProviderMergeRelationClassifier", () => {
 
     expect(input.match(/<\/untrusted_merge_data>/gu)).toHaveLength(1);
     expect(input).toContain("\\u003c/untrusted_merge_data\\u003e");
+  });
+});
+
+describe("scopesMayOverlap", () => {
+  it("keeps wildcard globs with nested bases as overlap candidates", () => {
+    expect(scopesMayOverlap(["src/*/foo.ts"], ["src/api/*.ts"])).toBe(true);
+    expect(scopesMayOverlap(["src/**"], ["src/api/index.ts"])).toBe(true);
+    expect(scopesMayOverlap(["docs/**"], ["src/api/index.ts"])).toBe(false);
+  });
+
+  it("stays conservative for extglob-looking scope patterns", () => {
+    // Matching compiles with noextglob, but picomatch.scan still reads these
+    // patterns as globs with base "src". The base fallback therefore keeps
+    // them as "may overlap" candidates, which is the safe direction here.
+    expect(scopesMayOverlap(["src/@(api|cli)/**"], ["src/api/index.ts"])).toBe(
+      true,
+    );
+    expect(scopesMayOverlap(["src/+(api|cli).ts"], ["src/api.ts"])).toBe(true);
+    expect(scopesMayOverlap(["src/+(api|cli).ts"], ["src/+(api|cli).ts"])).toBe(
+      true,
+    );
   });
 });
 
