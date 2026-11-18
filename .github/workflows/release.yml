@@ -40,7 +40,7 @@ jobs:
         run: npm run install-scripts:check
       - name: Audit dependency graph and registry signatures
         run: |
-          npm audit --audit-level=high
+          npm run audit:gate
           npm audit signatures
       - name: Run verified dependency lifecycle scripts
         run: npm rebuild
@@ -137,7 +137,7 @@ jobs:
         run: npm run install-scripts:check
       - name: Re-audit dependency graph and registry signatures
         run: |
-          npm audit --audit-level=high
+          npm run audit:gate
           npm audit signatures
       - name: Run verified dependency lifecycle scripts
         run: npm rebuild

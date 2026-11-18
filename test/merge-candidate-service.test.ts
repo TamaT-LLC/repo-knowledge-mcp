@@ -14,6 +14,7 @@ import {
   computeMatchSetDigest,
   createDomainId,
   parseRepoKnowledgeConfig,
+  scopesMayOverlap,
   serializeCanonicalJsonlRecord,
   serializeKnowledgeDocument,
   validateMergeDecisions,
@@ -381,6 +382,19 @@ describe("ProviderMergeRelationClassifier", () => {
 
     expect(input.match(/<\/untrusted_merge_data>/gu)).toHaveLength(1);
     expect(input).toContain("\\u003c/untrusted_merge_data\\u003e");
+  });
+});
+
+describe("scopesMayOverlap", () => {
+  it("does not apply extglob semantics to scope patterns", () => {
+    expect(scopesMayOverlap(["src/**"], ["src/api/index.ts"])).toBe(true);
+    expect(scopesMayOverlap(["src/@(api|cli)/**"], ["src/api/index.ts"])).toBe(
+      false,
+    );
+    expect(scopesMayOverlap(["src/+(api|cli).ts"], ["src/api.ts"])).toBe(false);
+    expect(scopesMayOverlap(["src/+(api|cli).ts"], ["src/+(api|cli).ts"])).toBe(
+      true,
+    );
   });
 });
 

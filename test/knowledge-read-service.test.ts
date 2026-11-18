@@ -523,6 +523,31 @@ describe("KnowledgeReadService.getRules", () => {
       service(repository).getRules({ filePaths: ["src/index.ts"] }),
     ).rejects.toThrow(/negative scope patterns are not supported/u);
   });
+
+  it("does not apply extglob semantics to scope patterns", async () => {
+    const repository = await createRepository();
+    const extglobId = await writeKnowledge(repository, {
+      rule: "Extglob-looking scope",
+      scope: ["src/+(api|cli).ts", "src/@(api|cli)/**"],
+    });
+
+    const extglobPaths = await service(repository).getRules({
+      filePaths: ["src/api.ts", "src/apiapi.ts", "src/cli/index.ts"],
+    });
+    const literalPath = await service(repository).getRules({
+      filePaths: ["src/+(api|cli).ts"],
+    });
+
+    expect(extglobPaths.rules).toEqual([]);
+    expect(literalPath.rules.map((rule) => rule.id)).toEqual([extglobId]);
+    expect(literalPath.rules[0]?.match_reasons).toEqual([
+      {
+        file_path: "src/+(api|cli).ts",
+        pattern: "src/+(api|cli).ts",
+        type: "scope",
+      },
+    ]);
+  });
 });
 
 describe("KnowledgeReadService.searchKnowledge", () => {
