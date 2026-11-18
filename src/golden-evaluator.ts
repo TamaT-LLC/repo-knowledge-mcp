@@ -1,4 +1,3 @@
-import picomatch from "picomatch";
 import { z } from "zod";
 
 import {
@@ -7,6 +6,7 @@ import {
   SeveritySchema,
   type Severity,
 } from "./domain-schemas.js";
+import { compileScopeGlob } from "./scope-glob.js";
 
 const GoldenExpectedSchema = z
   .object({
@@ -360,7 +360,7 @@ function discountedGain(grades: readonly number[]): number {
 function isValidGlob(pattern: string): boolean {
   if (!ScopePatternSchema.safeParse(pattern).success) return false;
   try {
-    picomatch(pattern, { dot: true, nocase: false });
+    compileScopeGlob(pattern);
     return true;
   } catch {
     return false;
@@ -371,7 +371,7 @@ function matchesScope(patterns: readonly string[], path: string): boolean {
   if (patterns.length === 0) return true;
   for (const pattern of patterns) {
     if (!isValidGlob(pattern)) continue;
-    if (picomatch(pattern, { dot: true, nocase: false })(path)) return true;
+    if (compileScopeGlob(pattern)(path)) return true;
   }
   return false;
 }

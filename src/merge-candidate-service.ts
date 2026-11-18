@@ -1,5 +1,3 @@
-import picomatch from "picomatch";
-
 import {
   canonicalizeJson,
   compareCodeUnits,
@@ -26,6 +24,7 @@ import {
   type PossibleKnowledgeMatch,
   type PossibleMatchSet,
 } from "./possible-match.js";
+import { compileScopeGlob, scanScopeGlob } from "./scope-glob.js";
 import type { CanonicalKnowledgeSearchView } from "./sqlite-projection.js";
 
 export const DEFAULT_MERGE_CANDIDATE_LIMIT = 8;
@@ -341,16 +340,10 @@ export function scopesMayOverlap(
 
 function patternsMayOverlap(left: string, right: string): boolean {
   try {
-    picomatch(left, scopeOptions());
-    picomatch(right, scopeOptions());
-    const leftScan = picomatch.scan(left);
-    const rightScan = picomatch.scan(right);
-    if (!leftScan.isGlob && picomatch.isMatch(left, right, scopeOptions())) {
-      return true;
-    }
-    if (!rightScan.isGlob && picomatch.isMatch(right, left, scopeOptions())) {
-      return true;
-    }
+    const leftScan = scanScopeGlob(left);
+    const rightScan = scanScopeGlob(right);
+    if (!leftScan.isGlob && compileScopeGlob(right)(left)) return true;
+    if (!rightScan.isGlob && compileScopeGlob(left)(right)) return true;
     const leftBase = normalizedGlobBase(leftScan.base);
     const rightBase = normalizedGlobBase(rightScan.base);
     if (leftBase.length === 0 || rightBase.length === 0) return true;
@@ -366,10 +359,6 @@ function patternsMayOverlap(left: string, right: string): boolean {
       { cause: error },
     );
   }
-}
-
-function scopeOptions(): picomatch.PicomatchOptions {
-  return { dot: true, nocase: false };
 }
 
 function normalizedGlobBase(value: string): string {
