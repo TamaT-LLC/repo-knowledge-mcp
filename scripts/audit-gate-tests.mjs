@@ -218,6 +218,42 @@ test("fails when npm audit itself reports an error", () => {
   assert.match(result.messages[0]?.text ?? "", /npm audit failed: ENOLOCK/u);
 });
 
+test("fails on via items that are neither package names nor advisories", () => {
+  const { source: _source, ...withoutSource } = PICOMATCH_ADVISORY;
+  const { severity: _severity, ...withoutSeverity } = PICOMATCH_ADVISORY;
+  const { url: _url, ...withoutUrl } = PICOMATCH_ADVISORY;
+  for (const via of [
+    { severity: "high", url: "advisory" },
+    withoutSource,
+    withoutSeverity,
+    withoutUrl,
+    advisory({ source: null }),
+    42,
+    null,
+    true,
+    ["picomatch"],
+  ]) {
+    const report = auditReport({
+      fdir: vulnerability("fdir", "high", ["picomatch"]),
+      picomatch: vulnerability("picomatch", "high", [PICOMATCH_ADVISORY, via]),
+    });
+    const label = JSON.stringify(via);
+
+    assert.throws(
+      () => collectBlockingAdvisories(report),
+      AuditGateError,
+      label,
+    );
+    const result = auditGateResult(JSON.stringify(report));
+    assert.equal(result.exitCode, 1, label);
+    assert.match(
+      result.messages[0]?.text ?? "",
+      /picomatch has a malformed via item/u,
+      label,
+    );
+  }
+});
+
 test("fails on empty, malformed, or unsupported npm audit output", () => {
   for (const stdout of [
     "",

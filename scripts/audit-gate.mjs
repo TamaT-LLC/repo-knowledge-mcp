@@ -85,9 +85,11 @@ export function validateAuditReport(report) {
 /**
  * Collects high/critical advisories from `vulnerabilities[*].via`.
  *
- * String `via` entries only point at another vulnerable package, so only
- * advisory objects are read. Advisories with an unknown severity are treated
- * as blocking, and repeated advisories are merged by ID.
+ * String `via` entries only point at another vulnerable package and are
+ * skipped. Every other entry must be an advisory object with `url`,
+ * `severity`, and `source`; anything else fails the gate instead of being
+ * ignored. Advisories with an unknown severity are treated as blocking, and
+ * repeated advisories are merged by ID.
  */
 export function collectBlockingAdvisories(report) {
   const advisories = new Map();
@@ -100,7 +102,12 @@ export function collectBlockingAdvisories(report) {
       );
     }
     for (const via of vulnerability.via) {
-      if (!isAdvisory(via)) continue;
+      if (typeof via === "string") continue;
+      if (!isAdvisory(via)) {
+        throw new AuditGateError(
+          `npm audit entry for ${packageName} has a malformed via item: ${JSON.stringify(via)}`,
+        );
+      }
       const severity = String(via.severity);
       if (
         KNOWN_SEVERITIES.has(severity) &&
@@ -193,9 +200,9 @@ function formatAdvisory(advisory) {
 function isAdvisory(value) {
   return (
     isRecord(value) &&
-    value.url !== undefined &&
-    value.severity !== undefined &&
-    value.source !== undefined
+    ["url", "severity", "source"].every(
+      (key) => value[key] !== undefined && value[key] !== null,
+    )
   );
 }
 

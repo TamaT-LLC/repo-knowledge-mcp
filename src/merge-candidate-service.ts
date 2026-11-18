@@ -26,7 +26,7 @@ import {
   type PossibleKnowledgeMatch,
   type PossibleMatchSet,
 } from "./possible-match.js";
-import { scopeGlobOptions, scopeGlobScanOptions } from "./scope-glob.js";
+import { scopeGlobOptions } from "./scope-glob.js";
 import type { CanonicalKnowledgeSearchView } from "./sqlite-projection.js";
 
 export const DEFAULT_MERGE_CANDIDATE_LIMIT = 8;
@@ -344,8 +344,12 @@ function patternsMayOverlap(left: string, right: string): boolean {
   try {
     picomatch(left, scopeGlobOptions());
     picomatch(right, scopeGlobOptions());
-    const leftScan = picomatch.scan(left, scopeGlobScanOptions());
-    const rightScan = picomatch.scan(right, scopeGlobScanOptions());
+    // scan is a linear tokenizer, not the vulnerable regex compiler. Its
+    // `noext` option also marks plain globs as non-globs, so it keeps the
+    // default and may treat extglob-looking text as a glob, which only widens
+    // this conservative overlap test.
+    const leftScan = picomatch.scan(left);
+    const rightScan = picomatch.scan(right);
     if (
       !leftScan.isGlob &&
       picomatch.isMatch(left, right, scopeGlobOptions())
