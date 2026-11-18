@@ -28,6 +28,7 @@ import {
 } from "./knowledge-search.js";
 import type { KnowledgeFrontmatter } from "./knowledge-document.js";
 import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
+import { scopeGlobOptions } from "./scope-glob.js";
 import type {
   CanonicalKnowledgeReadView,
   CanonicalProjectionSnapshot,
@@ -582,7 +583,7 @@ function scopeMatchReasons(
     }
     let isMatch: (value: string) => boolean;
     try {
-      isMatch = picomatch(pattern, { dot: true, nocase: false });
+      isMatch = picomatch(pattern, scopeGlobOptions());
     } catch (error) {
       throw new KnowledgeReadError(
         "INVALID_SCOPE_PATTERN",
