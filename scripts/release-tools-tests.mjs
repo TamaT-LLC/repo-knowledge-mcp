@@ -259,7 +259,7 @@ test("install-script decisions cover every locked lifecycle dependency", async (
   assert.deepEqual(
     validateInstallScriptApprovals(packageDocument, lockDocument),
     {
-      approved: ["better-sqlite3@13.0.3"],
+      approved: [],
       denied: ["fsevents"],
     },
   );
