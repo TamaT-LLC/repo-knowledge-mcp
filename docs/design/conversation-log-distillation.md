@@ -459,7 +459,7 @@ canonical は生のセッション ID を持たないため、削除条件の照
 
 削除条件の `project_path_prefix` は、取り込み時はソースから読んだマスク前のパスに直接照合する。
 保存済みの発言と tombstone に対しては、`project_path_prefix` を正規化して現在の鍵で HMAC を取り、その値が `path_prefix_hmacs` に含まれるかで照合する。
-`path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ（深さは 32 階層まで）。
+`path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ。階層の数に上限は設けず、すべての階層を持つ。上限を設けると、それより深いパスを削除条件や `excludeProjects` に指定したときに照合が漏れるためである。
 前方一致を HMAC の集合の包含で表すため、生のパスを保存せずに、`/Users/alice/repo` と `/Users/bob/repo` を区別できる。
 マスク後のパスは区別できないため、照合には使わない。
 
@@ -533,7 +533,7 @@ HMAC(local.key, JCS({ source, session_id, source_message_id | null, timestamp, m
 | `session_id` | string | ソース側のセッション ID（会話データ領域の中だけで使う）。擬似セッションの場合は `pseudo:<プロジェクトのパスの digest>:<そのセッションの最初の行の timestamp>` |
 | `session_kind` | `real` \| `pseudo` | セッション ID がソースにあったか |
 | `timestamp` | ISO 8601 | 送信時刻 |
-| `project` | object | `kind`（`repository`、`unregistered`、`no_repository`、`unresolved`）、`repo_id`、`name_with_owner`、`path`（マスク後。表示と送信の別名づけに使う）、`path_prefix_hmacs`（マスク前の正規化した絶対パスの、ルートから各階層までの前方部分それぞれのローカル鍵による HMAC。削除条件の照合にだけ使う。生のパスは保存しない） |
+| `project` | object | `kind`（`repository`、`unregistered`、`no_repository`、`unresolved`）、`repo_id`、`name_with_owner`、`path`（マスク後。表示と送信の別名づけに使う）、`path_prefix_hmacs`（マスク前の正規化した絶対パスの、ルートから各階層までの前方部分それぞれのローカル鍵による HMAC。全階層を持つ。保存済みの発言、tombstone、ラベルの代表発言を、削除条件の `project_path_prefix` と `excludeProjects` のパスに照合するために使う。生のパスは保存しない） |
 | `text` | string | マスク後の本文。最大 2,000 字、貼り付け部分は 300 字 |
 | `text_digest` | sha256 | マスク後本文の digest |
 | `context` | object \| null | 直前のアシスタント発言の先頭（マスク後、既定 500 字）と digest。`assistantContext.enabled` が false の場合と、history 由来の発言では null |
@@ -1715,6 +1715,8 @@ setup は同意の前に、ログの出所（Claude Code、Codex）と送信先�
 既存の `hostAssistedDistillation`、`llm.allowCloudTransmission`、`mergeClassifier` の値は、会話の送信を許可しない。
 
 `excludeProjects` の要素は、`/` で始まる場合は正規化した絶対パスの前方一致、それ以外は `owner/name` の完全一致として扱う。
+取り込み時はソースから読んだマスク前のパスに直接照合する。
+保存済みの発言とラベルの代表発言に照合する場合（後から `excludeProjects` に追加したときなど）は、削除条件と同じく、パスを正規化して現在の鍵で HMAC を取り、`path_prefix_hmacs` に含まれるかで照合する。
 
 ## prompt
 
@@ -1883,8 +1885,8 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 - 依存: PR4b
 - 内容: merge の候補検索を関係するストアへ広げること、`ConversationCrossStoreConflictRecorded` と `ConversationCrossStoreLinkRecorded`、match set への他ストアの候補の束縛、`get_rules` での抑制と `suppressed_global_count`、projection のテーブル追加
 - 変更ファイルの見込み: `src/conversation-finalize-plan.ts`、`src/conversation-merge-classifier.ts`、`src/merge-candidate-service.ts`（ストアを指定した検索）、`src/knowledge-read-service.ts`、`src/domain-projection.ts`、`src/sqlite-projection.ts`、`.github/workflows/ci.yml`
-- テスト: get_rules の手順 2（矛盾の除外）について、返さないリポジトリのルールとの矛盾でグローバルルールが外れないこと、上位のグローバル候補が除外されても次の候補が繰り上がること、返却集合に矛盾する組が残らずリポジトリのルールが矛盾で落ちないこと、グローバル job の候補がリポジトリのストアの active ルールと `contradicts` になったときの記録、グローバル側が新しい矛盾でもリポジトリ側が返ること、`repoPolicies` で拒否したリポジトリで両方が返ること、リポジトリ job の候補とグローバルルールの記録、prepare と finalize の間に他ストアのナレッジが変わったときの finalize の拒否、`get_rules` で両方 active のときにグローバル側が返らないこと、片方が proposed、rejected、存在しないときに抑制されないこと、片方のストアだけを reindex しても結果が変わらないこと、旧版互換の CI job で新しい record type が無視されること
-- 完了条件: ストアをまたぐ矛盾が記録され、`get_rules` で矛盾する組のグローバル側が `newer_side` にかかわらず返らない。他ストアの writer lock を取らない（lock spy で確認）。旧版互換の CI job が通る。会話用の merge schema（`conversation-merge-v1`）と prompt の digest を変えない（相手のストアの候補は possible match が増えるだけで、relation の種類も prompt も同じ）。digest の不変をテストで確かめる
+- テスト: get_rules の手順 2（矛盾の除外）について、返さないリポジトリのルールとの矛盾でグローバルルールが外れないこと、上位のグローバル候補が除外されても次の候補が繰り上がること、返却集合に矛盾する組が残らずリポジトリのルールが矛盾で落ちないこと、グローバル job の候補がリポジトリのストアの active ルールと `contradicts` になったときの記録、返すリポジトリのルールと矛盾する場合は、グローバル側が新しい矛盾でもリポジトリ側が返ること、`repoPolicies` で拒否したリポジトリで両方が返ること、リポジトリ job の候補とグローバルルールの記録、prepare と finalize の間に他ストアのナレッジが変わったときの finalize の拒否、`get_rules` で、返すリポジトリのルールと矛盾するグローバル側だけが返らないこと、矛盾するリポジトリのルールが返らない場合（`limit=1` で常時返却のグローバルルールが枠を使うなど）はグローバル側が返ること、片方が proposed、rejected、存在しないときに抑制されないこと、片方のストアだけを reindex しても結果が変わらないこと、旧版互換の CI job で新しい record type が無視されること
+- 完了条件: ストアをまたぐ矛盾が記録され、`get_rules` で、返すリポジトリのルールと矛盾するグローバル側が `newer_side` にかかわらず返らない。返さないリポジトリのルールとの矛盾ではグローバル側を外さない。他ストアの writer lock を取らない（lock spy で確認）。旧版互換の CI job が通る。会話用の merge schema（`conversation-merge-v1`）と prompt の digest を変えない（相手のストアの候補は possible match が増えるだけで、relation の種類も prompt も同じ）。digest の不変をテストで確かめる
 
 ### PR4c review と inbox
 
