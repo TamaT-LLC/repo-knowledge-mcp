@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { resolveStorageRoot, ensurePrivateDirectory } from "./config.js";
 import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
 import { AdminPlaneService } from "./admin-plane-service.js";
@@ -51,11 +51,20 @@ export class GlobalStore {
   async exists(): Promise<boolean> {
     try {
       const root = resolveStorageRoot(this.storageRoot);
-      if (!(await lstat(root)).isDirectory())
+      // Validate the reference against the configured home before using either
+      // the store path or its parent in a filesystem operation.
+      const path = this.reference.absolutePath;
+      if (!path.startsWith(root + sep) || dirname(path) !== root) {
+        throw new Error(
+          "Global store must be directly inside the storage root",
+        );
+      }
+      const directory = dirname(path);
+      if (!(await lstat(directory)).isDirectory())
         throw new Error("Storage root must be a real directory");
-      const parent = await realpath(root);
+      const parent = await realpath(directory);
       const expected = join(parent, "global");
-      const actual = await realpath(this.reference.absolutePath);
+      const actual = await realpath(path);
       if (actual !== expected || !actual.startsWith(parent + sep))
         throw new Error(
           "Global store must be directly inside the storage root",
