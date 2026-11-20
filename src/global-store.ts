@@ -1,5 +1,6 @@
-import { lstat, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, realpath } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
+import { resolveStorageRoot, ensurePrivateDirectory } from "./config.js";
 import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
 import { AdminPlaneService } from "./admin-plane-service.js";
 import {
@@ -38,20 +39,45 @@ function activeSettings(snapshot: CanonicalProjectionSnapshot) {
 export class GlobalStore {
   readonly reference: Extract<StoreReference, { kind: "global" }>;
   readonly store: CanonicalTransactionStore;
-  constructor(storageRoot: string) {
-    this.reference = {
+  constructor(private readonly storageRoot: string) {
+    this.reference = Object.freeze({
       kind: "global",
       repoId: GLOBAL_STORE_ID,
-      absolutePath: join(storageRoot, "global"),
-    };
+      absolutePath: resolve(storageRoot, "global"),
+    } as const);
     this.store = openStore(this.reference);
   }
 
   async exists(): Promise<boolean> {
     try {
-      const info = await lstat(this.reference.absolutePath);
-      if (!info.isDirectory())
-        throw new Error("Global store must be a directory");
+      const root = resolveStorageRoot(this.storageRoot);
+      if (!(await lstat(root)).isDirectory())
+        throw new Error("Storage root must be a real directory");
+      const parent = await realpath(root);
+      const expected = join(parent, "global");
+      const actual = await realpath(this.reference.absolutePath);
+      if (actual !== expected || !actual.startsWith(parent + sep))
+        throw new Error(
+          "Global store must be directly inside the storage root",
+        );
+      if (!(await lstat(actual)).isDirectory())
+        throw new Error("Global store must be a real directory");
+      for (const child of [
+        "knowledge",
+        "events",
+        "transactions",
+        "index.sqlite",
+        "index.sqlite-wal",
+        "index.sqlite-shm",
+      ]) {
+        const path = join(actual, child);
+        const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return undefined;
+          throw error;
+        });
+        if (info?.isSymbolicLink())
+          throw new Error("Global store entries must not be symbolic links");
+      }
       return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
@@ -60,16 +86,11 @@ export class GlobalStore {
   }
 
   async initialize() {
-    if (!(await this.exists()))
-      await mkdir(this.reference.absolutePath, {
-        recursive: true,
-        mode: 0o700,
-      });
+    await ensurePrivateDirectory(resolveStorageRoot(this.storageRoot));
+    await this.exists();
+    await ensurePrivateDirectory(this.reference.absolutePath);
     for (const dir of ["knowledge", "events"])
-      await mkdir(join(this.reference.absolutePath, dir), {
-        recursive: true,
-        mode: 0o700,
-      });
+      await ensurePrivateDirectory(join(this.reference.absolutePath, dir));
   }
 
   async addActive(input: Parameters<AdminPlaneService["addActive"]>[0]) {

@@ -4,6 +4,7 @@ import {
   mkdtemp,
   readFile,
   stat,
+  symlink,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -584,6 +585,26 @@ sys.exit(os.waitstatus_to_exitcode(status))`,
 });
 
 describe("global matches across repeated reads", () => {
+  it("requires a real global directory and private entries under its configured root", async () => {
+    const { storageRoot } = await createOutcomeEnvironment();
+    const global = new GlobalStore(storageRoot);
+    const other = join(storageRoot, "elsewhere");
+    await mkdir(other, { mode: 0o700 });
+    await symlink(other, global.reference.absolutePath, "dir");
+    await expect(global.readRules()).rejects.toThrow("directly inside");
+    await expect(global.reindex()).rejects.toThrow("directly inside");
+    await rm(global.reference.absolutePath);
+    await mkdir(global.reference.absolutePath, { mode: 0o700 });
+    await symlink(
+      other,
+      join(global.reference.absolutePath, "knowledge"),
+      "dir",
+    );
+    await expect(global.reindex()).rejects.toThrow("symbolic links");
+    await expect(new GlobalStore("/").exists()).rejects.toThrow(
+      "broad directory",
+    );
+  });
   it("reserves matched slots even with a full repository, and sees manual changes", async () => {
     const { storageRoot } = await createOutcomeEnvironment();
     const registered = await new RepositoryRegistry(storageRoot).register({
