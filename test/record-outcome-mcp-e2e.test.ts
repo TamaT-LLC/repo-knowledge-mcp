@@ -1,11 +1,24 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  stat,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
+import { execa } from "execa";
+import { GlobalStore } from "../src/global-store.js";
+import { createDomainId } from "../src/ids.js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runJsonRpcOverStdio } from "./helpers/stdio-jsonrpc-client.js";
 import {
+  CanonicalTransactionStore,
+  KnowledgeReadService,
   GetKnowledgeOutputSchema,
   GetRulesOutputSchema,
   RecordOutcomeOutputSchema,
@@ -191,6 +204,470 @@ describe("record_outcome MCP E2E over a real stdio server and canonical store", 
   });
 });
 
+describe("personal rules over CLI and MCP", () => {
+  it("adds via TTY, reindexes, records outcomes and enforces caller permissions", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const environment = await createOutcomeEnvironment();
+    const global = new GlobalStore(environment.storageRoot);
+    const cli = (...args: string[]) =>
+      execa(process.execPath, ["dist/bin.js", ...args], {
+        env: environment.env,
+        reject: false,
+      });
+    const tool = async (name: string, args: Record<string, unknown>) =>
+      structuredContent(
+        await runServe(
+          environment,
+          [callTool(2, name, args)],
+          ["--repo", REPOSITORY, "--allow-always-return-changes"],
+        ),
+        2,
+      );
+    const before = await runServe(environment, [
+      request(2, "tools/list", {}),
+      callTool(3, "get_rules", { repo: REPOSITORY, file_paths: ["src/x.ts"] }),
+    ]);
+    expect(listedToolNames(replyById(before, 2))).not.toContain(
+      "set_global_always_return",
+    );
+    expect(structuredContent(before, 3)).not.toHaveProperty(
+      "global_matched_count",
+    );
+    expect(await global.exists()).toBe(false);
+    await global.initialize();
+    await writeKnowledge(
+      global.reference.absolutePath,
+      UNKNOWN_ID,
+      "proposed",
+      "rk:global",
+    );
+    const empty = await runServe(environment, [
+      callTool(2, "get_rules", { repo: REPOSITORY, file_paths: ["src/x.ts"] }),
+    ]);
+    expect(structuredContent(empty, 2)).toEqual(structuredContent(before, 3));
+    const listed = await runServe(
+      environment,
+      [request(2, "tools/list", {})],
+      ["--allow-always-return-changes"],
+    );
+    expect(listedToolNames(replyById(listed, 2))).toContain(
+      "set_global_always_return",
+    );
+
+    // Run the actual admin CLI in a controlling terminal and wait for confirmation.
+    const output = await execa(
+      "python3",
+      [
+        "-c",
+        `import os, pty, sys
+pid, master = pty.fork()
+if pid == 0:
+    os.execv(sys.argv[1],sys.argv[1:])
+data = b""
+sent = False
+while True:
+    try: chunk = os.read(master, 8192)
+    except OSError: break
+    if not chunk: break
+    data += chunk
+    if not sent and b"admin> " in data:
+        os.write(master,b"add --active\\n")
+        sent = True
+_, status = os.waitpid(pid,0)
+sys.stdout.buffer.write(data)
+sys.exit(os.waitstatus_to_exitcode(status))`,
+        process.execPath,
+        "dist/bin.js",
+        "add",
+        "--global",
+        "--rule",
+        "Validate schema",
+        "--detail",
+        "Validate fields",
+        "--severity",
+        "must",
+        "--category",
+        "test",
+        "--scope",
+        "src/**",
+      ],
+      { env: environment.env },
+    );
+    expect(output.stdout).toContain('"confirmed":true');
+    const original = (await global.store.readSnapshot()).domain.knowledge.find(
+      (rule) => rule.status === "active",
+    )!;
+    const id = original.id;
+    expect((await cli("reindex", "--global")).exitCode).toBe(0);
+    expect(
+      (await global.store.readSnapshot()).domain.knowledge.find(
+        (rule) => rule.id === id,
+      ),
+    ).toEqual(original);
+    expect((await stat(global.reference.absolutePath)).mode & 0o777).toBe(
+      0o700,
+    );
+    expect(
+      (await stat(join(global.reference.absolutePath, "knowledge", `${id}.md`)))
+        .mode & 0o777,
+    ).toBe(0o600);
+    expect((await cli("always-return", "add", id)).exitCode).toBe(0);
+    expect(
+      await tool("set_global_always_return", {
+        knowledge_id: id,
+        enabled: false,
+      }),
+    ).toMatchObject({ state: "rejected", reason: "set_by_cli" });
+    expect(
+      await tool("set_global_always_return", {
+        knowledge_id: ACTIVE_ID,
+        enabled: true,
+      }),
+    ).toMatchObject({ reason: "not_global" });
+    expect((await cli("always-return", "remove", id)).exitCode).toBe(0);
+    expect(
+      await tool("set_global_always_return", {
+        knowledge_id: id,
+        enabled: true,
+      }),
+    ).toMatchObject({ state: "changed", set_by: "mcp" });
+    expect(
+      await tool("set_global_always_return", {
+        knowledge_id: id,
+        enabled: true,
+      }),
+    ).toMatchObject({ state: "unchanged" });
+    expect(
+      JSON.parse((await cli("always-return", "list")).stdout),
+    ).toMatchObject([
+      {
+        actor: "mcp",
+        knowledge_id: id,
+        caller_repo_id: REPO_ID,
+        recorded_at: expect.any(String),
+      },
+    ]);
+    expect(
+      GetRulesOutputSchema.parse(await tool("get_rules", {})).rules,
+    ).toContainEqual(
+      expect.objectContaining({
+        id,
+        always_return_set_by: "mcp",
+        match_reasons: [{ type: "global_store", via: "always" }],
+      }),
+    );
+    const otherRepo = "owner/another";
+    const otherRules = GetRulesOutputSchema.parse(
+      await tool("get_rules", { repo: otherRepo }),
+    );
+    expect(otherRules).toMatchObject({
+      repo: otherRepo,
+      matched_count: 0,
+      rules: [{ id }],
+    });
+    const globalCount = (await global.store.readSnapshot()).domain.knowledge
+      .length;
+    const proposal = await tool("add_knowledge", {
+      repo: otherRepo,
+      rule: "Separate rule",
+      detail: "Repository-only",
+      category: "test",
+      severity: "should",
+      scope: [],
+    });
+    expect(proposal).toMatchObject({
+      ok: true,
+      result: { repo: otherRepo, status: "proposed" },
+    });
+    expect(
+      await tool("update_knowledge", {
+        repo: otherRepo,
+        id,
+        expected_etag: original.etag,
+        expected_revision: original.revision,
+        patch: { rule: "Replacement" },
+      }),
+    ).toMatchObject({ ok: false });
+    expect((await global.store.readSnapshot()).domain.knowledge).toHaveLength(
+      globalCount,
+    );
+    const outcome = {
+      knowledge_id: id,
+      event_key: "work-1",
+      result_observed: true,
+      at: OUTCOME_AT,
+      outcome: "applied",
+      context: { task_id: "task" },
+      note: "Validated the schema",
+    };
+    expect(await tool("record_outcome", outcome)).toMatchObject({
+      ok: true,
+      result: { replayed: false, applied_count: 1 },
+    });
+    expect(await tool("record_outcome", outcome)).toMatchObject({
+      ok: true,
+      result: { replayed: true, applied_count: 1 },
+    });
+    const events = await readFile(
+      join(global.reference.absolutePath, "events", "outcomes.jsonl"),
+      "utf8",
+    );
+    expect(JSON.parse(events.trim()).payload).toMatchObject({
+      repo_id: "rk:global",
+      context: { caller_repo_id: REPO_ID },
+    });
+    expect(
+      GetKnowledgeOutputSchema.parse(await tool("get_knowledge", { id }))
+        .knowledge,
+    ).toMatchObject({ applied_count: 1, id });
+    expect(
+      await tool("record_outcome", { ...outcome, repo: otherRepo }),
+    ).toMatchObject({
+      ok: true,
+      result: { replayed: false, applied_count: 2 },
+    });
+    expect((await cli("always-return", "remove", id)).exitCode).toBe(0);
+    expect(
+      (
+        await stat(
+          join(global.reference.absolutePath, "events", "always_return.jsonl"),
+        )
+      ).mode & 0o777,
+    ).toBe(0o600);
+  });
+
+  it("keeps local counts and readiness, reserves both quotas, and serves only conversation aggregates", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const env = await createOutcomeEnvironment();
+    const global = new GlobalStore(env.storageRoot);
+    await global.initialize();
+    const ids = Array.from({ length: 11 }, () => createDomainId("knowledge"));
+    const [conversationId, inactive] = ids.slice(-2) as [string, string];
+    for (const id of ids)
+      await writeKnowledge(
+        global.reference.absolutePath,
+        id,
+        id === inactive ? "proposed" : "active",
+        "rk:global",
+        id === conversationId
+          ? {
+              scope: [],
+              rule: "Prefer pnpm",
+              origin: { type: "distilled", source: "conversation" },
+              unexpected: "utterance-private",
+            }
+          : { rule: "Validate schema" },
+      );
+    const timestamp = CREATED_AT;
+    const evidence = {
+      knowledge_id: conversationId,
+      evidence_id: createDomainId("evidence"),
+      utterance_id: "utt-private",
+      excerpt: "confidential-snippet",
+      status: "active",
+      polarity: "supports",
+      session_key: "s1",
+      project_key: "p1",
+      observed_at: timestamp,
+    };
+    const transactionId = createDomainId("transaction");
+    await global.store.commit({
+      createdAt: timestamp,
+      transactionId,
+      fileWrites: [],
+      appendRecords: [
+        {
+          targetPath: "events/conversation_evidence.jsonl",
+          record: {
+            schema_version: 1,
+            record_type: "ConversationEvidenceCreated",
+            recorded_at: timestamp,
+            record_id: createDomainId("event"),
+            transaction_id: transactionId,
+            payload: evidence,
+          },
+        },
+      ],
+    });
+    const cli = (...args: string[]) =>
+      execa(process.execPath, ["dist/bin.js", ...args], {
+        env: env.env,
+        reject: false,
+      });
+    const simultaneous = await Promise.all(
+      ids.slice(0, 4).map((id) => cli("always-return", "add", id)),
+    );
+    expect(simultaneous.map((r) => r.exitCode).sort()).toEqual([0, 0, 0, 1]);
+    expect(simultaneous.find((r) => r.exitCode === 1)?.stdout).toContain(
+      "limit_reached",
+    );
+    const base = await runServe(
+      env,
+      [
+        callTool(2, "get_rules", {
+          repo: REPOSITORY,
+          file_paths: ["src/main.ts"],
+          limit: 3,
+        }),
+        callTool(3, "get_rules", {
+          repo: REPOSITORY,
+          file_paths: ["src/main.ts"],
+          limit: 6,
+        }),
+        callTool(4, "get_rules", {
+          repo: REPOSITORY,
+          file_paths: ["src/main.ts"],
+          limit: 20,
+        }),
+        callTool(5, "get_knowledge", { repo: REPOSITORY, id: conversationId }),
+        callTool(6, "set_global_always_return", {
+          knowledge_id: inactive,
+          enabled: true,
+        }),
+        callTool(7, "get_rules", {
+          repo: REPOSITORY,
+          file_paths: ["other"],
+          task: "schema",
+          limit: 5,
+        }),
+      ],
+      ["--repo", REPOSITORY, "--allow-always-return-changes"],
+    );
+    const rules = (n: number) =>
+      GetRulesOutputSchema.parse(structuredContent(base, n));
+    expect(rules(2)).toMatchObject({
+      matched_count: 1,
+      truncated: true,
+      global_matched_count: 9,
+      global_truncated: true,
+    });
+    expect(
+      rules(2).rules.every((r) => r.match_reasons[0]?.type === "global_store"),
+    ).toBe(true);
+    expect(rules(3).rules.map((r) => r.match_reasons[0])).toEqual([
+      { type: "scope", file_path: "src/main.ts", pattern: "src/**" },
+      ...Array(3).fill({ type: "global_store", via: "always" }),
+      ...Array(2).fill({ type: "global_store", via: "scope" }),
+    ]);
+    expect(rules(3)).toMatchObject({
+      matched_count: 1,
+      truncated: false,
+      readiness: rules(2).readiness,
+    });
+    expect(rules(4).rules).toHaveLength(9);
+    expect(rules(4).rules.map((r) => r.id)).not.toContain(conversationId);
+    expect(
+      rules(7)
+        .rules.slice(3)
+        .every((r) =>
+          r.match_reasons.some(
+            (reason) => reason.type === "global_store" && reason.via === "task",
+          ),
+        ),
+    ).toBe(true);
+    expect(structuredContent(base, 6)).toMatchObject({ reason: "not_active" });
+    const detail = GetKnowledgeOutputSchema.parse(structuredContent(base, 5));
+    expect(detail).toMatchObject({
+      evidence: [],
+      conversation_summary: {
+        session_count: 1,
+        project_count: 1,
+        has_conflict: false,
+      },
+    });
+    expect(JSON.stringify(detail)).not.toMatch(
+      /utt-private|confidential-snippet|utterance-private|Record outcome E2E fixture detail/,
+    );
+  });
+});
+
+describe("global matches across repeated reads", () => {
+  it("reserves matched slots even with a full repository, and sees manual changes", async () => {
+    const { storageRoot } = await createOutcomeEnvironment();
+    const registered = await new RepositoryRegistry(storageRoot).register({
+      currentName: REPOSITORY,
+      repoId: REPO_ID,
+    });
+    const globalStore = new GlobalStore(storageRoot);
+    const localStore = new CanonicalTransactionStore(registered.absolutePath);
+    const service = new KnowledgeReadService({
+      repo: REPOSITORY,
+      repoId: REPO_ID,
+      repository: localStore,
+      globalStore,
+    });
+    for (let i = 0; i < 6; i++)
+      await writeKnowledge(
+        registered.absolutePath,
+        createDomainId("knowledge"),
+        "active",
+        REPO_ID,
+      );
+    const input = { filePaths: ["src/a.ts"], limit: 5 };
+    const baseline = await service.getRules(input);
+    await globalStore.initialize();
+    const [always, low, high] = Array.from({ length: 3 }, () =>
+      createDomainId("knowledge"),
+    ) as [string, string, string];
+    for (const [id, severity] of [
+      [always, "must"],
+      [low, "consider"],
+      [high, "should"],
+    ] as const)
+      await writeKnowledge(
+        globalStore.reference.absolutePath,
+        id,
+        "active",
+        "rk:global",
+        { severity, scope: ["docs/**"] },
+      );
+    const noMatch = await service.getRules(input);
+    expect(noMatch).toEqual({
+      ...baseline,
+      global_matched_count: 0,
+      global_truncated: false,
+    });
+    await globalStore.setAlwaysReturn(always, true, { actor: "cli" });
+    for (const [id, severity] of [
+      [low, "consider"],
+      [high, "should"],
+    ] as const)
+      await writeKnowledge(
+        globalStore.reference.absolutePath,
+        id,
+        "active",
+        "rk:global",
+        { severity },
+      );
+    const result = await service.getRules(input);
+    expect(result.rules.map((rule) => rule.id)).toEqual([
+      ...baseline.rules.slice(0, 2).map((rule) => rule.id),
+      always,
+      high,
+      low,
+    ]);
+    expect(result).toMatchObject({
+      matched_count: 7,
+      truncated: true,
+      global_matched_count: 3,
+      global_truncated: false,
+      readiness: baseline.readiness,
+    });
+    await writeKnowledge(
+      globalStore.reference.absolutePath,
+      always,
+      "deprecated",
+      "rk:global",
+    );
+    expect(
+      (await service.getRules(input)).rules.map((rule) => rule.id),
+    ).not.toContain(always);
+    expect(await globalStore.listAlwaysReturn()).toEqual([]);
+  });
+});
+
 function request(
   id: number,
   method: string,
@@ -211,6 +688,7 @@ function callTool(
 async function runServe(
   environment: OutcomeEnvironment,
   calls: readonly Record<string, unknown>[],
+  flags: string[] = [],
 ): Promise<JsonRpcReply[]> {
   const messages = [
     request(1, "initialize", {
@@ -222,7 +700,7 @@ async function runServe(
     ...calls,
   ];
   const { replies, stderr } = await runJsonRpcOverStdio({
-    args: ["dist/bin.js", "serve"],
+    args: ["dist/bin.js", "serve", ...flags],
     command: process.execPath,
     cwd: process.cwd(),
     env: environment.env,
@@ -316,6 +794,7 @@ async function writeKnowledge(
   id: string,
   status: KnowledgeStatus,
   repoId: string,
+  fields: Record<string, unknown> = {},
 ): Promise<void> {
   const path = `knowledge/${id}.md`;
   await writeFile(
@@ -337,6 +816,7 @@ async function writeKnowledge(
         severity: "should",
         status,
         updated_at: CREATED_AT,
+        ...fields,
       },
       "Record outcome E2E fixture detail",
     ),
@@ -358,8 +838,8 @@ if (!query.includes("query ResolveRepository")) {
 }
 const data = {
   repository: {
-    id: ${JSON.stringify(REPO_ID)},
-    nameWithOwner: ${JSON.stringify(REPOSITORY)},
+    id: args.includes("name=another") ? "R_other_caller" : ${JSON.stringify(REPO_ID)},
+    nameWithOwner: args.includes("name=another") ? "owner/another" : ${JSON.stringify(REPOSITORY)},
   },
 };
 process.stdout.write(JSON.stringify({ data }) + "\\n");

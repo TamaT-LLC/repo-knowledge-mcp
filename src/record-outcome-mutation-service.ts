@@ -146,6 +146,7 @@ export interface RecordOutcomeResult {
 }
 
 export interface RecordOutcomeMutationServiceOptions {
+  readonly callerRepoId?: string;
   readonly nextTransactionId?: (timestamp: number) => string;
   readonly now?: () => Date;
   readonly repo: string;
@@ -209,7 +210,9 @@ export class RecordOutcomeMutationService {
   private readonly now: () => Date;
   private readonly repository: CanonicalTransactionStore;
 
+  private readonly callerRepoId: string | undefined;
   constructor(options: RecordOutcomeMutationServiceOptions) {
+    this.callerRepoId = options.callerRepoId;
     this.repo = RepositoryNameSchema.parse(options.repo);
     this.repoId = RepositoryIdSchema.parse(options.repoId);
     this.repository = options.repository;
@@ -269,7 +272,10 @@ export class RecordOutcomeMutationService {
       );
     }
 
-    const context = normalizeOutcomeContext(parsed.data.context);
+    const normalized = normalizeOutcomeContext(parsed.data.context);
+    const context = this.callerRepoId
+      ? { ...normalized, caller_repo_id: this.callerRepoId }
+      : normalized;
     const payload = KnowledgeOutcomeSchema.parse({
       at: parsed.data.at,
       ...(context === undefined ? {} : { context }),
@@ -287,7 +293,7 @@ export class RecordOutcomeMutationService {
       eventId = deriveOutcomeEventId({
         eventKey,
         knowledgeId: parsed.data.knowledge_id,
-        repoId: this.repoId,
+        repoId: this.callerRepoId ?? this.repoId,
       });
     }
     return { eventId, payload };

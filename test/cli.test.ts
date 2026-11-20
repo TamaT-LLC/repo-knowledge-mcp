@@ -56,6 +56,82 @@ describe("repo-knowledge CLI", () => {
     expect(current.stderr()).toBe("");
   });
 
+  it("routes personal-store commands and validates selectors", async () => {
+    const changed = {
+      state: "changed",
+      knowledge_id: KNOWLEDGE_ID,
+      always_return: true,
+      always_return_count: 1,
+    } as const;
+    const globalStore = {
+      addActive: vi.fn(async () => ({ confirmed: false as const })),
+      setAlwaysReturn: vi.fn(
+        async () =>
+          changed as import("../src/global-always-return.js").AlwaysReturnResult,
+      ),
+      listAlwaysReturn: vi.fn(async () => []),
+      reindex: vi.fn(async () => ({
+        store_id: "rk:global",
+        knowledge_count: 0,
+        canonical_digest: "digest",
+      })),
+    };
+    const fields = [
+      "--category",
+      "test",
+      "--detail",
+      "Check types",
+      "--rule",
+      "Validate fields",
+      "--severity",
+      "must",
+    ];
+    for (const argv of [
+      ["add", "--global", ...fields],
+      ["reindex", "--global"],
+      ["always-return", "list"],
+      ["always-return", "add", KNOWLEDGE_ID],
+      ["always-return", "remove", KNOWLEDGE_ID],
+    ]) {
+      const { options } = fixture(argv);
+      expect(await runRepoKnowledgeCli({ ...options, globalStore })).toBe(0);
+    }
+    expect(globalStore.addActive).toHaveBeenCalledOnce();
+    expect(globalStore.setAlwaysReturn).toHaveBeenLastCalledWith(
+      KNOWLEDGE_ID,
+      false,
+      { actor: "cli" },
+    );
+    globalStore.setAlwaysReturn.mockResolvedValueOnce({
+      ...changed,
+      state: "rejected",
+      reason: "limit_reached",
+    });
+    expect(
+      await runRepoKnowledgeCli({
+        ...fixture(["always-return", "add", KNOWLEDGE_ID]).options,
+        globalStore,
+      }),
+    ).toBe(1);
+    expect(
+      await runRepoKnowledgeCli(fixture(["always-return", "list"]).options),
+    ).toBe(1);
+    const flagged = fixture(["serve", "--allow-always-return-changes"]);
+    expect(await runRepoKnowledgeCli(flagged.options)).toBe(0);
+    expect(flagged.serve).toHaveBeenCalledWith({
+      allowAlwaysReturnChanges: true,
+    });
+    for (const argv of [
+      ["always-return", "list", KNOWLEDGE_ID],
+      ["always-return", "bogus", KNOWLEDGE_ID],
+      ["always-return", "remove", "bad-id"],
+      ["add", "--global", "--repo", REPOSITORY, ...fields],
+      ["add", "--global", "--workspace", "/tmp", ...fields],
+      ["reindex", "--global", REPOSITORY],
+    ]) {
+      expect(() => parseRepoKnowledgeCliArguments(argv, true)).toThrow();
+    }
+  });
   it("routes ingest through the same mutation service resolver as MCP", async () => {
     const current = fixture(["ingest", REPOSITORY, "42"]);
 

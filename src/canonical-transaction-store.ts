@@ -145,6 +145,7 @@ export class KnowledgeConflictError extends Error {
 }
 
 export interface CanonicalTransactionStoreOptions {
+  readonly global?: boolean;
   readonly faultInjector?: CanonicalFaultInjector;
   readonly lockTimeoutMs?: number;
 }
@@ -173,7 +174,10 @@ export class CanonicalTransactionStore {
     this.repositoryRoot = resolve(repositoryRoot);
     this.faultInjector = options.faultInjector;
     this.lockTimeoutMs = options.lockTimeoutMs ?? 5_000;
-    this.projection = new SqliteCanonicalProjection(this.repositoryRoot);
+    this.projection = new SqliteCanonicalProjection(
+      this.repositoryRoot,
+      options.global,
+    );
   }
 
   async commit(request: CanonicalTransactionRequest): Promise<void> {
@@ -265,6 +269,13 @@ export class CanonicalTransactionStore {
     return this.withRepoLock(async () => {
       await this.recoverLocked();
       return this.projection.searchKnowledge(request);
+    });
+  }
+
+  async readGlobalRules(task?: string) {
+    return this.withRepoLock(async () => {
+      await this.recoverLocked();
+      return this.projection.readGlobalRules(task);
     });
   }
 

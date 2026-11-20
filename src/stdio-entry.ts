@@ -1,3 +1,4 @@
+import { GlobalStore } from "./global-store.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -12,9 +13,13 @@ import {
   serveRepoKnowledgeStdio,
 } from "./mcp-server.js";
 import { RepositoryRegistry } from "./repository-registry.js";
-import { parseRepositoryName } from "./repository-resolver.js";
+import {
+  parseRepositoryName,
+  RepositoryResolver,
+} from "./repository-resolver.js";
 
 export interface StdioEntrySelection {
+  readonly allowAlwaysReturnChanges?: boolean;
   readonly startupRepo?: string;
   readonly startupWorkspace?: string;
 }
@@ -39,16 +44,36 @@ export async function serveDefaultRepoKnowledgeStdio(
       process.env.REPO_KNOWLEDGE_HOME ??
       join(homedir(), ".repo-knowledge"),
   );
-  const readServiceResolver = new CanonicalKnowledgeReadServiceResolver({
+  const resolverOptions = {
     allowedWorkspaceRoots: Object.keys(storage.config.workspaceMappings),
     config: storage.config,
     ghRunner: options.ghRunner ?? new GhRunner(),
     registry: new RepositoryRegistry(storage.rootPath),
-  });
+    globalStore: new GlobalStore(storage.rootPath),
+  };
+  const readServiceResolver = new CanonicalKnowledgeReadServiceResolver(
+    resolverOptions,
+  );
 
   return serveRepoKnowledgeStdio({
-    mutationServiceResolver:
-      options.mutationServiceResolver ?? unavailableMutationServiceResolver(),
+    ...(selection.allowAlwaysReturnChanges
+      ? { allowAlwaysReturnChanges: true }
+      : {}),
+    mutationServiceResolver: options.mutationServiceResolver ?? {
+      async resolve() {
+        throw new MutationRuntimeUnavailableError();
+      },
+      async setGlobalAlwaysReturn(input, id, enabled) {
+        const { repoId } = await new RepositoryResolver({
+          ...resolverOptions,
+          ...input,
+        }).resolve(input);
+        return resolverOptions.globalStore.setAlwaysReturn(id, enabled, {
+          actor: "mcp",
+          caller_repo_id: repoId,
+        });
+      },
+    },
     readServiceResolver,
     ...(selection.startupRepo === undefined
       ? {}
@@ -60,14 +85,6 @@ export async function serveDefaultRepoKnowledgeStdio(
       ? {}
       : { transport: options.transport }),
   });
-}
-
-function unavailableMutationServiceResolver(): KnowledgeMutationServiceResolver {
-  return {
-    async resolve() {
-      throw new MutationRuntimeUnavailableError();
-    },
-  };
 }
 
 class MutationRuntimeUnavailableError extends Error {
@@ -85,11 +102,18 @@ class MutationRuntimeUnavailableError extends Error {
 export function parseStdioEntryArguments(
   argv: readonly string[],
 ): StdioEntrySelection {
+  let allowAlwaysReturnChanges = false;
   let startupRepo: string | undefined;
   let startupWorkspace: string | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index]!;
+    if (token === "--allow-always-return-changes") {
+      if (allowAlwaysReturnChanges)
+        throw new TypeError("duplicate --allow-always-return-changes");
+      allowAlwaysReturnChanges = true;
+      continue;
+    }
     const equal = token.indexOf("=");
     const name = token.slice(0, equal < 0 ? undefined : equal);
     if (name !== "--repo" && name !== "--workspace") {
@@ -115,6 +139,7 @@ export function parseStdioEntryArguments(
     throw new TypeError("--repo and --workspace are mutually exclusive");
   }
   return {
+    ...(allowAlwaysReturnChanges ? { allowAlwaysReturnChanges: true } : {}),
     ...(startupRepo === undefined ? {} : { startupRepo }),
     ...(startupWorkspace === undefined ? {} : { startupWorkspace }),
   };
