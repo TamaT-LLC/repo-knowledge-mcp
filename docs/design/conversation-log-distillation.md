@@ -347,6 +347,7 @@ HMAC 鍵ファイルは起動時に権限を検査し、`0600` より広い場�
 
 同じ入力、同じ設定、同じ検出器の版、同じローカル鍵からは、同じ発言 ID、同じクラスタ割り当て、同じ distillation key を得る。
 新しいエピソードのクラスタへの割り当ては、エピソード ID の code unit 順に処理する。
+LLM による閾値未満のクラスタの統合は決定的でないため、その結果を `ClusterMerged` として記録し、以後の割り当てはこの記録から再現する。
 
 #### M4-NFR-005 説明可能性
 
@@ -469,8 +470,8 @@ HMAC(local.key, JCS({ source, session_id, source_message_id | null, timestamp, m
 鍵を失った場合や作り直す場合は、`conversations reset-key` を使う。
 このコマンドは次の順で処理する。
 
-0. 会話データ領域に `reset-pending` マーカーを置く。マーカーには新しい鍵の `key_id` と、完了した段の番号を記録する
-1. 新しい鍵を作り、`utterances.jsonl`、`episodes.jsonl`、`checkpoints.json`、`route-cache.json` を破棄する
+0. 新しい鍵を作り、`local.key.next`（`0600`）に書いて fsync する。その後で、会話データ領域に `reset-pending` マーカーを置く。マーカーには新しい鍵の `key_id` と、完了した段の番号を記録する
+1. `local.key.next` を `local.key` へ rename して鍵を置き換え、`utterances.jsonl`、`episodes.jsonl`、`checkpoints.json`、`route-cache.json` を破棄する
 2. `purge-filters.json` は破棄しない。削除条件は鍵に依存しない値で保存しているため、再取り込みでもそのまま効く
 3. すべてのストアについて、ストアの writer lock を取り、現在と異なる `key_id` を持つ active な会話 evidence を `ConversationEvidenceWithdrawn` にし、未完了の会話 job を failed にする
 4. `reset-pending` マーカーを消す。次回の取り込みで、ソースから新しい鍵で読み直す
@@ -478,6 +479,16 @@ HMAC(local.key, JCS({ source, session_id, source_message_id | null, timestamp, m
 マーカーがある間は、`ingest-conversations`、MCP の `ingest_conversations`、`distill-conversations`、`prepare_conversation_distillation`、`submit_conversation_distillation` を拒否し、`conversations reset-key` の再実行を案内する。
 中断後に再実行した場合は、鍵を作り直さず、マーカーに記録した新しい鍵のまま、完了していない段だけを続ける。
 鍵を二度作り直すと、1 段目以降に作った発言 ID や 3 段目の判定がずれるためである。
+
+鍵は必ずマーカーより先に永続化する。
+再実行時は、鍵ファイルとマーカーの状態から次のとおり再開する。
+
+| 状態 | 中断した位置 | 再開の手順 |
+| --- | --- | --- |
+| `local.key.next` があり、マーカーがない | 0 段目の鍵の保存後、マーカーの保存前 | `local.key.next` を消して 0 段目から始める。まだ何も変えていないため、新しい鍵を作り直してよい |
+| マーカーがあり、`local.key.next` の `key_id` がマーカーと一致する | 1 段目の rename 前 | 1 段目から続ける |
+| マーカーがあり、`local.key` の `key_id` がマーカーと一致する | 1 段目の rename 後 | 1 段目の破棄（何度行っても同じ結果になる）から続け、マーカーに記録した段の次へ進む |
+| マーカーがあり、どちらの鍵もマーカーの `key_id` と一致しない | 鍵ファイルを外から消した、または壊した | 自動では続けず、`doctor` で警告して `conversations reset-key --restart` を案内する。`--restart` はマーカーを消して 0 段目からやり直す。3 段目は現在と異なる `key_id` の evidence をすべて withdrawn にするため、やり直しても整合する |
 
 3 を行うのは、古い世代の `session_key` と新しい世代の `session_key` が一致せず、同じセッションが二重に数えられるためである。
 古い evidence を根拠としていたナレッジは、再取り込みと再蒸留の後に `same` の merge で新しい evidence を得る。
@@ -873,7 +884,9 @@ JWT、Bearer、32 文字の規則を会話だけに適用するのは、PR レ�
 利用者辞書は、第三者の氏名や社名など、利用者が消したい語を並べたものとする。
 辞書は会話用の設定ファイル（`0600`）にだけ置き、送信しない。
 `masking_version` には、辞書の語を平文で含めず、語の一覧の HMAC を含める。
-辞書を変えた場合は新しい取り込みにだけ効く。既に保存した発言に効かせるには、該当する期間を `conversations purge` で消すか、`conversations reset-key` で取り込み直す（ソースのログが残っている期間に限る）。
+辞書を変えた場合は新しい取り込みにだけ効く。既に保存した発言に効かせるには、`conversations reset-key` で取り込み直す（ソースのログが残っている期間に限る。既存の会話 evidence は withdrawn になり、再蒸留で付け直す）。
+`conversations purge` は削除条件を永続化し、その期間の発言を再取り込みしなくなるため、再マスクの手段には使わない。
+削除条件を加えずに保存済みの発言だけを再マスクする操作は[将来の拡張](#cd-future)とする。
 `SensitiveContentBoundarySchema` に会話用の boundary（`conversation_provider_payload`、`conversation_host_assisted_payload`）を加える。
 
 ### 4. 候補抽出
@@ -900,13 +913,19 @@ cwd ごとに次の順で解決し、結果を `route-cache.json` に保存す�
 - `defaultRepo` を使わない。すべての発言が一つのリポジトリへ寄ってしまうためである
 - 削除済みの worktree のように cwd が存在しない場合は、1 のパス規則と 3、4 だけで解決する
 
-解決結果は次の 3 種類とする。
+解決結果は次の 4 種類とする。
 
-| kind | 条件 |
-| --- | --- |
-| `repository` | registry に登録済みのリポジトリ |
-| `unregistered` | remote から `owner/name` は分かるが registry に未登録 |
-| `no_repository` | Git リポジトリでない、remote がない、または解決できない |
+| kind | 条件 | 送信 |
+| --- | --- | --- |
+| `repository` | registry に登録済みのリポジトリ | `repoPolicies` に従う |
+| `unregistered` | remote から `owner/name` は分かるが registry に未登録 | 登録まで job を作らないため送らない |
+| `no_repository` | cwd が存在し、Git リポジトリでない、または Git リポジトリだが remote がない | 送る（`owner/name` がないため `repoPolicies` の対象にならない。止めたい場合は `excludeProjects` にパスを指定する） |
+| `unresolved` | cwd が存在せず、パスの規則、`workspaceMappings`、`route-cache.json` のどれでも解決できない | 送らない。クラスタ化と閾値の判定には含めず、会話データ領域に保留する |
+
+`unresolved` を送らないのは、削除済みの作業ディレクトリが `repoPolicies` で送信を拒否したリポジトリのものだった可能性を否定できないためである。
+送信の可否が分からない発言は送らない側に倒す。
+`conversations status` は `unresolved` の件数と、代表的なパスの接頭辞（マスク後）を表示し、`workspaceMappings` に対応を登録すれば解決できることを案内する。
+登録後の取り込みで解決できた発言は、通常の kind に変わる。
 
 ### 6. クラスタ化
 
@@ -930,10 +949,31 @@ cwd ごとに次の順で解決し、結果を `route-cache.json` に保存す�
 2. どのクラスタにも割り当たらなかった新しいエピソードの間で全ペアを計算し、0.35 以上の対を union-find で結合して新しいクラスタを作る
 3. 一つだけ残ったエピソードは、単独のクラスタとする
 
-既存のクラスタ同士の統合や分割はしない。
 日本語の短文では文字 n-gram の類似度が低く出やすく、言い換えを取りこぼす。
-取りこぼしは蒸留後の merge（手順 9）で補う。
-merge が既存ナレッジと `same` と判定すれば evidence が加わり、閾値の判定に反映される。
+既に job になったクラスタへの言い換えは、蒸留後の merge（手順 9）が既存ナレッジと `same` と判定すれば evidence が加わり、閾値の判定に反映される。
+一方、どちらのクラスタも閾値に届かず job にならない言い換えは、merge に到達しない。
+これを補うため、閾値に届かないクラスタを LLM で束ねる手順（[閾値未満のクラスタの統合](#cd-grouping)）を設ける。
+既存のクラスタの分割はしない。
+
+<a id="cd-grouping"></a>
+
+#### 閾値未満のクラスタの統合
+
+閾値に届かないクラスタが 10 件以上たまったら、`distill-conversations` は統合の job を一つ作る。
+入力は、クラスタごとの代表発言（マスク後、200 字まで、文脈なし）を最大 40 件とし、job 内の別名でクラスタを示す。
+出力は「同じ好みを表すクラスタの組」の一覧とし、ルールは作らない。
+サーバーは結果を `episodes.jsonl` に `ClusterMerged`（統合先、統合元、統合 job の ID）として記録し、統合後のクラスタで閾値を判定し直す。
+閾値を満たしたクラスタには通常の蒸留 job を作る。
+閾値を満たしても、統合だけを根拠にしたナレッジは通常どおり proposed になり、人のレビューを経る。
+
+統合の job は次の条件で扱う。
+
+- 経路は Provider だけとし、送信条件は蒸留と同じとする。host-assisted では行わない
+- `unresolved`、`unregistered` の発言と、`repoPolicies` で送信を拒否したリポジトリの発言は入力に含めない
+- 異なるプロジェクトのクラスタを統合した場合は、統合後のクラスタの構成でストアを決める
+- 同じクラスタの組を二度送らないよう、送った代表発言の ID を記録し、新しいクラスタが加わったときだけ再び送る
+- prompt と output schema は `conversation-group-v1` としてコードに持ち、digest を会話用の quality gate の baseline に結び付ける
+- 統合の job の状態は canonical ではなく会話データ領域の `grouping-runs.jsonl` に持つ。結果がクラスタの割り当てにしか影響しないためである
 
 ### 7. job 作成
 
@@ -951,6 +991,7 @@ job の作成時点のクラスタの構成から、job を処理するストア
 | 一つの `repository` のプロジェクトだけ | そのリポジトリのストア |
 | 二つ以上のプロジェクト（kind を問わない） | グローバルストア |
 | `no_repository` のプロジェクトだけ | グローバルストア |
+| `unresolved` を含む | `unresolved` の発言を除いた構成で判定する |
 | 一つの `unregistered` のプロジェクトだけ | job を作らない。そのリポジトリが登録された後の実行で判定する。`conversations status` が未登録リポジトリと保留中の発言件数を表示し、登録を案内する |
 
 `repoPolicies` で送信を拒否したリポジトリの発言は job の入力から除き、除いた後の構成でストアと閾値を判定する。
@@ -1253,18 +1294,24 @@ Provider 経路を使う利用者が、会話内容をエージェントに渡�
 
 並びと件数は次のとおりとする。
 
-1. リポジトリのストアとグローバルストアの組で、`ConversationCrossStoreConflictRecorded`（どちらのストアに記録されたものでも）があり両者が active のものについて、`newer_side` にかかわらずグローバル側を候補から外す
-2. グローバルストアの常時返却のルール（最大 3 件）を、severity（must、should、consider）、`updated_at` の降順、ID の順で並べる
-3. 常時返却でないグローバルストアのルールのうち、task か scope に一致したものを、task の一致スコアの降順、severity、`applied_count` の降順、`updated_at` の降順、ID の順で並べ、5 件までに絞る。scope が空で task に一致しないルールは返さない
-4. リポジトリのストアの一致ルールを既存の順序で `limit` から 2 の件数を引いた数まで並べ、その後に 2、3 をつなげ、`limit` 件までを返す
+1. グローバルストアの常時返却のルール（最大 3 件）を、severity（must、should、consider）、`updated_at` の降順、ID の順で並べる（列 A）
+2. 常時返却でないグローバルストアのルールのうち、task か scope に一致したものを、task の一致スコアの降順、severity、`applied_count` の降順、`updated_at` の降順、ID の順で並べ、5 件までに絞る（列 G）。scope が空で task に一致しないルールは返さない
+3. リポジトリのストアの一致ルールを既存の順序で並べる（列 R）
+4. 枠を次のとおり割り当てる。A の枠は `min(len(A), limit)`、G の予約枠は `min(len(G), 2, limit − A の枠)`、R の枠は `min(len(R), limit − A の枠 − G の予約枠)` とする
+5. R から R の枠の件数だけを取り、返すリポジトリのルールを確定する
+6. A と G から、5 で確定したリポジトリのルールのいずれかと `ConversationCrossStoreConflictRecorded`（どちらのストアに記録されたものでも）で結ばれ、両者が active のものを、`newer_side` にかかわらず外す
+7. 5 のリポジトリのルール、A の残り（A の枠まで）、G の残りをこの順につなげる。G は予約枠に加えて、`limit` に余りがあれば残りも入れる。6 で外したために予約枠が余った場合は、R の続きで埋める
 
 常時返却は `limit` の中で優先され、リポジトリのルールの後ろでも切り捨てられない。
-`limit` が 2 の件数より小さい場合だけ、2 の並びで切り詰める。
+`limit` が A の件数より小さい場合だけ、A の並びで切り詰める。
+task か scope に一致したグローバルルールには最大 2 件の予約枠があるため、リポジトリの一致件数が `limit` 以上でもすべてが切り捨てられることはない。
+グローバルストアに一致するルールがないときは予約枠が 0 になり、リポジトリのルールの返し方は既存と同じになる。
+抑制は、実際に返すリポジトリのルールと矛盾するグローバルルールだけに適用する。task や scope に一致せず返らないリポジトリのルールを理由に、グローバルルールを外すことはない。
 
 `matched_count` と `truncated` は既存どおりリポジトリのストアのルールだけを対象にし、意味を変えない（M4-NFR-002）。
 `truncated` は、リポジトリの一致件数が返したリポジトリのルールの件数より多い場合に true とする。
 グローバルストアに active ルールが一件以上ある場合だけ、出力に `global_matched_count`（2 の件数と 3 の絞り込み前の件数の合計）と、グローバルのルールを切り詰めたかを表す `global_truncated` を加算的に追加する。
-1 で外したルールがある場合だけ、`suppressed_global_count` を加算的に追加する。
+6 で外したルールがある場合だけ、`suppressed_global_count` を加算的に追加する。
 グローバルストアがないか active ルールがない場合は、これらの field を省き、出力は既存と同一になる。
 
 常時返却のルールには、MCP から指定されたものに限り、ルールの項目に加算的な `always_return_set_by: "mcp"` を付ける。
@@ -1419,7 +1466,7 @@ interface ConversationFinalizeJob extends ConversationJobBase {
 | `repo-knowledge distill-conversations [--store repository\|global\|all] [--repo <owner/name>] [--plan] [--limit <n>]` | クラスタ化と job 作成。`--plan` は job を作らずに予定だけを出す。Provider の同意がある場合は蒸留まで実行する | PR4a、PR5 |
 | `repo-knowledge conversations status [--json]` | M4-FR-018 の統計。未登録リポジトリと保留中の発言件数、送信字数の累計、常時返却の一覧と操作した側を含む | PR1、PR2、PR3、PR4a |
 | `repo-knowledge conversations purge (--session <id> \| --before <iso> \| --source <name> \| --project <owner/name\|path>) [--yes]` | 発言の削除（M4-FR-017） | PR2、PR4a、PR4b |
-| `repo-knowledge conversations reset-key [--yes]` | 鍵の作り直し | PR2、PR4b |
+| `repo-knowledge conversations reset-key [--yes] [--restart]` | 鍵の作り直し。`--restart` は鍵ファイルが失われて再開できないときに 0 段目からやり直す | PR2、PR4b |
 | `repo-knowledge export --format claude-md\|agents-md [--store repository\|global\|all] [--repo <owner/name>] [--origin conversation\|all]` | active ルールの stdout 出力 | PR6 |
 | `repo-knowledge add --global ...` | 手動のグローバルルール | PR1 |
 | `repo-knowledge reindex --global` | グローバルストアの projection の再構築 | PR1 |
@@ -1439,12 +1486,13 @@ Claude Code の会話ファイルが削除される前に取り込めるよう�
 
 1. 会話データ領域の `.lock` を取る
 2. 削除条件を `purge-filters.json` に追記する
-3. 条件に一致する発言の ID を控えたうえで、それらを除いて `utterances.jsonl` と `episodes.jsonl` を compaction する。控えた ID は `.lock` の中の一時ファイルに置き、5 まで終わったら消す
+3. 条件に一致する発言の ID を `purge-progress.json` に控え（`stage: ids_recorded`）、それらを除いて `utterances.jsonl` と `episodes.jsonl` を compaction する。compaction の rename が終わったら `stage: compacted` を記録する。4 と 5 の完了もそれぞれ記録し、5 まで終わったら `purge-progress.json` を消す
 4. ストアごとに writer lock を取り、lock を持った状態で、3 で控えた ID を根拠とする active な evidence を列挙して `ConversationEvidenceWithdrawn` を追記する
 5. ストアごとに writer lock を取り、未完了の job のうち構成発言に 3 で控えた ID を含むものを failed にする
 
 2 を 3 より先に行うため、途中で中断しても、以後の取り込みは削除条件を参照して該当する発言を保存しない。
-再実行すると、控えた ID の一時ファイルがあれば 4 以降を、なければ 3 以降をやり直す。
+再実行すると、`purge-progress.json` がなければ 3 から、`ids_recorded` なら控えた ID のまま compaction から、`compacted` 以降なら記録された段の次からやり直す。
+ID の一時ファイルの有無だけで段を判断しないため、compaction の完了前に中断しても発言が物理的に残ることはない。
 
 4 で evidence の列挙を lock の後に行うのは、列挙と追記の間に submit が同じ発言の evidence を書く競合を防ぐためである。
 submit 側も、ストアの writer lock を持った状態で、書き込む evidence の発言が `purge-filters.json` に一致しないこと、会話データ領域に存在することを確かめる（[同時実行](#cd-concurrency)）。
@@ -1466,12 +1514,13 @@ submit 側も、ストアの writer lock を持った状態で、書き込む ev
 | 取り込み同士、取り込みと削除 | 会話データ領域の `.lock` で直列化する。CLI と MCP の `ingest_conversations` も同じ lock を取る。MCP からの実行が lock を待つ場合は 5 秒で諦めて `rate_limited` を返す |
 | ストアをまたぐ照合 | finalize は job のストアの writer lock だけを取り、相手のストアは lock なしで読む。複数ストアの writer lock を同時に持つ処理はないため、ストア間の lock の順序は問題にならない |
 | job 作成 | 会話データ領域の `.lock` を取ってクラスタを読み、その後に各ストアの writer lock を取って job を追記する。ロックは常にこの順で取る |
-| 蒸留の submit | ストアの writer lock だけを取る。lock を持った状態で `purge-filters.json` と会話データ領域を読み、書き込む evidence の発言が削除条件に一致する、または存在しない場合は、その evidence を書かない。構成発言のすべてが該当する場合は job を failed にする。発言は compaction の rename 前後どちらかの完全なファイルから読む |
+| 蒸留の submit | ストアの writer lock だけを取る。lock を持った状態で `purge-filters.json` を読み、job の構成発言のどれかが削除条件に一致する場合は、submit 全体を受け付けず、候補を一つも確定しない。job は `superseded_context` で終わらせ、次の `distill-conversations` で残りの発言から job を作り直す。削除された発言を見て作られた候補は、別の発言を根拠に挙げていても採用しない。保存期間で消えた発言（削除条件に一致しない）は削除とみなさず、submit を受け付ける |
 | 削除の evidence 追記 | 会話データ領域の `.lock` を持ったままストアの writer lock を取り、lock の後で対象の evidence を列挙する。job 作成と同じ順序のため、互いに待ち合わない |
 | 鍵の作り直し | 会話データ領域の `.lock` を持ったまま、ストアごとに writer lock を取る。削除と同じ順序とする |
 
 submit は会話データ領域の `.lock` を取らない。
-削除が 2 まで進んだ後の submit は削除条件との照合で evidence を書かず、2 より前に完了した submit の evidence は削除の 4 で withdrawn になる。
+削除が 2 まで進んだ後の submit は削除条件との照合で受け付けられず、2 より前に完了した submit の evidence は削除の 4 で withdrawn になる。
+後者のナレッジ本文は残るが、根拠がなくなるため保留になり、review で「削除済み」と表示される。
 
 ### export の出力形式
 
@@ -1584,6 +1633,7 @@ CI で、fixture に利用者のホームディレクトリらしいパス、メ
 | `conversation_unsafe_rejection_rate` | 危険な指示を候補にしなかった割合。最低値は 1.0 |
 | `conversation_merge_relation_accuracy` | merge の relation の正解率 |
 | `conversation_polarity_accuracy` | evidence の polarity の正解率 |
+| `conversation_grouping_precision` | 閾値未満のクラスタの統合で、同じ組にしたものが正しい割合（PR5 で追加） |
 
 閾値ファイルと baseline は会話用に別に持ち、prompt、output schema、merge schema の digest をその baseline に結び付ける。
 PR 蒸留の gate、閾値、baseline は変えない。
@@ -1607,6 +1657,7 @@ fixture は次の観点を含める。
 | 文脈がないと意味が取れない修正（「違う、そうじゃない」） | 文脈ありで正しい候補になる |
 | 文脈（アシスタント発言）の中の命令文や貼り付け | ルールにならない |
 | ストアをまたぐ逆向きの指示 | `contradicts` と判定される |
+| 文字の重なりが少ない言い換え | 閾値未満のクラスタの統合で同じ組になる |
 
 <a id="cd-security"></a>
 
@@ -1672,7 +1723,7 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 - 依存: なし
 - 内容: グローバルストアの初期化と reindex、store の参照を表す型、`get_rules` の合流（常時返却とグローバルの task 一致枠）、`get_knowledge` と `record_outcome` のグローバル ID 対応（outcome の `caller_repo_id`、会話の抜粋を返さない応答）、`add --global`、`always-return add/remove/list`、`GlobalAlwaysReturnChanged`、MCP の `set_global_always_return` と `serve --allow-always-return-changes`、doctor での表示
 - 変更ファイルの見込み: 新規 `src/global-store.ts`、`src/repository-registry.ts`、`src/knowledge-read-service.ts`、`src/record-outcome-mutation-service.ts`、`src/domain-schemas.ts`（outcome context の任意 field）、`src/mcp-server.ts`、`src/repository-application.ts`、`src/cli-args.ts`、`src/admin-plane-service.ts`（always-return）、`src/mcp-mutation-tools.ts`、`src/mcp-mutation-schemas.ts`、`src/stdio-entry.ts`、`src/doctor-service.ts`、`src/cli-maintenance-service.ts`
-- テスト: グローバルストアの初期化と reindex、`add --global` の後の `reindex --global` で同じ projection が得られること、ディレクトリとファイルの権限、`get_rules` の並びと `limit`、常時返却が `limit` の中で優先されること、常時返却が 3 件を超える追加の拒否、`set_global_always_return` の制約（グローバルの active ルールだけ、上限、CLI で付けたものを MCP から外せないこと、event の `actor`、`always_return_set_by`）、フラグなしで tool 一覧に出ないこと、task にも scope にも一致しない常時返却でないグローバルルールが返らないこと、`matched_count` と `truncated` がリポジトリのルールだけを数えること、`global_matched_count` と `global_truncated` の有無、グローバルストアが空のときに出力が従来と同一であること、readiness が変わらないこと、グローバルルールへの `get_knowledge` と `record_outcome` の MCP E2E
+- テスト: グローバルストアの初期化と reindex、`add --global` の後の `reindex --global` で同じ projection が得られること、ディレクトリとファイルの権限、`get_rules` の並びと `limit`、常時返却が `limit` の中で優先されること、リポジトリの一致件数が `limit` 以上でも一致したグローバルルールが予約枠で返ること、返さないリポジトリのルールとの矛盾でグローバルルールが外れないこと、常時返却が 3 件を超える追加の拒否、`set_global_always_return` の制約（グローバルの active ルールだけ、上限、CLI で付けたものを MCP から外せないこと、event の `actor`、`always_return_set_by`）、フラグなしで tool 一覧に出ないこと、task にも scope にも一致しない常時返却でないグローバルルールが返らないこと、`matched_count` と `truncated` がリポジトリのルールだけを数えること、`global_matched_count` と `global_truncated` の有無、グローバルストアが空のときに出力が従来と同一であること、readiness が変わらないこと、グローバルルールへの `get_knowledge` と `record_outcome` の MCP E2E
 - 完了条件: 手動で追加したグローバルルールが任意のリポジトリの `get_rules` に返り、outcome を記録できる。フラグなしの `test/mcp-server.test.ts` と `npm run package:smoke` の tool 一覧が変わらず、`--allow-always-return-changes` 付きの tool 一覧のテストが通る。`src/cli-args.ts` の coverage 閾値を満たす
 
 ### PR2 設定ファイル、マスク、会話データ領域
@@ -1680,7 +1731,7 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 - 依存: PR1
 - 内容: `conversation-distillation.json` の schema と読み込み（`assistantContext`、`retentionDays`、`redactTerms`、`sdkAllowlist` を含む）、会話用の置換関数と boundary、利用者辞書の置換、会話データ領域（発言の保存、HMAC 鍵と `key_id`、鍵の権限検査、`withPosixFileLock` による `.lock`、compaction、削除条件、保存期間による compaction）、`conversations purge` の 1〜3 段目、`conversations reset-key` の 0、1、2、4 段目と `reset-pending` マーカーによる取り込みの拒否、`conversations status` の骨格（鍵の有無の表示を含む）
 - 変更ファイルの見込み: 新規 `src/conversation-config.ts`、`src/conversation-redaction.ts`、`src/conversation-store.ts`、`src/sensitive-content.ts`（パターンの共有と boundary の追加）、`src/cli-args.ts`、`src/cli-runtime.ts`
-- テスト: 設定ファイルがないときの無効化、strict 検証、置換の規則表テスト（Authorization header が送信前検査に再ヒットしないこと、PR 経路の検出結果が変わらないこと）、利用者辞書の大文字小文字と全角半角を問わない置換、`masking_version` に辞書の語が平文で現れないこと、発言 ID と `key_id` の決定性、鍵ファイルの権限が広いときの拒否、compaction の中断と再実行、compaction が `superseded` を残すこと、削除条件の永続化、保存期間を過ぎた発言が消え削除条件には加わらないこと、`reset-key` で削除条件が残ること、`reset-key` を 1 段目の後で中断して再実行しても鍵が作り直されないこと、マーカーがある間の取り込みの拒否
+- テスト: 設定ファイルがないときの無効化、strict 検証、置換の規則表テスト（Authorization header が送信前検査に再ヒットしないこと、PR 経路の検出結果が変わらないこと）、利用者辞書の大文字小文字と全角半角を問わない置換、`masking_version` に辞書の語が平文で現れないこと、発言 ID と `key_id` の決定性、鍵ファイルの権限が広いときの拒否、compaction の中断と再実行、purge を compaction の前後と 4、5 段目の前で中断したときの再開（`purge-progress.json`）、`reset-key` を鍵の保存後マーカーの保存前、rename の前後で中断したときの再開、compaction が `superseded` を残すこと、削除条件の永続化、保存期間を過ぎた発言が消え削除条件には加わらないこと、`reset-key` で削除条件が残ること、`reset-key` を 1 段目の後で中断して再実行しても鍵が作り直されないこと、マーカーがある間の取り込みの拒否
 - 完了条件: 手で作った発言レコードを保存、削除、compaction できる。`config.json` を変えない。`src/cli-args.ts` の coverage 閾値を満たす
 
 ### PR3 ソースアダプタと取り込み
@@ -1688,7 +1739,7 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 - 依存: PR2
 - 内容: Claude Code と Codex のアダプタ（直前のアシスタント発言の抽出を含む）、除外規則と人間度の規則（`sdkAllowlist` と `H-SDK-ALLOWLISTED` を含む）、修正シグナル、擬似セッション、重複除去と supersede、checkpoint、プロジェクト解決と `route-cache.json`、`excludeProjects`、`automationPatterns`、`correctionKeywords`、`ingest-conversations`、MCP の `ingest_conversations` と `serve --allow-conversation-ingest`、`conversations status` の取り込み統計（未登録リポジトリの一覧と保留中の発言件数、登録の案内を含む）、未知形式の警告（status と doctor）、setup でのソースの有効化、schedule への追加
 - 変更ファイルの見込み: 新規 `src/conversation-source-claude-code.ts`、`src/conversation-source-codex.ts`、`src/conversation-normalizer.ts`、`src/conversation-project-resolver.ts`、`src/conversation-checkpoint-store.ts`、`src/conversation-ingest-service.ts`、`src/mcp-mutation-tools.ts`、`src/mcp-mutation-schemas.ts`、`src/stdio-entry.ts`、`src/cli-args.ts`、`src/cli-runtime.ts`、`src/setup-service.ts`、`src/sync-schedule.ts`、`src/doctor-service.ts`、合成データ生成 `scripts/generate-conversation-fixtures.mjs`
-- テスト: Claude Code の版ごとと Codex の合成ログによるアダプタテスト、直前のアシスタント発言の抽出（ツール呼び出しと思考を除く、先頭 500 字、マスク、設定で off）、規則 ID ごとの表テスト、`sdkAllowlist` に一致した SDK 起点の発言が `medium` で保存され、一致しないものが除外されること、`X-SELF` の realpath 照合（`/var` と `/private/var`）、拒否の目印をツール結果の除外前に拾うこと、`sessionId` のない history 行の擬似セッション（2 時間の無操作での区切り、日付の境目で割れないこと、増分取り込みでの継続）、実行をまたぐ supersede、checkpoint の増分と書きかけ行と縮小検知、プロジェクト解決（remote、mapping、worktree、削除済み worktree、未登録）、削除条件と保存期間に一致する発言を保存しないこと、`--dry-run` が何も書かないこと、性能の縮小版、MCP の `ingest_conversations`（フラグなしで tool 一覧に出ないこと、統計だけを返すこと、実行間隔の下限と `dry_run` も対象になること、同時に呼んだ二つのセッションの片方だけが実行されること、`reset-pending` の間の拒否、引数でパスを受け付けないこと）
+- テスト: Claude Code の版ごとと Codex の合成ログによるアダプタテスト、直前のアシスタント発言の抽出（ツール呼び出しと思考を除く、先頭 500 字、マスク、設定で off）、規則 ID ごとの表テスト、`sdkAllowlist` に一致した SDK 起点の発言が `medium` で保存され、一致しないものが除外されること、`X-SELF` の realpath 照合（`/var` と `/private/var`）、拒否の目印をツール結果の除外前に拾うこと、`sessionId` のない history 行の擬似セッション（2 時間の無操作での区切り、日付の境目で割れないこと、増分取り込みでの継続）、実行をまたぐ supersede、checkpoint の増分と書きかけ行と縮小検知、プロジェクト解決（remote、mapping、worktree、削除済み worktree、未登録、解決できない場合の `unresolved`）、削除条件と保存期間に一致する発言を保存しないこと、`--dry-run` が何も書かないこと、性能の縮小版、MCP の `ingest_conversations`（フラグなしで tool 一覧に出ないこと、統計だけを返すこと、実行間隔の下限と `dry_run` も対象になること、同時に呼んだ二つのセッションの片方だけが実行されること、`reset-pending` の間の拒否、引数でパスを受け付けないこと）
 - 完了条件: 合成ログから発言が会話データ領域に保存され、再実行で増えない。ネットワークと LLM を使わない（spy で確認）。フラグなしの `test/mcp-server.test.ts` と `npm run package:smoke` の tool 一覧が変わらず、フラグ付きの tool 一覧のテストが通る。`src/cli-args.ts` と `src/setup-service.ts` の coverage 閾値を満たす
 
 ### PR4a クラスタ化と job 作成
@@ -1705,7 +1756,7 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 - 依存: PR4a
 - 内容: PR 側の自動 stale の判定で active な会話 evidence を数える変更、`prompts/distill-conversation.md`（`<assistant_context>` の扱いを含む）、出力 schema とローカル検証、会話用 merge 判定（同じストアの候補）、finalize（evidence と発言 ID の supersede の解決、revision proposal と紐付け record、conflict、receipt）、submit での削除条件との照合、`conversations purge` の 4 段目、`reset-key` の 3 段目とマーカーがある間の distill、prepare、submit の拒否、`prepare_conversation_distillation` と `submit_conversation_distillation`（文脈を含む入力と字数上限）、`serve --allow-conversation-distillation`、doctor の鍵の警告
 - 変更ファイルの見込み: `src/canonical-finalize-plan.ts`、`src/canonical-finalize-service.ts`、`src/submit-distillation-state.ts`、`src/submit-distillation-service.ts`（stale 判定）、新規 `src/conversation-distillation-prompt.ts`、`src/conversation-merge-classifier.ts`、`src/conversation-finalize-plan.ts`、`src/host-assisted-conversation-service.ts`、`prompts/distill-conversation.md`、`src/mcp-mutation-tools.ts`、`src/mcp-mutation-schemas.ts`、`src/stdio-entry.ts`、`src/cli-args.ts`、`src/doctor-service.ts`、`scripts/package-artifact-gate.mjs`（必須パスと許可パスに新しい prompt を追加）、`.github/workflows/ci.yml`
-- テスト: PR evidence と会話 evidence の両方を持つナレッジで、PR evidence がなくなっても会話 evidence が active なら canonical finalize と submit distillation のどちらでも stale にならないこと、会話 evidence もなければ従来どおり stale になること、prepare と submit の往復、replay、文脈を含む入力の字数の切り詰め順（古い発言の文脈から落とす）、ローカル検証による棄却（文脈の ID を根拠に挙げた候補を含む）、merge の各 relation、`contradicts` の 4 分岐、revision proposal の `evidence_ids` が空で古い reducer と review inbox が失敗しないこと、submit と削除の競合（削除条件の追記後の submit が evidence を書かないこと、追記前の submit の evidence が withdrawn になること）、鍵の世代が異なる evidence の withdrawn と doctor の警告、`reset-pending` の間の prepare と submit の拒否、会話用 record type が既存の evidence reducer を通らないこと、起動フラグなしで tool 一覧が変わらないこと、フラグありの tool 一覧、送信拒否リポジトリの除外
+- テスト: PR evidence と会話 evidence の両方を持つナレッジで、PR evidence がなくなっても会話 evidence が active なら canonical finalize と submit distillation のどちらでも stale にならないこと、会話 evidence もなければ従来どおり stale になること、prepare と submit の往復、replay、文脈を含む入力の字数の切り詰め順（古い発言の文脈から落とす）、ローカル検証による棄却（文脈の ID を根拠に挙げた候補を含む）、merge の各 relation、`contradicts` の 4 分岐、revision proposal の `evidence_ids` が空で古い reducer と review inbox が失敗しないこと、submit と削除の競合（削除条件の追記後の submit が候補を一つも確定しないこと、構成発言の一部だけが削除された場合も同じであること、追記前の submit の evidence が withdrawn になること、保存期間で消えた発言では submit が受け付けられること）、鍵の世代が異なる evidence の withdrawn と doctor の警告、`reset-pending` の間の prepare と submit の拒否、会話用 record type が既存の evidence reducer を通らないこと、起動フラグなしで tool 一覧が変わらないこと、フラグありの tool 一覧、送信拒否リポジトリの除外
 - 旧版互換の CI job を拡張し、`ConversationEvidence*`、`ConversationConflictRecorded`、`ConversationRevisionEvidenceLinked`、`ConversationSubmissionReceipt` と、`evidence_ids` が空の revision proposal を含むストアでも `list` と `get_rules` が動くことを確かめる
 - 完了条件: 合成ログから host-assisted で proposed ナレッジができる。同意がないときは `disabled` を返し、何も送らない。会話 evidence が active なナレッジを PR 側の finalize が stale にしない。PR 用の finalize と submit の既存テストが無変更で通る。package artifact gate、package smoke、旧版互換の CI job が通る。`src/cli-args.ts` の coverage 閾値を満たす
 
@@ -1737,10 +1788,10 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 ### PR5 Provider 経路
 
 - 依存: PR4d
-- 内容: `distill-conversations` での Provider 実行（文脈を含む入力、1 回の実行の job 数の上限）、送信条件の判定（`consentedMode`、`repoPolicies` の拒否優先）、setup での送信の同意と提供元の表示（文脈が既定で送信対象に入ることの表示を含む）
+- 内容: `distill-conversations` での Provider 実行（文脈を含む入力、1 回の実行の job 数の上限）、閾値未満のクラスタの統合 job（`conversation-group-v1`、`ClusterMerged`、`grouping-runs.jsonl`）と会話用 quality gate への統合の指標の追加、送信条件の判定（`consentedMode`、`repoPolicies` の拒否優先）、setup での送信の同意と提供元の表示（文脈が既定で送信対象に入ることの表示を含む）
 - 変更ファイルの見込み: 新規 `src/provider-conversation-distillation-service.ts`、`src/provider-transmission.ts`、`src/setup-service.ts`、`src/cli-args.ts`
-- テスト: 送信条件の組み合わせの表テスト、review content の同意だけでは送らないこと（transmission spy）、`llm.mode` を変えた後に送らないこと、`grok` を含む各 mode での起動、文脈の設定を off にしたときに文脈が送られないこと、1 回の実行の送信量の上限
-- 完了条件: `distill-conversations` が Provider で proposed ナレッジを作る。Provider の起動引数（セッションを保存しない設定）が変わっていない。`src/cli-args.ts` と `src/setup-service.ts` の coverage 閾値を満たす
+- テスト: 送信条件の組み合わせの表テスト、review content の同意だけでは送らないこと（transmission spy）、`llm.mode` を変えた後に送らないこと、`grok` を含む各 mode での起動、文脈の設定を off にしたときに文脈が送られないこと、1 回の実行の送信量の上限、言い換えの二つの単独クラスタが統合されて閾値を満たし蒸留されること、統合の入力に `unresolved` と送信拒否リポジトリの発言が入らないこと、同じ組を二度送らないこと
+- 完了条件: `distill-conversations` が Provider で proposed ナレッジを作る。統合の指標が会話用の quality gate に入り、`npm run quality:gate` が通る。Provider の起動引数（セッションを保存しない設定）が変わっていない。`src/cli-args.ts` と `src/setup-service.ts` の coverage 閾値を満たす
 
 ### PR6 export
 
@@ -1818,6 +1869,11 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 | M4-AC-043 | M4-FR-022 | `--allow-always-return-changes` なしでは `set_global_always_return` が tool 一覧に出ない。フラグありでも、グローバルの active ルール以外、上限超え、CLI で付けたものの解除を拒否し、変更が `actor: mcp` で記録され、`get_rules` に `always_return_set_by: "mcp"` が付き、CLI の `always-return remove` で外せる | MCP E2E、`test/mcp-server.test.ts`、CLI E2E |
 | M4-AC-044 | M4-NFR-002 | PR evidence と会話 evidence を持つナレッジが、PR evidence がなくなっても会話 evidence が active なら stale にならない | 単体テスト（canonical finalize と submit distillation） |
 | M4-AC-045 | M4-FR-010、M4-NFR-002 | グローバルルールが返っても `matched_count` と `truncated` はリポジトリのルールだけで決まる | MCP E2E |
+| M4-AC-046 | M4-FR-022 | リポジトリの一致件数が `limit` 以上でも、task か scope に一致したグローバルルールが最大 2 件返る。返さないリポジトリのルールとの矛盾ではグローバルルールを外さない | MCP E2E |
+| M4-AC-047 | M4-FR-008 | 文字の重なりが少ない言い換えの単独クラスタ同士が統合され、閾値を満たすと蒸留 job ができる | 単体テストと golden |
+| M4-AC-048 | M4-FR-007、M4-FR-011 | cwd が消えて解決できない発言は `unresolved` になり、job の入力にも統合の入力にも入らず、status に件数が出る | E2E と transmission spy |
+| M4-AC-049 | M4-FR-017 | purge と reset-key をどの段で中断しても、再実行で完了し、発言が物理的に残らず、鍵が失われない | 中断点ごとの単体テスト |
+| M4-AC-050 | M4-FR-017 | prepare の後に構成発言の一部が削除された job の submit は、候補を一つも確定しない | 競合の単体テスト |
 | M4-AC-042 | M4-NFR-007 | 1 job と 1 回の実行の送信量が上限を超えず、超える分は切り詰めるか次回に回す | 単体テストと transmission spy |
 
 <a id="cd-ac-mapping"></a>
@@ -1832,8 +1888,8 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 | M4-FR-004 | M4-AC-002、M4-AC-005、M4-AC-041 | PR3 |
 | M4-FR-005 | M4-AC-006 | PR3 |
 | M4-FR-006 | M4-AC-007 | PR2、PR3 |
-| M4-FR-007 | M4-AC-008 | PR3 |
-| M4-FR-008 | M4-AC-009 | PR4a |
+| M4-FR-007 | M4-AC-008、M4-AC-048 | PR3 |
+| M4-FR-008 | M4-AC-009、M4-AC-047 | PR4a、PR5 |
 | M4-FR-009 | M4-AC-010、M4-AC-027 | PR1、PR4a |
 | M4-FR-010 | M4-AC-011、M4-AC-012、M4-AC-045 | PR1 |
 | M4-FR-011 | M4-AC-013、M4-AC-014、M4-AC-015 | PR4b、PR5 |
@@ -1842,12 +1898,12 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 | M4-FR-014 | M4-AC-018 | PR4b、PR4c |
 | M4-FR-015 | M4-AC-019、M4-AC-020 | PR4b、PR4c、PR6 |
 | M4-FR-016 | M4-AC-021 | PR4c |
-| M4-FR-017 | M4-AC-022、M4-AC-023、M4-AC-024 | PR2、PR4a、PR4b（`reset-pending` は PR2 と PR4b） |
+| M4-FR-017 | M4-AC-022、M4-AC-023、M4-AC-024、M4-AC-049、M4-AC-050 | PR2、PR4a、PR4b（`reset-pending` は PR2 と PR4b） |
 | M4-FR-018 | M4-AC-025、M4-AC-036 | PR2、PR3、PR4a |
 | M4-FR-019 | M4-AC-026 | PR3 |
 | M4-FR-020 | M4-AC-035 | PR2、PR3、PR4b、PR5 |
 | M4-FR-021 | M4-AC-037 | PR2、PR4c |
-| M4-FR-022 | M4-AC-038、M4-AC-043 | PR1 |
+| M4-FR-022 | M4-AC-038、M4-AC-043、M4-AC-046 | PR1 |
 | M4-FR-023 | M4-AC-039 | PR3 |
 | M4-FR-024 | M4-AC-040 | PR4e、PR4c |
 | M4-NFR-001 | M4-AC-001、M4-AC-007、M4-AC-013、M4-AC-028、M4-AC-035 | PR1〜PR5 |
@@ -1869,7 +1925,7 @@ v1 から外したものと、その理由を次に示す。
 | CLAUDE.md / AGENTS.md の既存記述との照合（`compareWithInstructionFiles`） | 指示ファイルの本文も送信対象になり、同意の範囲が広がる。v1 は review で利用者が判断する |
 | export のファイル書き込み（`--write`、`--append`） | 利用者の指示ファイルを書き換える操作は影響が大きい。v1 は stdout だけとする |
 | Codex の `state_*.sqlite` からの cwd 補完 | 他アプリの内部 DB とファイル名の版に依存する。補完できない発言は `no_repository` として扱う |
-| マスク規則や利用者辞書を変えたときの再マスク | 会話データ領域の compaction で実現できるが、v1 は新規の取り込みにだけ新しい規則を適用する |
+| マスク規則や利用者辞書を変えたときの再マスク | 削除条件を加えずに保存済みの発言だけを置換し直す操作。会話データ領域の compaction で実現できるが、v1 は新規の取り込みにだけ新しい規則を適用し、遡る場合は `reset-key` で取り込み直す |
 | `search_knowledge` のグローバルストア検索 | 読み取りの経路を増やす前に、`get_rules` での利用状況を確認する |
 | ストアをまたぐ `same` の昇格 | リポジトリのルールとグローバルの候補が同じ趣旨のとき、v1 は関係を記録するだけで、リポジトリのルールをグローバルへ移す操作は行わない |
 | LLM を使わない evidence の追加 | 誤った紐付けを避けるため、v1 は merge の `same` 判定だけで evidence を加える |
