@@ -20,10 +20,17 @@ export function compileScopeGlob(pattern: string): (path: string) => boolean {
     preserveMultipleSlashes: true,
   });
 
-  // A stored literal file name can itself contain glob punctuation. A
-  // trailing globstar on a literal path also includes the path itself.
+  // A trailing globstar includes its parent (src/{api,cli}/** includes
+  // src/api). When the parent ends in an unescaped star, the slash is
+  // required: src/a*/** covers descendants of src/api.
+  const parent = relative.replace(/(?:\/\*\*)+$/u, "");
+  const includesParent =
+    parent !== relative && !/(?<!\\)(?:\\\\)*\*$/u.test(parent);
+
   return (path) =>
-    relative === path || relative === `${path}/**` || matcher.match(path);
+    relative === path ||
+    matcher.match(path) ||
+    (includesParent && matcher.match(`${path}/`));
 }
 
 /** Only complete literal path components can prove two scopes disjoint. */

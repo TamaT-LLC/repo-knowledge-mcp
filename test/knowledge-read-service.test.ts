@@ -562,6 +562,33 @@ describe("KnowledgeReadService.getRules", () => {
     ]);
   });
 
+  it("matches the directory itself for a brace alternative followed by a globstar", async () => {
+    const repository = await createRepository();
+    const pattern = "src/{api,cli}/**";
+    await writeKnowledge(repository, {
+      rule: "API and CLI guidance",
+      scope: [pattern, "src/a*/**"],
+    });
+
+    const result = await service(repository).getRules({
+      filePaths: [
+        "src/api",
+        "src/cli",
+        "src/cli/main.ts",
+        "src/agent",
+        "src/api-v2",
+      ],
+    });
+
+    expect(result.rules[0]?.match_reasons).toEqual(
+      ["src/api", "src/cli", "src/cli/main.ts"].map((file_path) => ({
+        file_path,
+        pattern,
+        type: "scope",
+      })),
+    );
+  });
+
   it("does not apply extglob semantics to scope patterns", async () => {
     const repository = await createRepository();
     const extglobId = await writeKnowledge(repository, {
