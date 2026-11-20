@@ -459,7 +459,7 @@ canonical は生のセッション ID を持たないため、削除条件の照
 
 削除条件の `project_path_prefix` は、取り込み時はソースから読んだマスク前のパスに直接照合する。前方一致は文字列ではなくパス区切り（`/`）の単位で判定し、`/Users/alice/re` は `/Users/alice/repo` に一致しない。取り込み時の照合と保存後の HMAC による照合は、この同じ規則で判定する。
 保存済みの発言と tombstone に対しては、`project_path_prefix` を正規化して現在の鍵で HMAC を取り、その値が `path_prefix_hmacs` に含まれるかで照合する。
-`path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ。階層の数に上限は設けず、すべての階層を持つ。上限を設けると、それより深いパスを削除条件や `excludeProjects` に指定したときに照合が漏れるためである。
+`path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/`、`/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ。階層の数に上限は設けず、ルート `/` を含むすべての階層を持つ。そのため削除条件や `excludeProjects` に `/` を指定した場合も、取り込み時と保存後の照合が同じ結果（すべてに一致）になる。上限を設けると、それより深いパスを削除条件や `excludeProjects` に指定したときに照合が漏れるためである。
 前方一致を HMAC の集合の包含で表すため、生のパスを保存せずに、`/Users/alice/repo` と `/Users/bob/repo` を区別できる。
 マスク後のパスは区別できないため、照合には使わない。
 
