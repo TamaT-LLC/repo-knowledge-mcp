@@ -1,13 +1,11 @@
-import picomatch from "picomatch";
 import { z } from "zod";
 
 import {
   KnowledgeCategorySchema,
-  ScopePatternSchema,
   SeveritySchema,
   type Severity,
 } from "./domain-schemas.js";
-import { scopeGlobOptions } from "./scope-glob.js";
+import { compileScopeGlob } from "./scope-glob.js";
 
 const GoldenExpectedSchema = z
   .object({
@@ -302,13 +300,21 @@ function scopeMetrics(fixture: GoldenFixture): {
   let validGlobs = 0;
   for (const entry of fixture.cases) {
     if (!entry.prediction.is_knowledge) continue;
-    for (const pattern of entry.prediction.scope) {
-      totalGlobs += 1;
-      if (isValidGlob(pattern)) validGlobs += 1;
-    }
+    const patterns = entry.prediction.scope;
+    const matchers = patterns.flatMap((pattern) => {
+      try {
+        return [compileScopeGlob(pattern)];
+      } catch {
+        return [];
+      }
+    });
+    totalGlobs += patterns.length;
+    validGlobs += matchers.length;
     for (const check of entry.scope_checks) {
       matchChecks += 1;
-      if (matchesScope(entry.prediction.scope, check.path) === check.matches) {
+      const matched =
+        patterns.length === 0 || matchers.some((match) => match(check.path));
+      if (matched === check.matches) {
         correctMatches += 1;
       }
     }
@@ -356,25 +362,6 @@ function discountedGain(grades: readonly number[]): number {
     (sum, grade, index) => sum + (2 ** grade - 1) / Math.log2(index + 2),
     0,
   );
-}
-
-function isValidGlob(pattern: string): boolean {
-  if (!ScopePatternSchema.safeParse(pattern).success) return false;
-  try {
-    picomatch(pattern, scopeGlobOptions());
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function matchesScope(patterns: readonly string[], path: string): boolean {
-  if (patterns.length === 0) return true;
-  for (const pattern of patterns) {
-    if (!isValidGlob(pattern)) continue;
-    if (picomatch(pattern, scopeGlobOptions())(path)) return true;
-  }
-  return false;
 }
 
 function ratioMetric(numerator: number, denominator: number): GoldenMetric {

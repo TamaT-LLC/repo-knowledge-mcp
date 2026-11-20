@@ -50,6 +50,11 @@ active rule がなく失敗した job だけが残る場合、MCP の `readiness
 
 `edit` の patch options は `--rule`、`--detail`、`--category`、`--severity`、繰り返し指定できる `--scope` です。
 `add --active` では `--rule`、`--detail`、`--category`、`--severity` が必須で、`--scope` と `--related-id` は任意です。
+
+`--scope` はリポジトリのルートからの相対パスに対する glob です。たとえば `--scope 'src/**/*.{ts,tsx}'` は隠しディレクトリ内も対象にし、大文字小文字を区別します。
+丸括弧は文字として扱います。以前のパターンで `src/(api|cli)/**` を選択肢として使っていた場合は `src/{api,cli}/**` に変更してください。
+ワイルドカードと角括弧付きのディレクトリ名を組み合わせる場合は、`--scope 'app/\[id\]/**'` のように括弧をエスケープします。
+
 通常は ID を指定する管理 command より、内容をまとめて確認できる `review` を使います。
 
 `record_outcome` は MCP tool であり、同名の CLI command は提供しません。

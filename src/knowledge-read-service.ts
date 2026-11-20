@@ -1,6 +1,5 @@
 import { posix } from "node:path";
 
-import picomatch from "picomatch";
 import { z } from "zod";
 
 import { compareCodeUnits, sortAndDedupeStrings } from "./canonical.js";
@@ -28,7 +27,7 @@ import {
 } from "./knowledge-search.js";
 import type { KnowledgeFrontmatter } from "./knowledge-document.js";
 import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
-import { scopeGlobOptions } from "./scope-glob.js";
+import { compileScopeGlob } from "./scope-glob.js";
 import type {
   CanonicalKnowledgeReadView,
   CanonicalProjectionSnapshot,
@@ -583,7 +582,7 @@ function scopeMatchReasons(
     }
     let isMatch: (value: string) => boolean;
     try {
-      isMatch = picomatch(pattern, scopeGlobOptions());
+      isMatch = compileScopeGlob(pattern);
     } catch (error) {
       throw new KnowledgeReadError(
         "INVALID_SCOPE_PATTERN",

@@ -1,5 +1,3 @@
-import picomatch from "picomatch";
-
 import {
   canonicalizeJson,
   compareCodeUnits,
@@ -26,7 +24,7 @@ import {
   type PossibleKnowledgeMatch,
   type PossibleMatchSet,
 } from "./possible-match.js";
-import { scopeGlobOptions } from "./scope-glob.js";
+import { scopeGlobBase } from "./scope-glob.js";
 import type { CanonicalKnowledgeSearchView } from "./sqlite-projection.js";
 
 export const DEFAULT_MERGE_CANDIDATE_LIMIT = 8;
@@ -342,28 +340,8 @@ export function scopesMayOverlap(
 
 function patternsMayOverlap(left: string, right: string): boolean {
   try {
-    picomatch(left, scopeGlobOptions());
-    picomatch(right, scopeGlobOptions());
-    // scan is a linear tokenizer, not the vulnerable regex compiler. Its
-    // `noext` option also marks plain globs as non-globs, so it keeps the
-    // default and may treat extglob-looking text as a glob, which only widens
-    // this conservative overlap test.
-    const leftScan = picomatch.scan(left);
-    const rightScan = picomatch.scan(right);
-    if (
-      !leftScan.isGlob &&
-      picomatch.isMatch(left, right, scopeGlobOptions())
-    ) {
-      return true;
-    }
-    if (
-      !rightScan.isGlob &&
-      picomatch.isMatch(right, left, scopeGlobOptions())
-    ) {
-      return true;
-    }
-    const leftBase = normalizedGlobBase(leftScan.base);
-    const rightBase = normalizedGlobBase(rightScan.base);
+    const leftBase = scopeGlobBase(left);
+    const rightBase = scopeGlobBase(right);
     if (leftBase.length === 0 || rightBase.length === 0) return true;
     return (
       leftBase === rightBase ||
@@ -377,10 +355,6 @@ function patternsMayOverlap(left: string, right: string): boolean {
       { cause: error },
     );
   }
-}
-
-function normalizedGlobBase(value: string): string {
-  return value.replaceAll("\\", "/").replace(/^\.\//u, "").replace(/\/$/u, "");
 }
 
 function candidateSearchQuery(candidate: DistilledCandidate): string | null {

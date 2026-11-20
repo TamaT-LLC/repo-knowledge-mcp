@@ -524,6 +524,44 @@ describe("KnowledgeReadService.getRules", () => {
     ).rejects.toThrow(/negative scope patterns are not supported/u);
   });
 
+  it("matches hidden paths, brace alternatives and escaped literals from the repo root", async () => {
+    const repository = await createRepository();
+    const patterns = [
+      "./.github/**/check?.{yml,yaml}",
+      "#build/[ab].ts",
+      "app/\\[id\\]/*.ts",
+    ];
+    await writeKnowledge(repository, {
+      rule: "Scoped guidance",
+      scope: patterns,
+    });
+    const result = await service(repository).getRules({
+      filePaths: [
+        ".github/.internal/check1.yaml",
+        ".github/check2.yml",
+        ".github/check10.yml",
+        ".github/check1.YML",
+        "#build/a.ts",
+        "#build/c.ts",
+        "app/[id]/page.ts",
+        "app/i/page.ts",
+      ],
+    });
+
+    expect(
+      result.rules[0]?.match_reasons
+        .map((reason) =>
+          reason.type === "scope" ? reason.file_path : reason.type,
+        )
+        .sort(),
+    ).toEqual([
+      "#build/a.ts",
+      ".github/.internal/check1.yaml",
+      ".github/check2.yml",
+      "app/[id]/page.ts",
+    ]);
+  });
+
   it("does not apply extglob semantics to scope patterns", async () => {
     const repository = await createRepository();
     const extglobId = await writeKnowledge(repository, {

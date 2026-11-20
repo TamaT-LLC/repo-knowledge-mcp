@@ -392,10 +392,20 @@ describe("scopesMayOverlap", () => {
     expect(scopesMayOverlap(["docs/**"], ["src/api/index.ts"])).toBe(false);
   });
 
+  it("compares complete literal prefixes across braces, escapes and root globs", () => {
+    expect(scopesMayOverlap(["./src/{api,cli}/**"], ["src/api/main.ts"])).toBe(
+      true,
+    );
+    expect(scopesMayOverlap(["src/\\[id\\]/**"], ["src/[id]/index.ts"])).toBe(
+      true,
+    );
+    expect(scopesMayOverlap(["**/*.ts"], ["scripts/check.ts"])).toBe(true);
+    expect(scopesMayOverlap(["src/api/**"], ["src/api-v2/**"])).toBe(false);
+    expect(scopesMayOverlap(["src/a.ts"], ["src/b.ts"])).toBe(false);
+    expect(() => scopesMayOverlap([""], ["src/b.ts"])).toThrow(/invalid glob/u);
+  });
+
   it("stays conservative for extglob-looking scope patterns", () => {
-    // Matching compiles with noextglob, but picomatch.scan still reads these
-    // patterns as globs with base "src". The base fallback therefore keeps
-    // them as "may overlap" candidates, which is the safe direction here.
     expect(scopesMayOverlap(["src/@(api|cli)/**"], ["src/api/index.ts"])).toBe(
       true,
     );

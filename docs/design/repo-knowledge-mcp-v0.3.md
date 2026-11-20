@@ -182,7 +182,7 @@ M3 の対象と受け入れ条件は、[M3 個人利用要件](./repo-knowledge-
 | スキーマ検証 | `zod` v4 | SDK v2 の inputSchema / outputSchema は Standard Schema 対応で zod v4 をそのまま渡せる。蒸留 JSON の検証にも共用 |
 | DB | `better-sqlite3` | WAL 前提（§15.4）。native addon のため**バンドル対象外（external）** |
 | GitHub アクセス | `gh` CLI ラッパー (`execa`) | 認証を gh に委譲、トークンを一切保持しない |
-| glob 判定 | `picomatch` | scope マッチング |
+| glob 判定 | `minimatch` | scope マッチング |
 | frontmatter | `yaml` strict parser | 完全一致する `---` delimiter の knowledge md だけを読み書きし、実行可能 parser の選択を許可しない |
 | ID | ULID (`ulid`) | 連番は同時実行・git マージで衝突するため不採用（§15.1） |
 | ビルド / 配布 | **`tsc`** / npm publish (`bin` 指定) | tsup は不採用（メンテナンス状況と native addon の external 化を考慮すると、この規模では tsc が最も事故が少ない）。`npx -y @tamat-llc/repo-knowledge-mcp` で起動 |
