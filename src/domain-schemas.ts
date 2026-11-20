@@ -571,6 +571,7 @@ export const KnowledgeOutcomeSchema = z
     at: IsoDateTimeSchema,
     context: z
       .object({
+        caller_repo_id: RepositoryIdSchema.optional(),
         file_paths: stringSetSchema(NonEmptyStringSchema).optional(),
         pr_number: z.number().int().positive().optional(),
         task_id: NonEmptyStringSchema.optional(),

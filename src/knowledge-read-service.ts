@@ -1,5 +1,14 @@
 import { posix } from "node:path";
 
+import type { GlobalStore } from "./global-store.js";
+import {
+  GLOBAL_STORE_ID,
+  ALWAYS_RETURN_LIMIT,
+} from "./global-always-return.js";
+import {
+  conversationSummary,
+  isConversationKnowledge,
+} from "./conversation-knowledge-summary.js";
 import picomatch from "picomatch";
 import { z } from "zod";
 
@@ -75,6 +84,7 @@ export interface KnowledgeReadSyncCheckpointReader {
 }
 
 export interface KnowledgeReadServiceOptions {
+  readonly globalStore?: GlobalStore;
   readonly repo: string;
   readonly repoId: string;
   readonly repository: KnowledgeReadRepository;
@@ -88,6 +98,11 @@ export interface GetRulesRequest {
 }
 
 export type RuleMatchReason =
+  | {
+      readonly type: "global_store";
+      readonly via: "always" | "scope" | "task";
+      readonly score?: number;
+    }
   | { readonly type: "global" }
   | {
       readonly file_path: string;
@@ -97,6 +112,7 @@ export type RuleMatchReason =
   | { readonly score: number; readonly type: "task" };
 
 export interface GetRulesRule {
+  readonly always_return_set_by?: "mcp";
   readonly evidence_count: number;
   readonly example_url?: string;
   readonly id: string;
@@ -107,6 +123,8 @@ export interface GetRulesRule {
 }
 
 export interface GetRulesResult {
+  readonly global_matched_count?: number;
+  readonly global_truncated?: boolean;
   readonly matched_count: number;
   readonly readiness: RepositoryReadiness;
   readonly repo: string;
@@ -167,6 +185,7 @@ export interface KnowledgeDetail {
 }
 
 export interface GetKnowledgeResult {
+  readonly conversation_summary?: ReturnType<typeof conversationSummary>;
   readonly evidence: readonly KnowledgeEvidence[];
   readonly knowledge: KnowledgeDetail;
   readonly next_cursor: string | null;
@@ -196,6 +215,7 @@ export class KnowledgeReadService {
   readonly repo: string;
   readonly repoId: string;
 
+  private readonly globalStore: GlobalStore | undefined;
   private readonly repository: KnowledgeReadRepository;
   private readonly syncCheckpoints:
     | KnowledgeReadSyncCheckpointReader
@@ -205,6 +225,7 @@ export class KnowledgeReadService {
     this.repo = RepositoryNameSchema.parse(options.repo);
     this.repoId = RepositoryIdSchema.parse(options.repoId);
     this.repository = options.repository;
+    this.globalStore = options.globalStore;
     this.syncCheckpoints = options.syncCheckpoints;
   }
 
@@ -228,7 +249,10 @@ export class KnowledgeReadService {
             repoId: this.repoId,
             statuses: ["active"],
           };
-    const view = await this.repository.readKnowledgeView(taskSearchRequest);
+    const [view, global] = await Promise.all([
+      this.repository.readKnowledgeView(taskSearchRequest),
+      this.globalStore?.readRules(request.task),
+    ]);
     const snapshot = view.snapshot;
     const checkpoint = await this.readRepositoryCheckpoint();
     const active = snapshot.domain.knowledge.filter(
@@ -268,8 +292,33 @@ export class KnowledgeReadService {
     const exampleUrls = representativeEvidenceUrls(snapshot, this.repoId);
     const ordered = [...matches.values()].sort(compareRuleMatches);
     const matchedCount = ordered.length;
+    const ranked = rankGlobalRules(global, filePaths);
+    const alwaysQuota = Math.min(
+      ranked.always.length,
+      ALWAYS_RETURN_LIMIT,
+      limit,
+    );
+    const matchedQuota = Math.min(
+      ranked.matches.length,
+      2,
+      limit - alwaysQuota,
+    );
+    const local = ordered.slice(0, limit - alwaysQuota - matchedQuota);
+    // PR4e will filter global candidates against this fixed local selection.
+    const always = ranked.always.slice(0, alwaysQuota);
+    const matched = ranked.matches.slice(
+      0,
+      Math.min(5, limit - local.length - always.length),
+    );
+    const globalCount = ranked.always.length + ranked.matches.length;
     return {
       matched_count: matchedCount,
+      ...(global?.active.length
+        ? {
+            global_matched_count: globalCount,
+            global_truncated: globalCount > always.length + matched.length,
+          }
+        : {}),
       readiness: deriveRepositoryReadiness(
         snapshot,
         checkpoint,
@@ -277,19 +326,23 @@ export class KnowledgeReadService {
         this.repoId,
       ),
       repo: this.repo,
-      rules: ordered.slice(0, limit).map(({ knowledge, reasons }) => {
-        const exampleUrl = exampleUrls.get(knowledge.id);
-        return {
-          evidence_count: knowledge.evidenceCount,
-          ...(exampleUrl === undefined ? {} : { example_url: exampleUrl }),
-          id: knowledge.id,
-          match_reasons: reasons,
-          rule: knowledge.rule,
-          severity: knowledge.severity,
-          violation_count: knowledge.violationCount,
-        };
-      }),
-      truncated: matchedCount > limit,
+      rules: [
+        ...local.map(({ knowledge, reasons }) => {
+          const exampleUrl = exampleUrls.get(knowledge.id);
+          return {
+            evidence_count: knowledge.evidenceCount,
+            ...(exampleUrl === undefined ? {} : { example_url: exampleUrl }),
+            id: knowledge.id,
+            match_reasons: reasons,
+            rule: knowledge.rule,
+            severity: knowledge.severity,
+            violation_count: knowledge.violationCount,
+          };
+        }),
+        ...always.map((item) => globalRuleResult(item)),
+        ...matched.map((item) => globalRuleResult(item)),
+      ],
+      truncated: matchedCount > local.length,
     };
   }
 
@@ -354,16 +407,25 @@ export class KnowledgeReadService {
   ): Promise<GetKnowledgeResult> {
     const id = KnowledgeIdSchema.parse(request.id);
     const evidenceLimit = validateEvidenceLimit(request.evidenceLimit);
+    let repoId = this.repoId;
+    let snapshot = (await this.repository.readKnowledgeView()).snapshot;
+    if (
+      !snapshot.domain.knowledge.some(
+        (k) => k.id === id && k.repoId === repoId,
+      ) &&
+      this.globalStore &&
+      (await this.globalStore.exists())
+    ) {
+      repoId = GLOBAL_STORE_ID;
+      snapshot = await this.globalStore.store.readSnapshot();
+    }
     const cursor =
       request.cursor === undefined
         ? undefined
-        : decodeEvidenceCursor(request.cursor, id, this.repoId);
-    const snapshot = (await this.repository.readKnowledgeView()).snapshot;
+        : decodeEvidenceCursor(request.cursor, id, repoId);
     const knowledge = snapshot.domain.knowledge.find(
       (item) =>
-        item.id === id &&
-        item.repoId === this.repoId &&
-        item.status === "active",
+        item.id === id && item.repoId === repoId && item.status === "active",
     );
     if (knowledge === undefined) {
       throw new KnowledgeReadError(
@@ -381,10 +443,38 @@ export class KnowledgeReadService {
       );
     }
 
+    if (isConversationKnowledge(document.frontmatter)) {
+      const { id, repo_id, revision, schema_version } = document.frontmatter;
+      return {
+        repo: this.repo,
+        evidence: [],
+        next_cursor: null,
+        conversation_summary: conversationSummary(
+          snapshot,
+          document.frontmatter,
+        ),
+        knowledge: {
+          id,
+          revision,
+          frontmatter: {
+            id,
+            repo_id,
+            revision,
+            schema_version,
+            rule: knowledge.rule,
+          },
+          detail: knowledge.rule,
+          code_example: null,
+          applied_count: knowledge.appliedCount,
+          evidence_count: knowledge.evidenceCount,
+          etag: knowledge.etag,
+          sources: [],
+          violation_count: knowledge.violationCount,
+        },
+      };
+    }
     const allEvidence = snapshot.domain.evidence
-      .filter(
-        (item) => item.knowledge_id === id && item.repo_id === this.repoId,
-      )
+      .filter((item) => item.knowledge_id === id && item.repo_id === repoId)
       .sort(compareEvidenceDescending);
     const afterCursor =
       cursor === undefined
@@ -393,7 +483,7 @@ export class KnowledgeReadService {
     const page = afterCursor.slice(0, evidenceLimit);
     const nextCursor =
       afterCursor.length > evidenceLimit
-        ? encodeEvidenceCursor(page.at(-1)!, id, this.repoId)
+        ? encodeEvidenceCursor(page.at(-1)!, id, repoId)
         : null;
 
     return {
@@ -414,6 +504,77 @@ export class KnowledgeReadService {
       repo: this.repo,
     };
   }
+}
+
+interface GlobalMatch extends RuleMatchAccumulator {
+  setByMcp?: boolean;
+}
+
+function rankGlobalRules(
+  global:
+    | Awaited<ReturnType<GlobalStore["store"]["readGlobalRules"]>>
+    | undefined,
+  files: string[],
+) {
+  const always: GlobalMatch[] = [];
+  const matches: GlobalMatch[] = [];
+  if (!global) return { always, matches };
+  const scopeMatches = new Map<string, boolean>();
+  const matchesFiles = (pattern: string) => {
+    if (!scopeMatches.has(pattern))
+      scopeMatches.set(pattern, scopeMatchReasons([pattern], files).length > 0);
+    return scopeMatches.get(pattern);
+  };
+  for (const knowledge of global.active) {
+    const setting = global.settings.get(knowledge.id);
+    if (setting) {
+      always.push({
+        knowledge,
+        taskScore: undefined,
+        reasons: [{ type: "global_store", via: "always" }],
+        setByMcp: setting.actor === "mcp",
+      });
+      continue;
+    }
+    const reasons: RuleMatchReason[] = [];
+    if (knowledge.scope.some(matchesFiles))
+      reasons.push({ type: "global_store", via: "scope" });
+    const taskScore = global.scores.get(knowledge.id);
+    if (taskScore !== undefined)
+      reasons.push({ type: "global_store", via: "task", score: taskScore });
+    if (reasons.length) matches.push({ knowledge, taskScore, reasons });
+  }
+  const severity = (a: GlobalMatch, b: GlobalMatch) =>
+    severityPriority(a.knowledge.severity) -
+    severityPriority(b.knowledge.severity);
+  const recent = (a: GlobalMatch, b: GlobalMatch) =>
+    Date.parse(b.knowledge.updatedAt) - Date.parse(a.knowledge.updatedAt) ||
+    compareCodeUnits(a.knowledge.id, b.knowledge.id);
+  always.sort((a, b) => severity(a, b) || recent(a, b));
+  matches.sort(
+    (a, b) =>
+      compareOptionalScores(a.taskScore, b.taskScore) ||
+      severity(a, b) ||
+      b.knowledge.appliedCount - a.knowledge.appliedCount ||
+      recent(a, b),
+  );
+  return { always, matches };
+}
+
+function globalRuleResult({
+  knowledge,
+  reasons,
+  setByMcp,
+}: GlobalMatch): GetRulesRule {
+  return {
+    id: knowledge.id,
+    rule: knowledge.rule,
+    severity: knowledge.severity,
+    evidence_count: knowledge.evidenceCount,
+    violation_count: knowledge.violationCount,
+    match_reasons: reasons,
+    ...(setByMcp ? { always_return_set_by: "mcp" as const } : {}),
+  };
 }
 
 const LEARNING_JOB_STATES: ReadonlySet<DistillJob["state"]> = new Set([

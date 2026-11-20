@@ -1,3 +1,4 @@
+import { GlobalStore } from "./global-store.js";
 import { statfs } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -117,6 +118,22 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
       this.storageRoot,
       this.filesystemTypeReader,
     );
+    const global = new GlobalStore(this.storageRoot);
+    try {
+      if (await global.exists())
+        report.add({
+          id: "global.store",
+          status: "pass",
+          path: global.reference.absolutePath,
+          message: "Personal global store (rk:global) is present.",
+        });
+    } catch (error) {
+      report.add({
+        id: "global.store",
+        status: "fail",
+        message: String(error),
+      });
+    }
     const config = storageExists
       ? await inspectConfig(report, this.storageRoot)
       : null;

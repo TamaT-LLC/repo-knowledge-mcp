@@ -38,6 +38,7 @@ export interface RepoKnowledgeCliIo {
 }
 
 export interface RepoKnowledgeServeRequest {
+  readonly allowAlwaysReturnChanges?: boolean;
   readonly startupRepo?: string;
   readonly startupWorkspace?: string;
 }
@@ -139,6 +140,10 @@ export interface CliRepositoryOperationsResolver {
 }
 
 export interface RunRepoKnowledgeCliOptions {
+  readonly globalStore?: Pick<
+    import("./global-store.js").GlobalStore,
+    "addActive" | "listAlwaysReturn" | "setAlwaysReturn" | "reindex"
+  >;
   readonly argv: readonly string[];
   readonly doctor: RepoKnowledgeDoctorLike;
   readonly io: RepoKnowledgeCliIo;
@@ -154,6 +159,16 @@ export interface RunRepoKnowledgeCliOptions {
 }
 
 export type ParsedCliCommand =
+  | { readonly kind: "reindex-global" | "always-return-list" }
+  | {
+      readonly kind: "always-return-change";
+      readonly id: string;
+      readonly enabled: boolean;
+    }
+  | {
+      readonly kind: "add-global";
+      readonly input: Parameters<AdminPlaneService["addActive"]>[0];
+    }
   | { readonly kind: "help" }
   | {
       readonly json?: true;
@@ -166,6 +181,7 @@ export type ParsedCliCommand =
     }
   | {
       readonly kind: "serve";
+      readonly allowAlwaysReturnChanges?: true;
       readonly selection: CliRepositorySelection;
     }
   | {
