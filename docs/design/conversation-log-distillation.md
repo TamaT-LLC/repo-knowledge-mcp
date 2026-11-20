@@ -986,7 +986,27 @@ cwd ごとに次の順で解決し、結果を `route-cache.json` に保存す�
 
 既存のラベルの一覧は、ラベルの数が 300 件以下ならすべてを渡す。
 300 件を超える場合は、入力のクラスタの代表発言と文字 3-gram の Jaccard 係数が高いラベルから 300 件を渡す。
-この場合だけ、一覧に入らなかったラベルとの一致を取りこぼしうる。
+一覧に入らなかったラベルとの一致は、次のラベル同士の照合で拾う。
+
+#### ラベル同士の照合
+
+統合の job で、既存のラベルを全件渡せなかったときに付いたラベルを「未照合のラベル」とする。
+未照合のラベルがあれば、`distill-conversations` はラベル同士の照合の job を作る。
+入力はラベルの文字列だけとし、発言本文や代表発言は送らない。
+
+1. 未照合のラベルを最大 40 件取る（組 P）
+2. 既存のすべてのラベルを、作られた順に 200 件ずつの塊に分ける
+3. 塊ごとに一つの job を作り、P と一つの塊を渡す。LLM は、同じ好みを表すラベルの組を返す
+4. すべての塊の job が終わったら、P のラベルを照合済みにする
+
+P のラベルは、すべての塊と一度ずつ同じ job に入る。P の中の組も、同じ job の中で比べられる。
+照合済みのラベル同士の組は、どちらかが未照合だったときに比べられている。
+そのため、すべてのラベルの組が少なくとも一度は同じ job に入る。
+
+一致した組は、新しい方のラベルを古い方のラベルの別名として `grouping-runs.jsonl` に `aliased` を記録する。
+サーバーは別名を古い方のラベルに置き換えて正規化後のラベルを比べ直し、一致したクラスタを `ClusterMerged` で束ねて、閾値を判定し直す。
+ラベル同士の照合の job も 1 回の実行の job 数の上限に数え、途中の塊で上限に達した場合は `deferred` に記録して、次の実行で残りの塊から続ける。
+送信条件は統合の job と同じとする。
 
 起動の条件は次のとおりとする。いずれかを満たせば、`distill-conversations` は未ラベルのクラスタがなくなるか 1 回の実行の job 数の上限（M4-NFR-007）に達するまで、40 件ずつ job を作る。
 
@@ -1005,7 +1025,7 @@ cwd ごとに次の順で解決し、結果を `route-cache.json` に保存す�
 - 経路は Provider だけとし、送信条件は蒸留と同じとする。host-assisted では行わない
 - `unresolved`、`unregistered` の発言と、`repoPolicies` で送信を拒否したリポジトリの発言は入力に含めない
 - 異なるプロジェクトのクラスタを束ねた場合は、束ねた後のクラスタの構成でストアを決める
-- ラベルを付けたクラスタは、新しいエピソードが加わってもラベルを付け直さない。束ねる判定はラベルの一致だけで行う
+- ラベルを付けたクラスタは、新しいエピソードが加わってもラベルを付け直さない。束ねる判定は、別名を置き換えた後のラベルの一致だけで行う
 - prompt と output schema は `conversation-group-v1` としてコードに持ち、digest を会話用の quality gate の baseline に結び付ける
 - 統合の job の状態は canonical ではなく会話データ領域の `grouping-runs.jsonl` に持つ。結果がクラスタの割り当てにしか影響しないためである
 
@@ -1017,9 +1037,13 @@ cwd ごとに次の順で解決し、結果を `route-cache.json` に保存す�
 | `labeled` | クラスタの ID、正規化前と正規化後のラベル、job の ID |
 | `deferred` | 実行の ID と、上限のために送れなかった未ラベルのクラスタの ID |
 | `failed` | 失敗した job の ID。そのクラスタは未ラベルのまま次の実行で再び送る |
+| `label_pending` | 既存のラベルを全件渡せなかった統合の job で付いたラベル（未照合のラベル） |
+| `label_compared` | ラベル同士の照合の job の ID、組 P のラベル、照合した塊の範囲。すべての塊が終わったときにラベルを照合済みにする |
+| `aliased` | 別名のラベルと、置き換え先の古いラベル、job の ID |
 
 未ラベルのクラスタは、`labeled` のないクラスタとする。
 直近の実行の `deferred` に残りがあれば、次の実行は繰り越しの条件で起動する。
+未照合のラベルがあれば、件数や日数に関係なくラベル同士の照合の job を作る。
 
 ### 7. job 作成
 
@@ -1856,9 +1880,9 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 ### PR5 Provider 経路
 
 - 依存: PR4d
-- 内容: `distill-conversations` での Provider 実行（文脈を含む入力、1 回の実行の job 数の上限）、`--group-pending` による手動の起動を含む閾値未満のクラスタの統合 job（`conversation-group-v1`、`ClusterMerged`、`grouping-runs.jsonl`）と会話用 quality gate への統合の指標の追加、送信条件の判定（`consentedMode`、`repoPolicies` の拒否優先）、setup での送信の同意と提供元の表示（文脈が既定で送信対象に入ることの表示を含む）
+- 内容: `distill-conversations` での Provider 実行（文脈を含む入力、1 回の実行の job 数の上限）、`--group-pending` による手動の起動を含む閾値未満のクラスタの統合 job とラベル同士の照合の job（`conversation-group-v1`、`ClusterMerged`、`grouping-runs.jsonl`）と会話用 quality gate への統合の指標の追加、送信条件の判定（`consentedMode`、`repoPolicies` の拒否優先）、setup での送信の同意と提供元の表示（文脈が既定で送信対象に入ることの表示を含む）
 - 変更ファイルの見込み: 新規 `src/provider-conversation-distillation-service.ts`、`src/provider-transmission.ts`、`src/setup-service.ts`、`src/cli-args.ts`
-- テスト: 送信条件の組み合わせの表テスト、review content の同意だけでは送らないこと（transmission spy）、`llm.mode` を変えた後に送らないこと、`grok` を含む各 mode での起動、文脈の設定を off にしたときに文脈が送られないこと、1 回の実行の送信量の上限、言い換えの二つの単独クラスタが統合されて閾値を満たし蒸留されること、未ラベルのクラスタが 31 件以上で別の job に分かれても、既存のラベルの再利用で束ねられること、上限で繰り越したクラスタが次の実行で件数と日数の条件を待たずに送られること、`--group-pending` で未ラベルが 1 件でも統合の job ができ自動の起動と同じ送信条件が適用されること（`grouping-runs.jsonl` の `sent`、`labeled`、`deferred`、`failed`）、統合の入力に `unresolved` と送信拒否リポジトリの発言が入らないこと、同じ組を二度送らないこと
+- テスト: 送信条件の組み合わせの表テスト、review content の同意だけでは送らないこと（transmission spy）、`llm.mode` を変えた後に送らないこと、`grok` を含む各 mode での起動、文脈の設定を off にしたときに文脈が送られないこと、1 回の実行の送信量の上限、言い換えの二つの単独クラスタが統合されて閾値を満たし蒸留されること、未ラベルのクラスタが 31 件以上で別の job に分かれても、既存のラベルの再利用で束ねられること、上限で繰り越したクラスタが次の実行で件数と日数の条件を待たずに送られること、既存のラベルが 300 件を超えたときにラベル同士の照合ですべての組が一度は同じ job に入ること、照合の job がラベルの文字列だけを送ること、`aliased` による束ね直し、`--group-pending` で未ラベルが 1 件でも統合の job ができ自動の起動と同じ送信条件が適用されること（`grouping-runs.jsonl` の `sent`、`labeled`、`deferred`、`failed`）、統合の入力に `unresolved` と送信拒否リポジトリの発言が入らないこと、同じ組を二度送らないこと
 - 完了条件: `distill-conversations` が Provider で proposed ナレッジを作る。統合の指標が会話用の quality gate に入り、`npm run quality:gate` が通る。Provider の起動引数（セッションを保存しない設定）が変わっていない。`src/cli-args.ts` と `src/setup-service.ts` の coverage 閾値を満たす
 
 ### PR6 export
@@ -1944,6 +1968,7 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 | M4-AC-050 | M4-FR-017 | prepare の後に構成発言の一部が削除された job の submit は、候補を一つも確定しない | 競合の単体テスト |
 | M4-AC-051 | M4-FR-017、M4-FR-021 | 保存期間で本文が消えた発言も、後から追加した削除条件に一致すれば、evidence が withdrawn になり、job が failed になり、submit が受け付けられない。異なるホームディレクトリの同じ相対パス（`/Users/alice/repo` と `/Users/bob/repo`）は区別され、指定しなかった側は影響を受けない | E2E |
 | M4-AC-055 | M4-FR-008、M4-FR-017 | `superseded_context` で終わった job は、削除された発言を除いた構成がなお閾値を満たす場合に、再蒸留の条件の「未完了の終了」で作り直される | 単体テスト |
+| M4-AC-056 | M4-FR-008 | 既存のラベルが 300 件を超えて統合の job に渡せなかったラベルも、ラベル同士の照合ですべての既存ラベルと一度は比べられ、同じ好みなら別名として束ねられる。照合の job はラベルの文字列だけを送り、上限で止まった場合は次の実行で残りの塊から続く | 単体テストと transmission spy |
 | M4-AC-052 | M4-FR-022、M4-FR-024 | `get_rules` の返却集合に、矛盾として記録された active な組が残らず、返すはずのリポジトリのルールが矛盾を理由に落ちることもない | 単体テスト（`limit`、件数、矛盾の組み合わせの表） |
 | M4-AC-053 | M4-FR-008 | 未ラベルのクラスタが 1 回の job や 1 回の実行の上限を超えても、繰り越した分は次の実行で件数と日数の条件を待たずに送られる。`--group-pending` では未ラベルのクラスタが 1 件でも統合の job ができ、送信の同意がない場合や除外対象の発言だけの場合は作られない | 単体テストと transmission spy |
 | M4-AC-054 | M4-FR-011 | `unregistered` と `no_repository` が混ざったクラスタで、`unregistered` の発言が job の入力に入らない | 単体テストと transmission spy |
@@ -1962,7 +1987,7 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 | M4-FR-005 | M4-AC-006 | PR3 |
 | M4-FR-006 | M4-AC-007 | PR2、PR3 |
 | M4-FR-007 | M4-AC-008、M4-AC-048 | PR3 |
-| M4-FR-008 | M4-AC-009、M4-AC-047、M4-AC-053、M4-AC-055 | PR4a、PR4b、PR5 |
+| M4-FR-008 | M4-AC-009、M4-AC-047、M4-AC-053、M4-AC-055、M4-AC-056 | PR4a、PR4b、PR5 |
 | M4-FR-009 | M4-AC-010、M4-AC-027 | PR1、PR4a |
 | M4-FR-010 | M4-AC-011、M4-AC-012、M4-AC-045 | PR1 |
 | M4-FR-011 | M4-AC-013、M4-AC-014、M4-AC-015、M4-AC-054 | PR4b、PR5 |
