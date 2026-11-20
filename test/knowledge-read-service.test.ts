@@ -602,6 +602,26 @@ describe("KnowledgeReadService.getRules", () => {
     ).toEqual(matching.sort());
   });
 
+  it("treats a leading exclamation mark as a member of a stored bracket range", async () => {
+    const repository = await createRepository();
+    const pattern = "rank/[!0-9].ts";
+    await writeKnowledge(repository, {
+      rule: "Rank guidance",
+      scope: [pattern],
+    });
+    const result = await service(repository).getRules({
+      filePaths: ["rank/!.ts", "rank/3.ts", "rank/a.ts"],
+    });
+
+    expect(result.rules[0]?.match_reasons).toEqual(
+      ["rank/!.ts", "rank/3.ts"].map((file_path) => ({
+        file_path,
+        pattern,
+        type: "scope",
+      })),
+    );
+  });
+
   it("matches the directory itself for a brace alternative followed by a globstar", async () => {
     const repository = await createRepository();
     const pattern = "src/{api,cli}/**";

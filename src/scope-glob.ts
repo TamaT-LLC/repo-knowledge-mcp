@@ -20,13 +20,12 @@ function withBracketAlternatives(pattern: string): string {
     (token) => {
       if (!token.startsWith("[")) return token;
       const members = token.slice(1, -1);
+      // A leading ! is a literal member, including in ranges like [!0-9].
+      const charClass = token.replace(/^\[!/u, "[\\!");
       // Ranges and other class expressions only match a character.
-      if (/[-*+?.^${}()|[\]\\]/u.test(members)) return token;
-      const text = members.replaceAll(",", "\\,");
-      // In these stored classes a leading ! is a literal member.
-      const charClass = text.replace(/^!/u, "\\!");
+      if (/[-*+?.^${}()|[\]\\]/u.test(members)) return charClass;
       // A local choice avoids brace-expanding every combination of classes.
-      return `@(\\[${text}\\]|[${charClass}])`;
+      return `@(\\[${members}\\]|${charClass})`.replaceAll(",", "\\,");
     },
   );
   return rewritten === quoted ? pattern : rewritten;
