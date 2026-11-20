@@ -6,14 +6,41 @@ function relativePattern(pattern: string): string {
   return ScopePatternSchema.parse(pattern).replace(/^\.\//u, "");
 }
 
+/** Older stored scopes match a simple class such as [id] both ways. */
+function withBracketAlternatives(pattern: string): string {
+  if (!pattern.includes("[")) return pattern;
+
+  // Quote user-supplied group syntax before introducing our own alternatives.
+  const quoted = pattern.replace(/\\[\s\S]|[()|]/gu, (token) =>
+    token.startsWith("\\") ? token : `\\${token}`,
+  );
+  // Consume escapes and whole classes, including POSIX classes like [[:digit:]].
+  const rewritten = quoted.replace(
+    /\\[\s\S]|\[(?:\\[\s\S]|\[:[a-z]+:\]|[^\]\\/])+\]/gu,
+    (token) => {
+      if (!token.startsWith("[")) return token;
+      const members = token.slice(1, -1);
+      // Ranges and other class expressions only match a character.
+      if (/[-*+?.^${}()|[\]\\]/u.test(members)) return token;
+      const text = members.replaceAll(",", "\\,");
+      // In these stored classes a leading ! is a literal member.
+      const charClass = text.replace(/^!/u, "\\!");
+      // A local choice avoids brace-expanding every combination of classes.
+      return `@(\\[${text}\\]|[${charClass}])`;
+    },
+  );
+  return rewritten === quoted ? pattern : rewritten;
+}
+
 /** Scope paths are repo-relative POSIX paths, including hidden files. */
 export function compileScopeGlob(pattern: string): (path: string) => boolean {
   const relative = relativePattern(pattern);
-  const matcher = new Minimatch(relative, {
+  const matchPattern = withBracketAlternatives(relative);
+  const matcher = new Minimatch(matchPattern, {
     dot: true,
     nocase: false,
     nocomment: true,
-    noext: true,
+    noext: matchPattern === relative,
     nonegate: true,
     optimizationLevel: 0,
     platform: "linux",

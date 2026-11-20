@@ -562,6 +562,46 @@ describe("KnowledgeReadService.getRules", () => {
     ]);
   });
 
+  it("reads saved scopes with both literal brackets and character classes", async () => {
+    const repository = await createRepository();
+    const scope = [
+      "app/[id]/**",
+      "{pages,api}/[ab]-[cd]/[0-9].ts",
+      "rank/[!x]/[[:digit:]].ts",
+      "src/@(api|cli)/[id]/**",
+    ];
+    await writeKnowledge(repository, { rule: "Saved route scopes", scope });
+    const matching = [
+      "app/[id]/page.ts",
+      "app/i/page.ts",
+      "app/d/page.ts",
+      "pages/[ab]-d/1.ts",
+      "pages/a-[cd]/2.ts",
+      "api/[ab]-[cd]/3.ts",
+      "rank/[!x]/3.ts",
+      "rank/!/4.ts",
+      "src/@(api|cli)/[id]/index.ts",
+    ];
+    const result = await service(repository).getRules({
+      filePaths: [
+        ...matching,
+        "app/x/page.ts",
+        "pages/[ab]-d/[0-9].ts",
+        "rank/y/5.ts",
+        "rank/x/[[:digit:]].ts",
+        "src/api/[id]/index.ts",
+      ],
+    });
+
+    expect(
+      result.rules[0]?.match_reasons
+        .map((reason) =>
+          reason.type === "scope" ? reason.file_path : reason.type,
+        )
+        .sort(),
+    ).toEqual(matching.sort());
+  });
+
   it("matches the directory itself for a brace alternative followed by a globstar", async () => {
     const repository = await createRepository();
     const pattern = "src/{api,cli}/**";
