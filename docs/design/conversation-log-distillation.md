@@ -975,6 +975,8 @@ cwd ごとに次の順で解決し、結果を `route-cache.json` に保存す�
 #### 閾値未満のクラスタの統合
 
 閾値に届かないクラスタのうち、まだ統合の判定を受けていないもの（未判定のクラスタ）が 10 件以上ある場合、または未判定のクラスタが 1 件以上あり、その最も古いものが 7 日以上前に未判定になった場合に、`distill-conversations` は統合の job を作る。
+利用者が `distill-conversations --group-pending` を指定した場合は、未判定のクラスタが 2 件以上あれば、件数や日数に関係なく統合の job を作る。
+手動の起動にも、自動の起動と同じ条件（送信の同意、`repoPolicies` の拒否、`unregistered` と `unresolved` の除外、1 回の実行の job 数の上限）を適用する。
 1 回の job の入力は最大 40 件とし、未判定のクラスタを古い順に最大 30 件と、直近に判定を受けた閾値未満のクラスタを最大 10 件入れる。後者は、別の job で判定されたクラスタとの言い換えを拾うためである。
 未判定のクラスタが 30 件を超える場合は、同じ実行で続けて job を作り、1 回の実行の job 数の上限（M4-NFR-007）に達した残りは次の実行に回す。
 入力は、クラスタごとの代表発言（マスク後、200 字まで、文脈なし）とし、job 内の別名でクラスタを示す。
@@ -1506,7 +1508,7 @@ interface ConversationFinalizeJob extends ConversationJobBase {
 | command | 内容 | PR |
 | --- | --- | --- |
 | `repo-knowledge ingest-conversations [--source claude-code\|codex\|all] [--since <iso>] [--dry-run] [--json]` | 収集からプロジェクト解決まで。`--dry-run` は保存せずに統計だけを出す | PR3 |
-| `repo-knowledge distill-conversations [--store repository\|global\|all] [--repo <owner/name>] [--plan] [--limit <n>]` | クラスタ化と job 作成。`--plan` は job を作らずに予定だけを出す。Provider の同意がある場合は蒸留まで実行する | PR4a、PR5 |
+| `repo-knowledge distill-conversations [--store repository\|global\|all] [--repo <owner/name>] [--plan] [--limit <n>] [--group-pending]` | クラスタ化と job 作成。`--plan` は job を作らずに予定だけを出す。Provider の同意がある場合は蒸留まで実行する。`--group-pending` は未判定のクラスタが 2 件以上あれば統合の job を作る | PR4a、PR5 |
 | `repo-knowledge conversations status [--json]` | M4-FR-018 の統計。未登録リポジトリと保留中の発言件数、送信字数の累計、常時返却の一覧と操作した側を含む | PR1、PR2、PR3、PR4a |
 | `repo-knowledge conversations purge (--session <id> \| --before <iso> \| --source <name> \| --project <owner/name\|path>) [--yes]` | 発言の削除（M4-FR-017） | PR2、PR4a、PR4b |
 | `repo-knowledge conversations reset-key [--yes] [--restart]` | 鍵の作り直し。`--restart` は鍵ファイルが失われて再開できないときに 0 段目からやり直す | PR2、PR4b |
@@ -1832,9 +1834,9 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 ### PR5 Provider 経路
 
 - 依存: PR4d
-- 内容: `distill-conversations` での Provider 実行（文脈を含む入力、1 回の実行の job 数の上限）、閾値未満のクラスタの統合 job（`conversation-group-v1`、`ClusterMerged`、`grouping-runs.jsonl`）と会話用 quality gate への統合の指標の追加、送信条件の判定（`consentedMode`、`repoPolicies` の拒否優先）、setup での送信の同意と提供元の表示（文脈が既定で送信対象に入ることの表示を含む）
+- 内容: `distill-conversations` での Provider 実行（文脈を含む入力、1 回の実行の job 数の上限）、`--group-pending` による手動の起動を含む閾値未満のクラスタの統合 job（`conversation-group-v1`、`ClusterMerged`、`grouping-runs.jsonl`）と会話用 quality gate への統合の指標の追加、送信条件の判定（`consentedMode`、`repoPolicies` の拒否優先）、setup での送信の同意と提供元の表示（文脈が既定で送信対象に入ることの表示を含む）
 - 変更ファイルの見込み: 新規 `src/provider-conversation-distillation-service.ts`、`src/provider-transmission.ts`、`src/setup-service.ts`、`src/cli-args.ts`
-- テスト: 送信条件の組み合わせの表テスト、review content の同意だけでは送らないこと（transmission spy）、`llm.mode` を変えた後に送らないこと、`grok` を含む各 mode での起動、文脈の設定を off にしたときに文脈が送られないこと、1 回の実行の送信量の上限、言い換えの二つの単独クラスタが統合されて閾値を満たし蒸留されること、未判定のクラスタが 40 件を超えたときに後続の job と次の実行で判定されること（`grouping-runs.jsonl` の `pending`、`sent`、`judged`、`failed`）、統合の入力に `unresolved` と送信拒否リポジトリの発言が入らないこと、同じ組を二度送らないこと
+- テスト: 送信条件の組み合わせの表テスト、review content の同意だけでは送らないこと（transmission spy）、`llm.mode` を変えた後に送らないこと、`grok` を含む各 mode での起動、文脈の設定を off にしたときに文脈が送られないこと、1 回の実行の送信量の上限、言い換えの二つの単独クラスタが統合されて閾値を満たし蒸留されること、未判定のクラスタが 40 件を超えたときに後続の job と次の実行で判定されること、`--group-pending` で未判定が 2 件でも統合の job ができ自動の起動と同じ送信条件が適用されること（`grouping-runs.jsonl` の `pending`、`sent`、`judged`、`failed`）、統合の入力に `unresolved` と送信拒否リポジトリの発言が入らないこと、同じ組を二度送らないこと
 - 完了条件: `distill-conversations` が Provider で proposed ナレッジを作る。統合の指標が会話用の quality gate に入り、`npm run quality:gate` が通る。Provider の起動引数（セッションを保存しない設定）が変わっていない。`src/cli-args.ts` と `src/setup-service.ts` の coverage 閾値を満たす
 
 ### PR6 export
@@ -1920,7 +1922,7 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 | M4-AC-050 | M4-FR-017 | prepare の後に構成発言の一部が削除された job の submit は、候補を一つも確定しない | 競合の単体テスト |
 | M4-AC-051 | M4-FR-017、M4-FR-021 | 保存期間で本文が消えた発言も、後から追加した削除条件に一致すれば、evidence が withdrawn になり、job が failed になり、submit が受け付けられない | E2E |
 | M4-AC-052 | M4-FR-022、M4-FR-024 | `get_rules` の返却集合に、矛盾として記録された active な組が残らない。補充したリポジトリのルールと選択済みのグローバルルールが矛盾する場合を含む | 単体テスト（組み合わせの表） |
-| M4-AC-053 | M4-FR-008 | 未判定のクラスタが 1 回の job の上限を超えても、後続の job か次の実行で必ず統合の判定を受ける | 単体テスト |
+| M4-AC-053 | M4-FR-008 | 未判定のクラスタが 1 回の job の上限を超えても、後続の job か次の実行で必ず統合の判定を受ける。`--group-pending` では未判定のクラスタが 2 件でも統合の job ができ、送信の同意がない場合や除外対象の発言だけの場合は作られない | 単体テストと transmission spy |
 | M4-AC-054 | M4-FR-011 | `unregistered` と `no_repository` が混ざったクラスタで、`unregistered` の発言が job の入力に入らない | 単体テストと transmission spy |
 | M4-AC-042 | M4-NFR-007 | 1 job と 1 回の実行の送信量が上限を超えず、超える分は切り詰めるか次回に回す | 単体テストと transmission spy |
 
