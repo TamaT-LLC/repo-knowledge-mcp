@@ -56,9 +56,7 @@ export async function serveDefaultRepoKnowledgeStdio(
   );
 
   return serveRepoKnowledgeStdio({
-    ...(selection.allowAlwaysReturnChanges
-      ? { allowAlwaysReturnChanges: true }
-      : {}),
+    ...selection,
     mutationServiceResolver: options.mutationServiceResolver ?? {
       async resolve() {
         throw new MutationRuntimeUnavailableError();
@@ -75,12 +73,6 @@ export async function serveDefaultRepoKnowledgeStdio(
       },
     },
     readServiceResolver,
-    ...(selection.startupRepo === undefined
-      ? {}
-      : { startupRepo: selection.startupRepo }),
-    ...(selection.startupWorkspace === undefined
-      ? {}
-      : { startupWorkspace: selection.startupWorkspace }),
     ...(options.transport === undefined
       ? {}
       : { transport: options.transport }),
@@ -98,17 +90,20 @@ class MutationRuntimeUnavailableError extends Error {
   }
 }
 
-/** Parses the two startup selectors supported by the dedicated stdio entry. */
+/** Parses startup selectors and the always-return change flag supported by the dedicated stdio entry. */
 export function parseStdioEntryArguments(
   argv: readonly string[],
 ): StdioEntrySelection {
-  const options = new Map<string, string | true>();
-  const tokens = argv.values();
-  for (const token of tokens) {
+  let allowAlwaysReturnChanges = false;
+  let startupRepo: string | undefined;
+  let startupWorkspace: string | undefined;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index]!;
     if (token === "--allow-always-return-changes") {
-      if (options.has(token))
+      if (allowAlwaysReturnChanges)
         throw new TypeError("duplicate --allow-always-return-changes");
-      options.set(token, true);
+      allowAlwaysReturnChanges = true;
       continue;
     }
     const equal = token.indexOf("=");
@@ -117,29 +112,37 @@ export function parseStdioEntryArguments(
       throw new TypeError(`unsupported stdio option: ${token}`);
     }
     const value =
-      equal >= 0
-        ? token.slice(equal + 1)
-        : requireValue(tokens.next().value, name);
-    if (value.trim().length === 0)
+      equal >= 0 ? token.slice(equal + 1) : requireValue(argv, ++index, name);
+    if (value.trim().length === 0) {
       throw new TypeError(`${name} requires a non-empty value`);
-    if (options.has(name)) throw new TypeError(`${name} was repeated`);
-    options.set(name, name === "--repo" ? parseRepositoryName(value) : value);
+    }
+    if (name === "--repo") {
+      if (startupRepo !== undefined) throw new TypeError("--repo was repeated");
+      startupRepo = parseRepositoryName(value);
+    } else {
+      if (startupWorkspace !== undefined) {
+        throw new TypeError("--workspace was repeated");
+      }
+      startupWorkspace = value;
+    }
   }
-  const startupRepo = options.get("--repo");
-  const startupWorkspace = options.get("--workspace");
+
   if (startupRepo !== undefined && startupWorkspace !== undefined) {
     throw new TypeError("--repo and --workspace are mutually exclusive");
   }
   return {
-    ...(options.has("--allow-always-return-changes")
-      ? { allowAlwaysReturnChanges: true }
-      : {}),
-    ...(typeof startupRepo === "string" ? { startupRepo } : {}),
-    ...(typeof startupWorkspace === "string" ? { startupWorkspace } : {}),
+    ...(allowAlwaysReturnChanges ? { allowAlwaysReturnChanges } : {}),
+    ...(startupRepo === undefined ? {} : { startupRepo }),
+    ...(startupWorkspace === undefined ? {} : { startupWorkspace }),
   };
 }
 
-function requireValue(value: string | undefined, name: string): string {
+function requireValue(
+  argv: readonly string[],
+  index: number,
+  name: string,
+): string {
+  const value = argv[index];
   if (value === undefined || value.startsWith("--")) {
     throw new TypeError(`${name} requires a value`);
   }

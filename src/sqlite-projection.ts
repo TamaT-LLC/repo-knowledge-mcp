@@ -286,17 +286,8 @@ export class SqliteCanonicalProjection {
   /** The writer lock covers recovery, checking canonical files, and the SQLite query. */
   async readGlobalRules(task?: string) {
     if (!this.global) throw new Error("Expected a global store");
-    const directory = join(this.repositoryRoot, "knowledge");
-    const documents = await readdir(directory, { withFileTypes: true }).catch(
-      (error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return [];
-        throw error;
-      },
-    );
     const paths = [
-      ...documents
-        .filter((e) => e.name.endsWith(".md"))
-        .map((e) => `knowledge/${e.name}`),
+      ...(await knowledgeDocumentPaths(this.repositoryRoot)),
       ...(await findCanonicalJsonlPaths(this.repositoryRoot)),
     ].sort(compareCodeUnits);
     // In-place edits and atomic replacement both invalidate the verified snapshot.
@@ -1529,9 +1520,9 @@ async function captureCanonicalState(
   };
 }
 
-async function captureKnowledge(
+async function knowledgeDocumentPaths(
   repositoryRoot: string,
-): Promise<CapturedKnowledge[]> {
+): Promise<string[]> {
   const directory = join(repositoryRoot, "knowledge");
   let entries: Dirent[];
   try {
@@ -1541,21 +1532,28 @@ async function captureKnowledge(
     throw error;
   }
 
-  const markdownEntries = entries
+  return entries
     .filter((entry) => entry.name.endsWith(".md"))
-    .sort((a, b) => compareCodeUnits(a.name, b.name));
+    .map((entry) => {
+      const path = `knowledge/${entry.name}`;
+      if (!entry.isFile())
+        throw new KnowledgeStoreInvalidError(
+          path,
+          "knowledge entries must be regular files, not links or directories",
+        );
+      return path;
+    })
+    .sort(compareCodeUnits);
+}
+
+async function captureKnowledge(
+  repositoryRoot: string,
+): Promise<CapturedKnowledge[]> {
   const seenIds = new Map<string, string>();
   const result: CapturedKnowledge[] = [];
 
-  for (const entry of markdownEntries) {
-    const targetPath = `knowledge/${entry.name}`;
-    if (!entry.isFile()) {
-      throw new KnowledgeStoreInvalidError(
-        targetPath,
-        "knowledge entries must be regular files, not links or directories",
-      );
-    }
-    const absolutePath = join(directory, entry.name);
+  for (const targetPath of await knowledgeDocumentPaths(repositoryRoot)) {
+    const absolutePath = join(repositoryRoot, targetPath);
     const [bytes, metadata] = await Promise.all([
       readFile(absolutePath),
       stat(absolutePath, { bigint: true }),

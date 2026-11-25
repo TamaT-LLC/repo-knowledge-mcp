@@ -17,7 +17,6 @@ import {
   type AlwaysReturnResult,
 } from "./global-always-return.js";
 import { createDomainId } from "./ids.js";
-import type { CanonicalProjectionSnapshot } from "./sqlite-projection.js";
 import { KnowledgeIdSchema } from "./domain-schemas.js";
 
 export type StoreReference =
@@ -28,20 +27,6 @@ export function openStore(ref: StoreReference) {
   return new CanonicalTransactionStore(ref.absolutePath, {
     global: ref.kind === "global",
   });
-}
-
-function activeSettings(
-  snapshot: CanonicalProjectionSnapshot,
-  configured: ReturnType<typeof latestAlwaysReturn>,
-) {
-  const active = new Set(
-    snapshot.domain.knowledge
-      .filter((k) => k.repoId === GLOBAL_STORE_ID && k.status === "active")
-      .map((k) => k.id),
-  );
-  return [...configured.values()].filter(
-    (e) => e.enabled && active.has(e.knowledge_id),
-  );
 }
 
 export class GlobalStore {
@@ -167,13 +152,18 @@ export class GlobalStore {
         (k) => k.id === id && k.repoId === GLOBAL_STORE_ID,
       );
       const configured = latestAlwaysReturn(snapshot.records);
-      const settings = activeSettings(snapshot, configured);
+      const activeCount = snapshot.domain.knowledge.filter(
+        (k) =>
+          k.repoId === GLOBAL_STORE_ID &&
+          k.status === "active" &&
+          configured.has(k.id),
+      ).length;
       const current = configured.get(id);
       const isActive = knowledge?.status === "active";
       const result = {
         knowledge_id: id,
         always_return: !!current && isActive,
-        always_return_count: settings.length,
+        always_return_count: activeCount,
         ...(current ? { set_by: current.actor } : {}),
       };
       const reject = (reason: NonNullable<AlwaysReturnResult["reason"]>) => ({
@@ -222,8 +212,7 @@ export class GlobalStore {
           knowledge_id: id,
           state: "changed",
           always_return: enabled,
-          always_return_count:
-            settings.length + (enabled ? 1 : isActive ? -1 : 0),
+          always_return_count: activeCount + (enabled ? 1 : isActive ? -1 : 0),
           ...(enabled ? { set_by: actor.actor } : {}),
         },
       };

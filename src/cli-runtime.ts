@@ -12,6 +12,7 @@ import {
   runRepoKnowledgeCli,
   type CliRepositoryOperationsResolver,
   type RepoKnowledgeCliIo,
+  type RepoKnowledgeServeRequest,
 } from "./cli.js";
 import { CanonicalCliRepositoryOperationsResolver } from "./cli-maintenance-service.js";
 import { initializeStorage, updateRepoKnowledgeConfig } from "./config.js";
@@ -65,11 +66,9 @@ export interface DefaultCliRuntime {
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
   readonly operationsResolver: CliRepositoryOperationsResolver;
   readonly readServiceResolver: KnowledgeReadServiceResolver;
-  serve(request: {
-    readonly allowAlwaysReturnChanges?: boolean;
-    readonly startupRepo?: string;
-    readonly startupWorkspace?: string;
-  }): ReturnType<typeof serveRepoKnowledgeStdio>;
+  serve(
+    request: RepoKnowledgeServeRequest,
+  ): ReturnType<typeof serveRepoKnowledgeStdio>;
 }
 
 export interface CreateDefaultCliRuntimeOptions {

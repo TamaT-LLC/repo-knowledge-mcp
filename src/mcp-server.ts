@@ -615,33 +615,14 @@ export function createStderrLogger(): Logger {
 export function serveRepoKnowledgeStdio(
   options: ServeRepoKnowledgeStdioOptions,
 ): StdioServerHandle {
-  const logger = options.logger ?? createStderrLogger();
-  const buildOptions: BuildServerOptions = {
-    ...(options.allowAlwaysReturnChanges
-      ? { allowAlwaysReturnChanges: true }
-      : {}),
-    ...(options.instructions === undefined
-      ? {}
-      : { instructions: options.instructions }),
-    mutationServiceResolver: options.mutationServiceResolver,
-    readServiceResolver: options.readServiceResolver,
-    ...(options.startupRepo === undefined
-      ? {}
-      : { startupRepo: options.startupRepo }),
-    ...(options.startupWorkspace === undefined
-      ? {}
-      : { startupWorkspace: options.startupWorkspace }),
-    ...(options.version === undefined ? {} : { version: options.version }),
-  };
+  const { logger = createStderrLogger(), transport, ...buildOptions } = options;
 
   return serveStdio(() => buildServer(buildOptions), {
     legacy: "serve",
     onerror(error) {
       logger.error({ err: error }, "MCP stdio transport error");
     },
-    ...(options.transport === undefined
-      ? {}
-      : { transport: options.transport }),
+    ...(transport === undefined ? {} : { transport }),
   });
 }
 

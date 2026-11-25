@@ -555,27 +555,29 @@ function parseAddActive(args: readonly string[]): ParsedCliCommand {
       throw usage(`add --${global ? "global" : "active"} requires --${name}`);
     return value;
   };
-  const input = {
-    category: parseSchema(
-      KnowledgeCategorySchema,
-      required("category"),
-      "category",
-    ),
-    detail: parseNonEmpty(required("detail"), "detail"),
-    ...(parsed.repeated.has("related-id")
-      ? {
-          related_ids: parsed.repeated
-            .get("related-id")!
-            .map((id) => parseSchema(KnowledgeIdSchema, id, "related-id")),
-        }
-      : {}),
-    rule: parseNonEmpty(required("rule"), "rule"),
-    scope: parsed.repeated.get("scope") ?? [],
-    severity: parseSchema(SeveritySchema, required("severity"), "severity"),
+  return {
+    input: {
+      category: parseSchema(
+        KnowledgeCategorySchema,
+        required("category"),
+        "category",
+      ),
+      detail: parseNonEmpty(required("detail"), "detail"),
+      ...(parsed.repeated.has("related-id")
+        ? {
+            related_ids: parsed.repeated
+              .get("related-id")!
+              .map((id) => parseSchema(KnowledgeIdSchema, id, "related-id")),
+          }
+        : {}),
+      rule: parseNonEmpty(required("rule"), "rule"),
+      scope: parsed.repeated.get("scope") ?? [],
+      severity: parseSchema(SeveritySchema, required("severity"), "severity"),
+    },
+    ...(global
+      ? { kind: "add-global" as const }
+      : { kind: "add-active" as const, selection: selection(parsed) }),
   };
-  return global
-    ? { kind: "add-global", input }
-    : { kind: "add-active", input, selection: selection(parsed) };
 }
 
 interface CollectedOptions {

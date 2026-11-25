@@ -329,20 +329,18 @@ export class KnowledgeReadService {
       ),
       repo: this.repo,
       rules: [
-        ...local.map(({ knowledge, reasons }) => {
-          const exampleUrl = exampleUrls.get(knowledge.id);
+        ...local.map((item) => {
+          const exampleUrl = exampleUrls.get(item.knowledge.id);
           return {
-            evidence_count: knowledge.evidenceCount,
+            ...ruleResult(item),
             ...(exampleUrl === undefined ? {} : { example_url: exampleUrl }),
-            id: knowledge.id,
-            match_reasons: reasons,
-            rule: knowledge.rule,
-            severity: knowledge.severity,
-            violation_count: knowledge.violationCount,
           };
         }),
-        ...always.map((item) => globalRuleResult(item)),
-        ...matched.map((item) => globalRuleResult(item)),
+        ...always.map((item) => ({
+          ...ruleResult(item),
+          ...(item.setByMcp ? { always_return_set_by: "mcp" as const } : {}),
+        })),
+        ...matched.map(ruleResult),
       ],
       truncated: matchedCount > local.length,
     };
@@ -564,11 +562,10 @@ function rankGlobalRules(
   return { always, matches };
 }
 
-function globalRuleResult({
+function ruleResult({
   knowledge,
   reasons,
-  setByMcp,
-}: GlobalMatch): GetRulesRule {
+}: RuleMatchAccumulator): GetRulesRule {
   return {
     id: knowledge.id,
     rule: knowledge.rule,
@@ -576,7 +573,6 @@ function globalRuleResult({
     evidence_count: knowledge.evidenceCount,
     violation_count: knowledge.violationCount,
     match_reasons: reasons,
-    ...(setByMcp ? { always_return_set_by: "mcp" as const } : {}),
   };
 }
 

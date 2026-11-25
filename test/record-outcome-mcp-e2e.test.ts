@@ -16,7 +16,10 @@ import { GlobalStore } from "../src/global-store.js";
 import { createDomainId } from "../src/ids.js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { runJsonRpcOverStdio } from "./helpers/stdio-jsonrpc-client.js";
+import {
+  type JsonRpcFrame as JsonRpcReply,
+  runJsonRpcOverStdio,
+} from "./helpers/stdio-jsonrpc-client.js";
 import {
   CanonicalTransactionStore,
   KnowledgeReadService,
@@ -47,13 +50,8 @@ const CREATED_AT = "2026-08-06T00:00:00.000Z";
 const OUTCOME_AT = "2026-08-07T00:00:00.000Z";
 const E2E_TIMEOUT_MS = 120_000;
 
-interface JsonRpcReply {
-  readonly error?: unknown;
-  readonly id?: number | string;
-  readonly result?: unknown;
-}
-
 interface OutcomeEnvironment {
+  readonly repositoryRoot: string;
   readonly env: NodeJS.ProcessEnv;
   readonly storageRoot: string;
 }
@@ -211,11 +209,6 @@ describe("personal rules over CLI and MCP", () => {
   }, async () => {
     const environment = await createOutcomeEnvironment();
     const global = new GlobalStore(environment.storageRoot);
-    const cli = (...args: string[]) =>
-      execa(process.execPath, ["dist/bin.js", ...args], {
-        env: environment.env,
-        reject: false,
-      });
     const tool = async (name: string, args: Record<string, unknown>) =>
       structuredContent(
         await runServe(
@@ -225,6 +218,8 @@ describe("personal rules over CLI and MCP", () => {
         ),
         2,
       );
+    const setAlwaysReturn = (knowledge_id: string, enabled: boolean) =>
+      tool("set_global_always_return", { knowledge_id, enabled });
     const before = await runServe(environment, [
       request(2, "tools/list", {}),
       callTool(3, "get_rules", { repo: REPOSITORY, file_paths: ["src/x.ts"] }),
@@ -324,7 +319,7 @@ finally:
       (rule) => rule.status === "active",
     )!;
     const id = original.id;
-    expect((await cli("reindex", "--global")).exitCode).toBe(0);
+    expect((await runCli(environment, "reindex", "--global")).exitCode).toBe(0);
     expect(
       (await global.store.readSnapshot()).domain.knowledge.find(
         (rule) => rule.id === id,
@@ -337,34 +332,28 @@ finally:
       (await stat(join(global.reference.absolutePath, "knowledge", `${id}.md`)))
         .mode & 0o777,
     ).toBe(0o600);
-    expect((await cli("always-return", "add", id)).exitCode).toBe(0);
     expect(
-      await tool("set_global_always_return", {
-        knowledge_id: id,
-        enabled: false,
-      }),
-    ).toMatchObject({ state: "rejected", reason: "set_by_cli" });
+      (await runCli(environment, "always-return", "add", id)).exitCode,
+    ).toBe(0);
+    expect(await setAlwaysReturn(id, false)).toMatchObject({
+      state: "rejected",
+      reason: "set_by_cli",
+    });
+    expect(await setAlwaysReturn(ACTIVE_ID, true)).toMatchObject({
+      reason: "not_global",
+    });
     expect(
-      await tool("set_global_always_return", {
-        knowledge_id: ACTIVE_ID,
-        enabled: true,
-      }),
-    ).toMatchObject({ reason: "not_global" });
-    expect((await cli("always-return", "remove", id)).exitCode).toBe(0);
+      (await runCli(environment, "always-return", "remove", id)).exitCode,
+    ).toBe(0);
+    expect(await setAlwaysReturn(id, true)).toMatchObject({
+      state: "changed",
+      set_by: "mcp",
+    });
+    expect(await setAlwaysReturn(id, true)).toMatchObject({
+      state: "unchanged",
+    });
     expect(
-      await tool("set_global_always_return", {
-        knowledge_id: id,
-        enabled: true,
-      }),
-    ).toMatchObject({ state: "changed", set_by: "mcp" });
-    expect(
-      await tool("set_global_always_return", {
-        knowledge_id: id,
-        enabled: true,
-      }),
-    ).toMatchObject({ state: "unchanged" });
-    expect(
-      JSON.parse((await cli("always-return", "list")).stdout),
+      JSON.parse((await runCli(environment, "always-return", "list")).stdout),
     ).toMatchObject([
       {
         actor: "mcp",
@@ -452,7 +441,9 @@ finally:
       ok: true,
       result: { replayed: false, applied_count: 2 },
     });
-    expect((await cli("always-return", "remove", id)).exitCode).toBe(0);
+    expect(
+      (await runCli(environment, "always-return", "remove", id)).exitCode,
+    ).toBe(0);
     expect(
       (
         await stat(
@@ -523,13 +514,8 @@ finally:
         },
       })),
     });
-    const cli = (...args: string[]) =>
-      execa(process.execPath, ["dist/bin.js", ...args], {
-        env: env.env,
-        reject: false,
-      });
     const simultaneous = await Promise.all(
-      ids.slice(0, 4).map((id) => cli("always-return", "add", id)),
+      ids.slice(0, 4).map((id) => runCli(env, "always-return", "add", id)),
     );
     expect(simultaneous.map((r) => r.exitCode).sort()).toEqual([0, 0, 0, 1]);
     expect(simultaneous.find((r) => r.exitCode === 1)?.stdout).toContain(
@@ -698,13 +684,21 @@ describe("global matches across repeated reads", () => {
     );
   });
   it("reserves matched slots even with a full repository, and sees manual changes", async () => {
-    const { storageRoot } = await createOutcomeEnvironment();
-    const registered = await new RepositoryRegistry(storageRoot).register({
-      currentName: REPOSITORY,
-      repoId: REPO_ID,
-    });
+    const { storageRoot, repositoryRoot } = await createOutcomeEnvironment();
     const globalStore = new GlobalStore(storageRoot);
-    const localStore = new CanonicalTransactionStore(registered.absolutePath);
+    const writeGlobalRule = (
+      id: string,
+      status: KnowledgeStatus,
+      fields?: Record<string, unknown>,
+    ) =>
+      writeKnowledge(
+        globalStore.reference.absolutePath,
+        id,
+        status,
+        globalStore.reference.repoId,
+        fields,
+      );
+    const localStore = new CanonicalTransactionStore(repositoryRoot);
     const service = new KnowledgeReadService({
       repo: REPOSITORY,
       repoId: REPO_ID,
@@ -715,7 +709,7 @@ describe("global matches across repeated reads", () => {
       createDomainId("knowledge"),
     );
     for (const id of localIds)
-      await writeKnowledge(registered.absolutePath, id, "active", REPO_ID);
+      await writeKnowledge(repositoryRoot, id, "active", REPO_ID);
     const input = { filePaths: ["src/a.ts"], limit: 5 };
     const baseline = await service.getRules(input);
     await globalStore.initialize();
@@ -727,26 +721,14 @@ describe("global matches across repeated reads", () => {
       [low, "consider"],
       [high, "should"],
     ] as const)
-      await writeKnowledge(
-        globalStore.reference.absolutePath,
-        id,
-        "active",
-        "rk:global",
-        { severity, scope: ["docs/**"] },
-      );
+      await writeGlobalRule(id, "active", { severity, scope: ["docs/**"] });
     const noMatch = await service.getRules(input);
     expect(noMatch).toEqual({
       ...baseline,
       global_matched_count: 0,
       global_truncated: false,
     });
-    await writeKnowledge(
-      globalStore.reference.absolutePath,
-      high,
-      "active",
-      "rk:global",
-      { scope: [] },
-    );
+    await writeGlobalRule(high, "active", { scope: [] });
     const allFiles = await service.getRules(input);
     expect(allFiles.global_matched_count).toBe(1);
     expect(
@@ -757,13 +739,7 @@ describe("global matches across repeated reads", () => {
       [low, "consider"],
       [high, "should"],
     ] as const)
-      await writeKnowledge(
-        globalStore.reference.absolutePath,
-        id,
-        "active",
-        "rk:global",
-        { severity },
-      );
+      await writeGlobalRule(id, "active", { severity });
     const result = await service.getRules(input);
     expect(result.rules.map((rule) => rule.id)).toEqual([
       ...baseline.rules.slice(0, 2).map((rule) => rule.id),
@@ -778,12 +754,7 @@ describe("global matches across repeated reads", () => {
       global_truncated: false,
       readiness: baseline.readiness,
     });
-    await writeKnowledge(
-      globalStore.reference.absolutePath,
-      always,
-      "deprecated",
-      "rk:global",
-    );
+    await writeGlobalRule(always, "deprecated");
     expect(
       (await service.getRules(input)).rules.map((rule) => rule.id),
     ).not.toContain(always);
@@ -807,6 +778,13 @@ function callTool(
   toolArguments: Record<string, unknown>,
 ): Record<string, unknown> {
   return request(id, "tools/call", { arguments: toolArguments, name });
+}
+
+function runCli(environment: OutcomeEnvironment, ...args: string[]) {
+  return execa(process.execPath, ["dist/bin.js", ...args], {
+    env: environment.env,
+    reject: false,
+  });
 }
 
 /** Drives the packaged stdio server with a newline-delimited JSON-RPC client. */
@@ -911,6 +889,7 @@ async function createOutcomeEnvironment(): Promise<OutcomeEnvironment> {
       REPO_KNOWLEDGE_HOME: storageRoot,
     },
     storageRoot,
+    repositoryRoot: registered.absolutePath,
   };
 }
 
