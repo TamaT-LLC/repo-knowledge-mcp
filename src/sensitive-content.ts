@@ -3,6 +3,8 @@ import { z } from "zod";
 export const SENSITIVE_CONTENT_DETECTED = "SENSITIVE_CONTENT_DETECTED";
 
 export const SensitiveContentBoundarySchema = z.enum([
+  "conversation_host_assisted_payload",
+  "conversation_provider_payload",
   "host_assisted_payload",
   "jev_merge_payload",
   "provider_distillation_payload",
@@ -52,7 +54,7 @@ interface SensitivePattern {
  * Deny-list for credentials and non-anonymized identities. Patterns are
  * deliberately conservative because every caller is an external boundary.
  */
-const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
+export const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
   // Generic `sk-` covers Anthropic, OpenAI, and other provider key formats.
   { kind: "provider_api_key", pattern: /\bsk-[A-Za-z0-9_-]{10,}/u },
   {
