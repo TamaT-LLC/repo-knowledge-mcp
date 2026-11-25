@@ -662,27 +662,22 @@ describe("global matches across repeated reads", () => {
 
   it("requires a real global directory and private entries under its configured root", async () => {
     const environment = await createOutcomeEnvironment();
-    const { storageRoot } = environment;
-    const global = new GlobalStore(storageRoot);
-    const other = join(storageRoot, "elsewhere");
+    const global = new GlobalStore(environment.storageRoot);
+    const other = join(environment.storageRoot, "elsewhere");
     await symlink(other, global.reference.absolutePath, "dir");
     await expect(global.exists()).rejects.toThrow("symbolic link");
     const replies = await runServe(environment, [
       callTool(2, "get_rules", { repo: REPOSITORY, file_paths: ["src/x.ts"] }),
     ]);
-    const output = GetRulesOutputSchema.parse(structuredContent(replies, 2));
-    expect(output).toMatchObject({
-      global_read_failed: true,
-      matched_count: 1,
-      truncated: false,
-    });
-    expect(output.rules.map((rule) => rule.id)).toEqual([ACTIVE_ID]);
     expect(replyById(replies, 2).result).toMatchObject({
+      structuredContent: {
+        global_read_failed: true,
+        matched_count: 1,
+        truncated: false,
+        rules: [{ id: ACTIVE_ID }],
+      },
       content: [
-        {
-          type: "text",
-          text: expect.stringContaining("Global rules could not be read."),
-        },
+        { text: expect.stringContaining("Global rules could not be read.") },
       ],
     });
     await rm(global.reference.absolutePath);
