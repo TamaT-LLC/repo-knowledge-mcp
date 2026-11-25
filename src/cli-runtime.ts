@@ -1,3 +1,4 @@
+import { ConversationStore } from "./conversation-store.js";
 import { GlobalStore } from "./global-store.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -169,6 +170,7 @@ export async function runDefaultRepoKnowledgeCli(
     return runtime;
   };
   return runRepoKnowledgeCli({
+    conversations: new ConversationStore(storageRoot),
     globalStore: new GlobalStore(storageRoot),
     argv: options.argv ?? process.argv.slice(2),
     doctor: new RepoKnowledgeDoctor({

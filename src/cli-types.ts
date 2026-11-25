@@ -140,6 +140,10 @@ export interface CliRepositoryOperationsResolver {
 }
 
 export interface RunRepoKnowledgeCliOptions {
+  readonly conversations?: Pick<
+    import("./conversation-store.js").ConversationStore,
+    "previewPurge" | "purge" | "resetKey" | "status"
+  >;
   readonly globalStore?: Pick<
     import("./global-store.js").GlobalStore,
     "addActive" | "listAlwaysReturn" | "setAlwaysReturn" | "reindex"
@@ -160,6 +164,17 @@ export interface RunRepoKnowledgeCliOptions {
 
 export type ParsedCliCommand =
   | { readonly kind: "reindex-global" | "always-return-list" }
+  | { readonly kind: "conversations-status" }
+  | {
+      readonly kind: "conversations-purge";
+      readonly filter: import("./conversation-store.js").PurgeFilter;
+      readonly yes: boolean;
+    }
+  | {
+      readonly kind: "conversations-reset-key";
+      readonly restart: boolean;
+      readonly yes: boolean;
+    }
   | {
       readonly kind: "always-return-change";
       readonly id: string;

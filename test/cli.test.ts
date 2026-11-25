@@ -135,6 +135,91 @@ describe("repo-knowledge CLI", () => {
       expect(() => parseRepoKnowledgeCliArguments(argv, true)).toThrow();
     }
   });
+  it("routes conversation maintenance and requires consent for destruction", async () => {
+    const conversations = {
+      status: vi.fn(async () => ({ records: {} }) as never),
+      previewPurge: vi.fn(async () => 3),
+      purge: vi.fn(async () => ({ filter_added: true, purged_records: 3 })),
+      resetKey: vi.fn(async () => ({ key_id: "0".repeat(16), resumed: false })),
+    };
+    const run = (argv: string[], tty = false, confirmed = false) => {
+      const current = fixture(argv, { stdinIsTTY: tty, stdoutIsTTY: tty });
+      vi.mocked(current.options.io.confirm!).mockResolvedValue(confirmed);
+      return {
+        current,
+        exit: runRepoKnowledgeCli({ ...current.options, conversations }),
+      };
+    };
+
+    expect(await run(["conversations", "status", "--json"]).exit).toBe(0);
+    expect(conversations.status).toHaveBeenCalledOnce();
+
+    const purgeArgs = [
+      "conversations",
+      "purge",
+      "--session",
+      "s-1",
+      "--before",
+      "2026-01-01T00:00:00Z",
+      "--source",
+      "codex",
+      "--project",
+      REPOSITORY,
+      "--yes",
+    ];
+    expect(await run(purgeArgs).exit).toBe(0);
+    expect(conversations.purge).toHaveBeenLastCalledWith({
+      session_id: "s-1",
+      before: "2026-01-01T00:00:00Z",
+      source: "codex",
+      name_with_owner: REPOSITORY,
+    });
+    expect(conversations.previewPurge).not.toHaveBeenCalled();
+
+    const piped = run(["conversations", "purge", "--project", "/Users/a"]);
+    expect(await piped.exit).toBe(1);
+    expect(piped.current.stderr()).toContain(
+      "conversations purge requires --yes when not interactive",
+    );
+
+    const declined = run(
+      ["conversations", "purge", "--project", "/Users/a"],
+      true,
+    );
+    expect(await declined.exit).toBe(0);
+    expect(JSON.parse(declined.current.stdout())).toEqual({ confirmed: false });
+    expect(conversations.previewPurge).toHaveBeenLastCalledWith({
+      project_path_prefix: "/Users/a",
+    });
+    expect(conversations.purge).toHaveBeenCalledOnce();
+
+    expect(await run(["conversations", "reset-key"], true, true).exit).toBe(0);
+    expect(conversations.resetKey).toHaveBeenLastCalledWith({ restart: false });
+    expect(
+      await run(["conversations", "reset-key", "--restart", "--yes"]).exit,
+    ).toBe(0);
+    expect(conversations.resetKey).toHaveBeenLastCalledWith({ restart: true });
+    expect(
+      await runRepoKnowledgeCli(fixture(["conversations", "status"]).options),
+    ).toBe(1);
+
+    for (const argv of [
+      ["conversations"],
+      ["conversations", "bogus"],
+      ["conversations", "status", "extra"],
+      ["conversations", "purge"],
+      ["conversations", "purge", "--yes"],
+      ["conversations", "purge", "--before", "yesterday"],
+      ["conversations", "purge", "--source", "other"],
+      ["conversations", "purge", "--project", "relative/path/x"],
+      ["conversations", "purge", "--session", "a", "--session", "b"],
+      ["conversations", "reset-key", "--force"],
+    ]) {
+      expect(() => parseRepoKnowledgeCliArguments(argv, true)).toThrow();
+    }
+    expect(REPO_KNOWLEDGE_CLI_HELP).toContain("conversations reset-key");
+  });
+
   it("routes ingest through the same mutation service resolver as MCP", async () => {
     const current = fixture(["ingest", REPOSITORY, "42"]);
 

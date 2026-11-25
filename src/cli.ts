@@ -91,6 +91,14 @@ Commands:
   always-return add|remove <id>  Change a personal rule's always-return setting
   always-return list             Show settings, origin and date
   serve --allow-always-return-changes  Enable the personal rule settings tool
+  conversations status           Show the conversation data area (no text)
+  conversations purge (--session <id> | --before <iso> | --source <name> |
+                     --project <owner/name|/path>) [--yes]
+                                Delete stored utterances and keep the filter
+                                so they are never ingested again
+  conversations reset-key [--yes] [--restart]
+                                Replace the conversation key and discard
+                                key-dependent data (purge filters remain)
   doctor [repo]                 Diagnose installation and canonical state
 
 Repository selection:
@@ -213,6 +221,10 @@ async function executeCliCommand(
       else writeJson(options.io, await store.listAlwaysReturn());
       return;
     }
+    case "conversations-status":
+    case "conversations-purge":
+    case "conversations-reset-key":
+      return executeConversationsCommand(command, options);
     case "doctor": {
       const result = await options.doctor.run(command.selection);
       writeJson(options.io, result);
@@ -261,6 +273,50 @@ async function executeCliCommand(
       await executeAdminCommand(command, options);
       return;
   }
+}
+
+/** Conversation data area maintenance; destructive actions need consent. */
+async function executeConversationsCommand(
+  command: Extract<
+    ParsedCliCommand,
+    { readonly kind: `conversations-${string}` }
+  >,
+  options: RunRepoKnowledgeCliOptions,
+): Promise<number | undefined> {
+  const store = options.conversations;
+  if (!store) throw new Error("Conversation store unavailable");
+  if (command.kind === "conversations-status") {
+    writeJson(options.io, await store.status());
+    return;
+  }
+  if (!command.yes) {
+    if (!options.io.stdinIsTTY || options.io.confirm === undefined) {
+      throw new RepoKnowledgeCliError(
+        "CLI_TTY_REQUIRED",
+        `conversations ${command.kind === "conversations-purge" ? "purge" : "reset-key"} requires --yes when not interactive`,
+        REPO_KNOWLEDGE_CLI_EXIT.failure,
+      );
+    }
+    if (
+      !(await options.io.confirm({
+        defaultValue: false,
+        id: command.kind,
+        message:
+          command.kind === "conversations-purge"
+            ? `Delete ${String(await store.previewPurge(command.filter))} stored conversation record(s) and keep this filter for future ingests?`
+            : "Replace the conversation key and discard stored utterances, episodes, checkpoints and route cache?",
+      }))
+    ) {
+      writeJson(options.io, { confirmed: false });
+      return;
+    }
+  }
+  writeJson(
+    options.io,
+    command.kind === "conversations-purge"
+      ? await store.purge(command.filter)
+      : await store.resetKey({ restart: command.restart }),
+  );
 }
 
 /** Resolves a selected repository and dispatches its read or maintenance command. */

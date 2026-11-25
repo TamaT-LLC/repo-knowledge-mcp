@@ -99,6 +99,36 @@ describe("default CLI runtime", () => {
     await expect(access(storageRoot)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("runs conversation status and reset-key against the real data area", async () => {
+    const storageRoot = await temporaryDirectory();
+    const run = async (argv: string[]) => {
+      const captured = output({ stdinIsTTY: false, stdoutIsTTY: false });
+      const exit = await runDefaultRepoKnowledgeCli({
+        argv,
+        io: captured.io,
+        storageRoot,
+      });
+      return { exit, json: JSON.parse(captured.stdout() || "null") };
+    };
+    const before = await run(["conversations", "status"]);
+    expect(before.exit).toBe(0);
+    expect(before.json).toMatchObject({
+      directory_exists: false,
+      key: { present: false },
+    });
+    expect(await readdir(storageRoot)).toEqual([]);
+
+    expect((await run(["conversations", "reset-key"])).exit).toBe(1);
+    const reset = await run(["conversations", "reset-key", "--yes"]);
+    expect(reset.exit).toBe(0);
+    const after = await run(["conversations", "status"]);
+    expect(after.json.key).toEqual({
+      present: true,
+      key_id: reset.json.key_id,
+    });
+    expect(await readdir(storageRoot)).toEqual(["conversations"]);
+  });
+
   it("exports the requested repository instead of a configured default without writes", async () => {
     const storageRoot = await temporaryDirectory();
     const configPath = join(storageRoot, "config.json");

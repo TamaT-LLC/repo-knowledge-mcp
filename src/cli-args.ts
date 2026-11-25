@@ -16,6 +16,7 @@ import type {
   CliRepositorySelection,
   ParsedCliCommand,
 } from "./cli-types.js";
+import { ConversationSourceSchema } from "./conversation-store.js";
 import { parseRepositoryName } from "./repository-resolver.js";
 import { StatsBucketSchema } from "./stats-read-service.js";
 import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
@@ -93,6 +94,8 @@ function parseNamedCommand(
       return parseAlwaysReturn(args);
     case "add":
       return parseAddActive(args);
+    case "conversations":
+      return parseConversations(args);
     default:
       throw usage(`unknown command ${name}`);
   }
@@ -576,6 +579,63 @@ function parseAddActive(args: readonly string[]): ParsedCliCommand {
   return global
     ? { kind: "add-global", input }
     : { kind: "add-active", input, selection: selection(parsed) };
+}
+
+function parseConversations(args: readonly string[]): ParsedCliCommand {
+  const [action, ...rest] = args;
+  if (action === "status") {
+    assertPositionalCount(
+      parseOptions(rest, { booleans: ["json"] }),
+      0,
+      0,
+      "conversations status",
+    );
+    return { kind: "conversations-status" };
+  }
+  if (action === "reset-key") {
+    const parsed = parseOptions(rest, { booleans: ["yes", "restart"] });
+    assertPositionalCount(parsed, 0, 0, "conversations reset-key");
+    return {
+      kind: "conversations-reset-key",
+      restart: parsed.booleans.has("restart"),
+      yes: parsed.booleans.has("yes"),
+    };
+  }
+  if (action !== "purge") {
+    throw usage("conversations requires one of status, purge, or reset-key");
+  }
+  const parsed = parseOptions(rest, {
+    booleans: ["yes"],
+    values: ["session", "before", "source", "project"],
+  });
+  assertPositionalCount(parsed, 0, 0, "conversations purge");
+  const session = parsed.values.get("session");
+  const before = parsed.values.get("before");
+  const source = parsed.values.get("source");
+  const project = parsed.values.get("project");
+  if ([session, before, source, project].every((v) => v === undefined)) {
+    throw usage(
+      "conversations purge requires --session, --before, --source, or --project",
+    );
+  }
+  return {
+    kind: "conversations-purge",
+    filter: {
+      ...(session === undefined ? {} : { session_id: session }),
+      ...(before === undefined
+        ? {}
+        : { before: parseSchema(IsoDateTimeSchema, before, "before") }),
+      ...(source === undefined
+        ? {}
+        : { source: parseSchema(ConversationSourceSchema, source, "source") }),
+      ...(project === undefined
+        ? {}
+        : project.startsWith("/")
+          ? { project_path_prefix: project }
+          : { name_with_owner: parseCliRepository(project) }),
+    },
+    yes: parsed.booleans.has("yes"),
+  };
 }
 
 interface CollectedOptions {
