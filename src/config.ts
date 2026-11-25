@@ -13,6 +13,8 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join, parse, resolve } from "node:path";
 
+import type { z } from "zod";
+
 import { sha256Jcs, sha256NormalizedJcs } from "./canonical.js";
 import {
   RepoKnowledgeConfigSchema,
@@ -80,7 +82,16 @@ export function parseRepoKnowledgeConfig(
   value: unknown,
   path = "<config>",
 ): RepoKnowledgeConfig {
-  const result = RepoKnowledgeConfigSchema.safeParse(value);
+  return parseConfigWithSchema(RepoKnowledgeConfigSchema, value, path);
+}
+
+/** Strictly validates a config value, reporting field paths only. */
+export function parseConfigWithSchema<T>(
+  schema: z.ZodType<T>,
+  value: unknown,
+  path: string,
+): T {
+  const result = schema.safeParse(value);
   if (result.success) return result.data;
 
   const details = result.error.issues
@@ -100,6 +111,16 @@ export async function loadRepoKnowledgeConfig(
   configPath: string,
 ): Promise<RepoKnowledgeConfig> {
   const absolutePath = resolve(configPath);
+  return parseRepoKnowledgeConfig(
+    await readJsonConfigFile(absolutePath),
+    absolutePath,
+  );
+}
+
+/** Reads a regular (non-symlink) UTF-8 JSON file without validating it. */
+export async function readJsonConfigFile(
+  absolutePath: string,
+): Promise<unknown> {
   let bytes: Buffer;
   try {
     await assertRegularFile(absolutePath);
@@ -137,8 +158,7 @@ export async function loadRepoKnowledgeConfig(
       { cause: error },
     );
   }
-
-  return parseRepoKnowledgeConfig(value, absolutePath);
+  return value;
 }
 
 /** Computes the repository-specific cloud transmission policy. */
