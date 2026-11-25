@@ -73,6 +73,8 @@ function parseNamedCommand(
     case "review":
       return parseRepositoryOnly("review", args);
     case "reindex":
+      if (args.length === 1 && args[0] === "--global")
+        return { kind: "reindex-global" };
       return parseRepositoryOnly("reindex", args);
     case "redistill":
       return parseRedistill(args);
@@ -87,6 +89,8 @@ function parseNamedCommand(
       return parseEdit(args);
     case "approve-revision":
       return parseApproveRevision(args);
+    case "always-return":
+      return parseAlwaysReturn(args);
     case "add":
       return parseAddActive(args);
     default:
@@ -147,9 +151,18 @@ function parseSetup(args: readonly string[]): ParsedCliCommand {
 }
 
 function parseServe(args: readonly string[]): ParsedCliCommand {
-  const parsed = parseOptions(args, REPOSITORY_OPTION_DEFINITION);
+  const parsed = parseOptions(args, {
+    ...REPOSITORY_OPTION_DEFINITION,
+    booleans: ["allow-always-return-changes"],
+  });
   assertPositionalCount(parsed, 0, 0, "serve");
-  return { kind: "serve", selection: selection(parsed) };
+  return {
+    kind: "serve",
+    selection: selection(parsed),
+    ...(parsed.booleans.has("allow-always-return-changes")
+      ? { allowAlwaysReturnChanges: true }
+      : {}),
+  };
 }
 
 function parseSync(args: readonly string[]): ParsedCliCommand {
@@ -511,14 +524,29 @@ function parseEdit(args: readonly string[]): ParsedCliCommand {
   };
 }
 
+function parseAlwaysReturn(args: readonly string[]): ParsedCliCommand {
+  if (args.length === 1 && args[0] === "list")
+    return { kind: "always-return-list" };
+  if (args.length !== 2 || (args[0] !== "add" && args[0] !== "remove"))
+    throw usage("always-return requires list, add <id>, or remove <id>");
+  return {
+    kind: "always-return-change",
+    id: parseSchema(KnowledgeIdSchema, args[1], "knowledge ID"),
+    enabled: args[0] === "add",
+  };
+}
+
 function parseAddActive(args: readonly string[]): ParsedCliCommand {
   const parsed = parseOptions(args, {
-    booleans: ["active"],
+    booleans: ["active", "global"],
     repeated: ["scope", "related-id"],
     values: ["repo", "workspace", "category", "detail", "rule", "severity"],
   });
   assertPositionalCount(parsed, 0, 0, "add");
-  if (!parsed.booleans.has("active")) {
+  const global = parsed.booleans.has("global");
+  if (global && (parsed.values.has("repo") || parsed.values.has("workspace")))
+    throw usage("--global cannot be combined with a repository selector");
+  if (!global && !parsed.booleans.has("active")) {
     throw usage("M1 admin add requires --active");
   }
   const required = (name: string): string => {
@@ -526,28 +554,27 @@ function parseAddActive(args: readonly string[]): ParsedCliCommand {
     if (value === undefined) throw usage(`add --active requires --${name}`);
     return value;
   };
-  return {
-    input: {
-      category: parseSchema(
-        KnowledgeCategorySchema,
-        required("category"),
-        "category",
-      ),
-      detail: parseNonEmpty(required("detail"), "detail"),
-      ...(parsed.repeated.has("related-id")
-        ? {
-            related_ids: parsed.repeated
-              .get("related-id")!
-              .map((id) => parseSchema(KnowledgeIdSchema, id, "related-id")),
-          }
-        : {}),
-      rule: parseNonEmpty(required("rule"), "rule"),
-      scope: parsed.repeated.get("scope") ?? [],
-      severity: parseSchema(SeveritySchema, required("severity"), "severity"),
-    },
-    kind: "add-active",
-    selection: selection(parsed),
+  const input = {
+    category: parseSchema(
+      KnowledgeCategorySchema,
+      required("category"),
+      "category",
+    ),
+    detail: parseNonEmpty(required("detail"), "detail"),
+    ...(parsed.repeated.has("related-id")
+      ? {
+          related_ids: parsed.repeated
+            .get("related-id")!
+            .map((id) => parseSchema(KnowledgeIdSchema, id, "related-id")),
+        }
+      : {}),
+    rule: parseNonEmpty(required("rule"), "rule"),
+    scope: parsed.repeated.get("scope") ?? [],
+    severity: parseSchema(SeveritySchema, required("severity"), "severity"),
   };
+  return global
+    ? { kind: "add-global", input }
+    : { kind: "add-active", input, selection: selection(parsed) };
 }
 
 interface CollectedOptions {

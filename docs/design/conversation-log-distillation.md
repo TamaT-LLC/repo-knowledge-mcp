@@ -1469,7 +1469,8 @@ MCP の `update_knowledge` は常時返却を変更できない。
 - MCP から外せるのは MCP から付けた常時返却だけとし、CLI で付けたものは `set_by_cli` で拒否する
 - 変更は `GlobalAlwaysReturnChanged` に `actor: mcp` と呼び出し元のリポジトリを付けて記録する
 - `get_rules` の結果に `always_return_set_by: "mcp"` を付け、`conversations status` と `repo-knowledge always-return list` に操作した側と日時を表示する
-- CLI の `always-return remove` は、操作した側にかかわらず外せる
+- CLI の `always-return remove` は、操作した側にかかわらず外せる。3 件すべてが MCP 由来の場合も 4 件目を拒否し、入れ替えるときは CLI で明示的に外してから追加する
+- PR1 の `add_knowledge` と `update_knowledge` はリポジトリのストアを対象とする。グローバルルールの手動作成には CLI の `add --global` を使う
 
 フラグを `--allow-conversation-ingest` や `--allow-conversation-distillation` と分けるのは、この tool がすべてのリポジトリの `get_rules` の結果を持続的に変える、別の種類の権限だからである。
 

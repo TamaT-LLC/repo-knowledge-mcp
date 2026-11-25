@@ -3,6 +3,8 @@ import {
   type McpServer,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { AlwaysReturnResultSchema } from "./global-always-return.js";
+import { KnowledgeIdSchema } from "./domain-schemas.js";
 
 import { mapMutationError } from "./mcp-mutation-error-mapping.js";
 import {
@@ -86,6 +88,7 @@ export {
 } from "./mcp-mutation-schemas.js";
 
 export interface RegisterMutationToolsOptions {
+  readonly allowAlwaysReturnChanges?: boolean;
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
   readonly startupRepo?: string;
   readonly startupWorkspace?: string;
@@ -96,6 +99,48 @@ export function registerMutationTools(
   server: McpServer,
   options: RegisterMutationToolsOptions,
 ): void {
+  if (options.allowAlwaysReturnChanges) {
+    server.registerTool(
+      "set_global_always_return",
+      {
+        description:
+          "Set or clear always-return on an existing active personal rule.",
+        inputSchema: z
+          .object({ knowledge_id: KnowledgeIdSchema, enabled: z.boolean() })
+          .strict(),
+        outputSchema: AlwaysReturnResultSchema,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (input) => {
+        const service = options.mutationServiceResolver;
+        if (!service.setGlobalAlwaysReturn)
+          throw new Error("Global store unavailable");
+        const result = AlwaysReturnResultSchema.parse(
+          await service.setGlobalAlwaysReturn(
+            {
+              ...(options.startupRepo
+                ? { startupRepo: options.startupRepo }
+                : {}),
+              ...(options.startupWorkspace
+                ? { startupWorkspace: options.startupWorkspace }
+                : {}),
+            },
+            input.knowledge_id,
+            input.enabled,
+          ),
+        );
+        return {
+          structuredContent: result,
+          content: [{ type: "text", text: result.reason ?? result.state }],
+        };
+      },
+    );
+  }
   server.registerTool(
     "ingest_pr",
     {

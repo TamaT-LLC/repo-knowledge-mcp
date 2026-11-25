@@ -1,3 +1,4 @@
+import { GlobalStore } from "./global-store.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline";
@@ -65,6 +66,7 @@ export interface DefaultCliRuntime {
   readonly operationsResolver: CliRepositoryOperationsResolver;
   readonly readServiceResolver: KnowledgeReadServiceResolver;
   serve(request: {
+    readonly allowAlwaysReturnChanges?: boolean;
     readonly startupRepo?: string;
     readonly startupWorkspace?: string;
   }): ReturnType<typeof serveRepoKnowledgeStdio>;
@@ -107,6 +109,7 @@ export async function createDefaultCliRuntime(
     repositoryContext: options.repositoryContext ?? {},
   });
   const resolverOptions = {
+    globalStore: new GlobalStore(storage.rootPath),
     allowedWorkspaceRoots,
     config: storage.config,
     ghRunner,
@@ -131,6 +134,9 @@ export async function createDefaultCliRuntime(
     readServiceResolver,
     serve(request) {
       return serveRepoKnowledgeStdio({
+        ...(request.allowAlwaysReturnChanges
+          ? { allowAlwaysReturnChanges: true }
+          : {}),
         mutationServiceResolver,
         readServiceResolver,
         ...(request.startupRepo === undefined
@@ -163,6 +169,7 @@ export async function runDefaultRepoKnowledgeCli(
     return runtime;
   };
   return runRepoKnowledgeCli({
+    globalStore: new GlobalStore(storageRoot),
     argv: options.argv ?? process.argv.slice(2),
     doctor: new RepoKnowledgeDoctor({
       ghRunner,

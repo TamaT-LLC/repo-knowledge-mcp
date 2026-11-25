@@ -86,6 +86,11 @@ Commands:
   edit <id> <patch options>     Edit canonical knowledge (TTY only)
   approve-revision <id>         Apply a pending revision proposal (TTY only)
   add --active <fields>         Add active manual knowledge (TTY only)
+  add --global <fields>         Add an active personal rule (TTY only)
+  reindex --global               Rebuild the personal rule index
+  always-return add|remove <id>  Change a personal rule's always-return setting
+  always-return list             Show settings, origin and date
+  serve --allow-always-return-changes  Enable the personal rule settings tool
   doctor [repo]                 Diagnose installation and canonical state
 
 Repository selection:
@@ -184,6 +189,30 @@ async function executeCliCommand(
     case "redistill":
     case "reconcile":
       return executeRepositoryCommand(command, options);
+    case "add-global":
+    case "reindex-global":
+    case "always-return-list":
+    case "always-return-change": {
+      const store = options.globalStore;
+      if (!store) throw new Error("Global store unavailable");
+      if (command.kind === "always-return-change") {
+        const result = await store.setAlwaysReturn(
+          command.id,
+          command.enabled,
+          { actor: "cli" },
+        );
+        writeJson(options.io, result);
+        return result.state === "rejected"
+          ? REPO_KNOWLEDGE_CLI_EXIT.failure
+          : REPO_KNOWLEDGE_CLI_EXIT.success;
+      }
+      if (command.kind === "add-global")
+        writeJson(options.io, await store.addActive(command.input));
+      else if (command.kind === "reindex-global")
+        writeJson(options.io, await store.reindex());
+      else writeJson(options.io, await store.listAlwaysReturn());
+      return;
+    }
     case "doctor": {
       const result = await options.doctor.run(command.selection);
       writeJson(options.io, result);
@@ -284,6 +313,9 @@ async function executeServeCommand(
   options: RunRepoKnowledgeCliOptions,
 ): Promise<number | undefined> {
   await options.serve({
+    ...(command.allowAlwaysReturnChanges
+      ? { allowAlwaysReturnChanges: true }
+      : {}),
     ...(command.selection.repo === undefined
       ? {}
       : { startupRepo: command.selection.repo }),

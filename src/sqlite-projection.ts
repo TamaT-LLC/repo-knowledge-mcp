@@ -1,8 +1,13 @@
-import { chmodSync, type Dirent } from "node:fs";
+import { chmodSync, lstatSync, type Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import Database from "better-sqlite3";
+import {
+  GLOBAL_STORE_ID,
+  latestAlwaysReturn,
+  type AlwaysReturnChange,
+} from "./global-always-return.js";
 
 import {
   canonicalJsonlLineSha256,
@@ -182,7 +187,17 @@ export class SqliteCanonicalProjection {
   readonly databasePath: string;
   readonly repositoryRoot: string;
 
-  constructor(repositoryRoot: string) {
+  private globalCache?: {
+    signature: string;
+    canonicalDigest: string;
+    active: ProjectedKnowledge[];
+    byId: Map<string, ProjectedKnowledge>;
+    settings: Map<string, AlwaysReturnChange>;
+  };
+  constructor(
+    repositoryRoot: string,
+    private readonly global = false,
+  ) {
     this.repositoryRoot = resolve(repositoryRoot);
     this.databasePath = join(this.repositoryRoot, "index.sqlite");
   }
@@ -191,7 +206,7 @@ export class SqliteCanonicalProjection {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
     try {
-      ensureCaptureProjected(database, capture);
+      ensureCaptureProjected(database, capture, this.global);
       return readSnapshot(database);
     } finally {
       database.close();
@@ -209,7 +224,7 @@ export class SqliteCanonicalProjection {
         checkpointTransactionId === undefined
           ? existingMetadata.checkpointTransactionId
           : checkpointTransactionId;
-      rebuildDatabase(database, capture, checkpoint);
+      rebuildDatabase(database, capture, checkpoint, this.global);
       return readSnapshot(database);
     } finally {
       database.close();
@@ -222,7 +237,7 @@ export class SqliteCanonicalProjection {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
     try {
-      ensureCaptureProjected(database, capture);
+      ensureCaptureProjected(database, capture, this.global);
       return searchKnowledgeDatabase(database, request);
     } finally {
       database.close();
@@ -248,7 +263,7 @@ export class SqliteCanonicalProjection {
     const capture = await captureCanonicalState(this.repositoryRoot);
     const database = this.openDatabase();
     try {
-      ensureCaptureProjected(database, capture);
+      ensureCaptureProjected(database, capture, this.global);
       database.exec("BEGIN");
       try {
         const view = {
@@ -263,6 +278,92 @@ export class SqliteCanonicalProjection {
         database.exec("ROLLBACK");
         throw error;
       }
+    } finally {
+      database.close();
+    }
+  }
+
+  /** The writer lock covers recovery, checking canonical files, and the SQLite query. */
+  async readGlobalRules(task?: string) {
+    if (!this.global) throw new Error("Expected a global store");
+    const directory = join(this.repositoryRoot, "knowledge");
+    const documents = await readdir(directory, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      },
+    );
+    const paths = [
+      ...documents
+        .filter((e) => e.name.endsWith(".md"))
+        .map((e) => `knowledge/${e.name}`),
+      ...(await findCanonicalJsonlPaths(this.repositoryRoot)),
+    ].sort(compareCodeUnits);
+    // In-place edits and atomic replacement both invalidate the verified snapshot.
+    const signature = JSON.stringify(
+      paths.map((path) => {
+        const stat = lstatSync(join(this.repositoryRoot, path), {
+          bigint: true,
+        });
+        return [
+          path,
+          String(stat.ino),
+          String(stat.ctimeNs),
+          String(stat.size),
+        ];
+      }),
+    );
+    const database = this.openDatabase();
+    try {
+      const metadata = readExistingProjectionMetadata(database);
+      if (
+        this.globalCache?.signature !== signature ||
+        metadata.canonicalDigest !== this.globalCache.canonicalDigest ||
+        metadata.schemaVersion !== PROJECTION_SCHEMA_VERSION
+      ) {
+        const capture = await captureCanonicalState(this.repositoryRoot);
+        ensureCaptureProjected(database, capture, true);
+        const active = (
+          database
+            .prepare(
+              "SELECT * FROM knowledge WHERE repo_id = ? AND status = 'active'",
+            )
+            .all(GLOBAL_STORE_ID) as ProjectedKnowledgeRow[]
+        ).map(projectedKnowledgeFromRow);
+        const settings = new Map(
+          readPayloads<AlwaysReturnChange>(
+            database,
+            "SELECT payload_json FROM global_always_return WHERE enabled = 1",
+          ).map((e) => [e.knowledge_id, e]),
+        );
+        this.globalCache = {
+          signature,
+          canonicalDigest: capture.canonicalDigest,
+          active,
+          byId: new Map(active.map((k) => [k.id, k])),
+          settings,
+        };
+      }
+      const scores = new Map<string, number>();
+      if (task !== undefined) {
+        const search = searchKnowledgeDatabase(
+          database,
+          {
+            repoId: GLOBAL_STORE_ID,
+            query: task,
+            queryMode: "literal_terms",
+            statuses: ["active"],
+          },
+          true,
+          this.globalCache.byId,
+        );
+        for (const hit of search.hits) scores.set(hit.id, hit.score);
+      }
+      return {
+        active: this.globalCache.active,
+        settings: this.globalCache.settings,
+        scores,
+      };
     } finally {
       database.close();
     }
@@ -305,15 +406,22 @@ export async function captureCanonicalStateReadOnly(
 function ensureCaptureProjected(
   database: Database.Database,
   capture: CanonicalCapture,
+  global = false,
 ): void {
   const metadata = readExistingProjectionMetadata(database);
   if (
     metadata.canonicalDigest === capture.canonicalDigest &&
-    metadata.schemaVersion === PROJECTION_SCHEMA_VERSION
+    metadata.schemaVersion === PROJECTION_SCHEMA_VERSION &&
+    (!global ||
+      database
+        .prepare(
+          "SELECT 1 FROM sqlite_schema WHERE name = 'global_always_return'",
+        )
+        .get())
   ) {
     return;
   }
-  rebuildDatabase(database, capture, metadata.checkpointTransactionId);
+  rebuildDatabase(database, capture, metadata.checkpointTransactionId, global);
 }
 
 /** Derived tables from an older schema cannot be migrated in place; drop them. */
@@ -547,6 +655,7 @@ function rebuildDatabase(
   database: Database.Database,
   capture: CanonicalCapture,
   checkpointTransactionId: string | null,
+  global = false,
 ): void {
   const domain = buildDomainProjectionSnapshot(
     capture.records.map((entry) => entry.record),
@@ -575,6 +684,26 @@ function rebuildDatabase(
     prepareProjectionSchema(database);
     replaceExistingProjection(database);
     writeProjectionEntities(context);
+    if (global) {
+      database.exec(
+        "CREATE TABLE IF NOT EXISTS global_always_return (knowledge_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, payload_json TEXT NOT NULL); DELETE FROM global_always_return",
+      );
+      const insert = database.prepare(
+        "INSERT INTO global_always_return VALUES (?, ?, ?)",
+      );
+      const active = new Set(
+        domain.knowledge
+          .filter((k) => k.repoId === GLOBAL_STORE_ID && k.status === "active")
+          .map((k) => k.id),
+      );
+      for (const event of latestAlwaysReturn(capture.records).values()) {
+        insert.run(
+          event.knowledge_id,
+          Number(event.enabled && active.has(event.knowledge_id)),
+          JSON.stringify(event),
+        );
+      }
+    }
     writeKnowledgeSearchIndex(context.database, context.knowledge);
     finalizeProjectionMetadata(
       context.database,
@@ -1184,6 +1313,7 @@ function searchKnowledgeDatabase(
   database: Database.Database,
   request: KnowledgeSearchRequest,
   exhaustive = false,
+  known?: ReadonlyMap<string, ProjectedKnowledge>,
 ): KnowledgeSearchResult {
   const repoId = RepositoryIdSchema.parse(request.repoId);
   const category =
@@ -1209,6 +1339,7 @@ function searchKnowledgeDatabase(
   const query = normalizeKnowledgeSearchQuery(request.query, request.queryMode);
   const statusPlaceholders = orderedStatuses.map(() => "?").join(", ");
   const categoryClause = category === undefined ? "" : "AND k.category = ?";
+  const columns = known ? "k.id" : "k.*";
   let rows: SearchKnowledgeRow[];
 
   if (query.mode === "fts") {
@@ -1217,7 +1348,7 @@ function searchKnowledgeDatabase(
     }
     rows = database
       .prepare(
-        `SELECT k.*, bm25(knowledge_fts) AS bm25_score
+        `SELECT ${columns}, bm25(knowledge_fts) AS bm25_score
          FROM knowledge_fts
          JOIN knowledge AS k ON k.id = knowledge_fts.knowledge_id
          WHERE knowledge_fts MATCH ?
@@ -1237,7 +1368,7 @@ function searchKnowledgeDatabase(
   } else {
     rows = database
       .prepare(
-        `SELECT k.*, NULL AS bm25_score
+        `SELECT ${columns}, NULL AS bm25_score
          FROM knowledge AS k
          WHERE (
            k.search_rule LIKE ? ESCAPE '\\'
@@ -1265,7 +1396,9 @@ function searchKnowledgeDatabase(
   }
 
   const hits: KnowledgeSearchHit[] = rows.map((row, textRank) => {
-    const knowledge = projectedKnowledgeFromRow(row);
+    const knowledge = known
+      ? known.get(row.id)!
+      : projectedKnowledgeFromRow(row);
     return {
       ...knowledge,
       bm25Score: row.bm25_score,

@@ -9,8 +9,9 @@ import {
 } from "@modelcontextprotocol/server/stdio";
 import pino, { type Logger } from "pino";
 import { z } from "zod";
+import { ConversationSummarySchema } from "./conversation-knowledge-summary.js";
+import { openStore, type GlobalStore } from "./global-store.js";
 
-import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
 import {
   DistillJobStateSchema,
   EvidenceActorSchema,
@@ -109,6 +110,13 @@ const RuleMatchReasonSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("global") }).strict(),
   z
     .object({
+      type: z.literal("global_store"),
+      via: z.enum(["always", "task", "scope"]),
+      score: z.number().optional(),
+    })
+    .strict(),
+  z
+    .object({
       file_path: z.string(),
       pattern: z.string(),
       type: z.literal("scope"),
@@ -120,6 +128,8 @@ const RuleMatchReasonSchema = z.discriminatedUnion("type", [
 export const GetRulesOutputSchema = z
   .object({
     matched_count: z.number().int().nonnegative(),
+    global_matched_count: z.number().int().nonnegative().optional(),
+    global_truncated: z.boolean().optional(),
     readiness: RepositoryReadinessSchema.describe(
       "Repository initialization and learning state with an executable next step.",
     ),
@@ -131,6 +141,7 @@ export const GetRulesOutputSchema = z
           example_url: z.url().optional(),
           id: KnowledgeIdSchema,
           match_reasons: z.array(RuleMatchReasonSchema),
+          always_return_set_by: z.literal("mcp").optional(),
           rule: z.string(),
           severity: SeveritySchema,
           violation_count: z.number().int().nonnegative(),
@@ -228,6 +239,7 @@ const McpGeneratedCodeExampleSchema = z
 export const GetKnowledgeOutputSchema = z
   .object({
     evidence: z.array(McpKnowledgeEvidenceSchema),
+    conversation_summary: ConversationSummarySchema.optional(),
     knowledge: z
       .object({
         applied_count: z.number().int().nonnegative(),
@@ -378,7 +390,7 @@ export interface KnowledgeReadServiceResolver {
 export type CanonicalKnowledgeReadServiceResolverOptions = Omit<
   RepositoryResolverOptions,
   "startupRepo" | "startupWorkspace"
->;
+> & { readonly globalStore?: GlobalStore };
 
 /** Connects MCP repository selection to the canonical active-only read service. */
 export class CanonicalKnowledgeReadServiceResolver
@@ -409,10 +421,11 @@ export class CanonicalKnowledgeReadServiceResolver
         : { workspacePath: input.workspacePath }),
     });
 
-    const repositoryStore = new CanonicalTransactionStore(
-      resolution.absolutePath,
-    );
+    const repositoryStore = openStore({ kind: "repository", ...resolution });
     const knowledgeReads = new KnowledgeReadService({
+      ...(this.options.globalStore
+        ? { globalStore: this.options.globalStore }
+        : {}),
       repo: resolution.currentName,
       repoId: resolution.repoId,
       repository: repositoryStore,
@@ -435,6 +448,7 @@ export class CanonicalKnowledgeReadServiceResolver
 }
 
 export interface BuildServerOptions {
+  readonly allowAlwaysReturnChanges?: boolean;
   readonly instructions?: string;
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
   readonly readServiceResolver: KnowledgeReadServiceResolver;
@@ -564,6 +578,9 @@ export function buildServer(options: BuildServerOptions): McpServer {
   );
 
   registerMutationTools(server, {
+    ...(options.allowAlwaysReturnChanges
+      ? { allowAlwaysReturnChanges: true }
+      : {}),
     mutationServiceResolver: options.mutationServiceResolver,
     ...(options.startupRepo === undefined
       ? {}
@@ -599,6 +616,9 @@ export function serveRepoKnowledgeStdio(
 ): StdioServerHandle {
   const logger = options.logger ?? createStderrLogger();
   const buildOptions: BuildServerOptions = {
+    ...(options.allowAlwaysReturnChanges
+      ? { allowAlwaysReturnChanges: true }
+      : {}),
     ...(options.instructions === undefined
       ? {}
       : { instructions: options.instructions }),
@@ -646,6 +666,12 @@ function resolveReadService(
 }
 
 function summarizeRules(output: z.infer<typeof GetRulesOutputSchema>): string {
+  if (output.global_matched_count !== undefined) {
+    const fromGlobal = output.rules.filter((rule) =>
+      rule.match_reasons.some((r) => r.type === "global_store"),
+    ).length;
+    return `### Repository rules\n\nReturned ${output.rules.length - fromGlobal} of ${output.matched_count} repository and ${fromGlobal} of ${output.global_matched_count} global rules for \`${output.repo}\`.\n\nReadiness: **${output.readiness.state}**. ${output.readiness.next_action}`;
+  }
   const shown = output.rules.length;
   const truncation = output.truncated ? ` Showing the first **${shown}**.` : "";
   return `### Repository rules\n\nFound **${output.matched_count}** active rule(s) for \`${output.repo}\`.${truncation}\n\nReadiness: **${output.readiness.state}**. ${output.readiness.next_action}`;
