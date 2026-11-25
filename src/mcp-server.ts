@@ -130,6 +130,7 @@ export const GetRulesOutputSchema = z
     matched_count: z.number().int().nonnegative(),
     global_matched_count: z.number().int().nonnegative().optional(),
     global_truncated: z.boolean().optional(),
+    global_read_failed: z.literal(true).optional(),
     readiness: RepositoryReadinessSchema.describe(
       "Repository initialization and learning state with an executable next step.",
     ),
@@ -672,9 +673,12 @@ function summarizeRules(output: z.infer<typeof GetRulesOutputSchema>): string {
     ).length;
     return `### Repository rules\n\nReturned ${output.rules.length - fromGlobal} of ${output.matched_count} repository and ${fromGlobal} of ${output.global_matched_count} global rules for \`${output.repo}\`.\n\nReadiness: **${output.readiness.state}**. ${output.readiness.next_action}`;
   }
+  const warning = output.global_read_failed
+    ? "\n\nGlobal rules could not be read. Run `repo-knowledge doctor` for details."
+    : "";
   const shown = output.rules.length;
   const truncation = output.truncated ? ` Showing the first **${shown}**.` : "";
-  return `### Repository rules\n\nFound **${output.matched_count}** active rule(s) for \`${output.repo}\`.${truncation}\n\nReadiness: **${output.readiness.state}**. ${output.readiness.next_action}`;
+  return `### Repository rules\n\nFound **${output.matched_count}** active rule(s) for \`${output.repo}\`.${truncation}${warning}\n\nReadiness: **${output.readiness.state}**. ${output.readiness.next_action}`;
 }
 
 function summarizeSearch(

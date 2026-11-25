@@ -124,6 +124,7 @@ export interface GetRulesRule {
 
 export interface GetRulesResult {
   readonly global_matched_count?: number;
+  readonly global_read_failed?: true;
   readonly global_truncated?: boolean;
   readonly matched_count: number;
   readonly readiness: RepositoryReadiness;
@@ -251,7 +252,7 @@ export class KnowledgeReadService {
           };
     const [view, global] = await Promise.all([
       this.repository.readKnowledgeView(taskSearchRequest),
-      this.globalStore?.readRules(request.task),
+      this.globalStore?.readRules(request.task).catch(() => null),
     ]);
     const snapshot = view.snapshot;
     const checkpoint = await this.readRepositoryCheckpoint();
@@ -292,7 +293,7 @@ export class KnowledgeReadService {
     const exampleUrls = representativeEvidenceUrls(snapshot, this.repoId);
     const ordered = [...matches.values()].sort(compareRuleMatches);
     const matchedCount = ordered.length;
-    const ranked = rankGlobalRules(global, filePaths);
+    const ranked = rankGlobalRules(global ?? undefined, filePaths);
     const alwaysQuota = Math.min(
       ranked.always.length,
       ALWAYS_RETURN_LIMIT,
@@ -313,6 +314,7 @@ export class KnowledgeReadService {
     const globalCount = ranked.always.length + ranked.matches.length;
     return {
       matched_count: matchedCount,
+      ...(global === null ? { global_read_failed: true as const } : {}),
       ...(global?.active.length
         ? {
             global_matched_count: globalCount,

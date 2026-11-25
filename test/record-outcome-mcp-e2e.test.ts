@@ -261,23 +261,47 @@ describe("personal rules over CLI and MCP", () => {
       "python3",
       [
         "-c",
-        `import os, pty, sys
+        `import errno, os, pty, signal, sys
+
+def on_timeout(_signum, _frame):
+    raise TimeoutError("Timed out waiting for admin confirmation or CLI exit.")
+
 pid, master = pty.fork()
 if pid == 0:
-    os.execv(sys.argv[1],sys.argv[1:])
-data = b""
+    os.execv(sys.argv[1], sys.argv[1:])
+
+data = bytearray()
 sent = False
-while True:
-    try: chunk = os.read(master, 8192)
-    except OSError: break
-    if not chunk: break
-    data += chunk
-    if not sent and b"admin> " in data:
-        os.write(master,b"add --active\\n")
-        sent = True
-_, status = os.waitpid(pid,0)
-sys.stdout.buffer.write(data)
-sys.exit(os.waitstatus_to_exitcode(status))`,
+reaped = False
+signal.signal(signal.SIGALRM, on_timeout)
+signal.alarm(30)
+try:
+    while True:
+        try:
+            chunk = os.read(master, 8192)
+        except OSError as error:
+            if error.errno != errno.EIO:
+                raise
+            break
+        if not chunk:
+            break
+        data.extend(chunk)
+        if not sent and b"admin> " in data:
+            os.write(master, b"add --active\\n")
+            sent = True
+    _, status = os.waitpid(pid, 0)
+    reaped = True
+    sys.exit(os.waitstatus_to_exitcode(status))
+finally:
+    signal.alarm(0)
+    os.close(master)
+    if not reaped:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        os.waitpid(pid, 0)
+    sys.stdout.buffer.write(data)`,
         process.execPath,
         "dist/bin.js",
         "add",
@@ -551,9 +575,10 @@ sys.exit(os.waitstatus_to_exitcode(status))`,
       global_matched_count: 9,
       global_truncated: true,
     });
-    expect(
-      rules(2).rules.every((r) => r.match_reasons[0]?.type === "global_store"),
-    ).toBe(true);
+    expect(rules(2).rules).toHaveLength(3);
+    expect(rules(2).rules.map((r) => r.match_reasons)).toEqual(
+      Array(3).fill([{ type: "global_store", via: "always" }]),
+    );
     expect(rules(3).rules.map((r) => r.match_reasons[0])).toEqual([
       { type: "scope", file_path: "src/main.ts", pattern: "src/**" },
       ...Array(3).fill({ type: "global_store", via: "always" }),
@@ -636,11 +661,30 @@ describe("global matches across repeated reads", () => {
   });
 
   it("requires a real global directory and private entries under its configured root", async () => {
-    const { storageRoot } = await createOutcomeEnvironment();
+    const environment = await createOutcomeEnvironment();
+    const { storageRoot } = environment;
     const global = new GlobalStore(storageRoot);
     const other = join(storageRoot, "elsewhere");
     await symlink(other, global.reference.absolutePath, "dir");
     await expect(global.exists()).rejects.toThrow("symbolic link");
+    const replies = await runServe(environment, [
+      callTool(2, "get_rules", { repo: REPOSITORY, file_paths: ["src/x.ts"] }),
+    ]);
+    const output = GetRulesOutputSchema.parse(structuredContent(replies, 2));
+    expect(output).toMatchObject({
+      global_read_failed: true,
+      matched_count: 1,
+      truncated: false,
+    });
+    expect(output.rules.map((rule) => rule.id)).toEqual([ACTIVE_ID]);
+    expect(replyById(replies, 2).result).toMatchObject({
+      content: [
+        {
+          type: "text",
+          text: expect.stringContaining("Global rules could not be read."),
+        },
+      ],
+    });
     await rm(global.reference.absolutePath);
     await mkdir(other, { mode: 0o700 });
     await symlink(other, global.reference.absolutePath, "dir");
