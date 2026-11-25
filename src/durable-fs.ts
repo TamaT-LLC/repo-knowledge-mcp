@@ -1,4 +1,5 @@
-import { lstat, open, readFile } from "node:fs/promises";
+import { lstat, open, readFile, rename, rm } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import { CanonicalStoreError } from "./canonical-path-validation.js";
 import { computeByteSha256 } from "./knowledge-document.js";
@@ -47,6 +48,18 @@ async function writeAll(
     }
     offset += bytesWritten;
   }
+}
+
+/** Atomically replaces `path` via a durable sibling temp file and rename. */
+export async function replaceDurable(
+  path: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  const temporaryPath = `${path}.tmp`;
+  await rm(temporaryPath, { force: true });
+  await writeDurable(temporaryPath, bytes, "wx");
+  await rename(temporaryPath, path);
+  await fsyncDirectory(dirname(path));
 }
 
 export async function fsyncDirectory(path: string): Promise<void> {
