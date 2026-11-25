@@ -116,6 +116,9 @@ describe("repo-knowledge CLI", () => {
     expect(
       await runRepoKnowledgeCli(fixture(["always-return", "list"]).options),
     ).toBe(1);
+    expect(() =>
+      parseRepoKnowledgeCliArguments(["add", "--global"], true),
+    ).toThrow("add --global requires --category");
     const flagged = fixture(["serve", "--allow-always-return-changes"]);
     expect(await runRepoKnowledgeCli(flagged.options)).toBe(0);
     expect(flagged.serve).toHaveBeenCalledWith({

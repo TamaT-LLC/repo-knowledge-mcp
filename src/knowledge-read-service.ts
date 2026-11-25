@@ -407,18 +407,19 @@ export class KnowledgeReadService {
   ): Promise<GetKnowledgeResult> {
     const id = KnowledgeIdSchema.parse(request.id);
     const evidenceLimit = validateEvidenceLimit(request.evidenceLimit);
-    let repoId = this.repoId;
-    let snapshot = (await this.repository.readKnowledgeView()).snapshot;
-    if (
-      !snapshot.domain.knowledge.some(
-        (k) => k.id === id && k.repoId === repoId,
-      ) &&
+    const localSnapshot = (await this.repository.readKnowledgeView()).snapshot;
+    const useGlobal =
       this.globalStore &&
-      (await this.globalStore.exists())
-    ) {
-      repoId = GLOBAL_STORE_ID;
-      snapshot = await this.globalStore.store.readSnapshot();
-    }
+      !localSnapshot.domain.knowledge.some(
+        (k) => k.id === id && k.repoId === this.repoId,
+      ) &&
+      (await this.globalStore.exists());
+    const { repoId, snapshot } = useGlobal
+      ? {
+          repoId: GLOBAL_STORE_ID,
+          snapshot: await this.globalStore.store.readSnapshot(),
+        }
+      : { repoId: this.repoId, snapshot: localSnapshot };
     const cursor =
       request.cursor === undefined
         ? undefined
@@ -537,7 +538,7 @@ function rankGlobalRules(
       continue;
     }
     const reasons: RuleMatchReason[] = [];
-    if (knowledge.scope.some(matchesFiles))
+    if (knowledge.scope.length === 0 || knowledge.scope.some(matchesFiles))
       reasons.push({ type: "global_store", via: "scope" });
     const taskScore = global.scores.get(knowledge.id);
     if (taskScore !== undefined)

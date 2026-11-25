@@ -102,16 +102,13 @@ class MutationRuntimeUnavailableError extends Error {
 export function parseStdioEntryArguments(
   argv: readonly string[],
 ): StdioEntrySelection {
-  let allowAlwaysReturnChanges = false;
-  let startupRepo: string | undefined;
-  let startupWorkspace: string | undefined;
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index]!;
+  const options = new Map<string, string | true>();
+  const tokens = argv.values();
+  for (const token of tokens) {
     if (token === "--allow-always-return-changes") {
-      if (allowAlwaysReturnChanges)
+      if (options.has(token))
         throw new TypeError("duplicate --allow-always-return-changes");
-      allowAlwaysReturnChanges = true;
+      options.set(token, true);
       continue;
     }
     const equal = token.indexOf("=");
@@ -120,37 +117,29 @@ export function parseStdioEntryArguments(
       throw new TypeError(`unsupported stdio option: ${token}`);
     }
     const value =
-      equal >= 0 ? token.slice(equal + 1) : requireValue(argv, ++index, name);
-    if (value.trim().length === 0) {
+      equal >= 0
+        ? token.slice(equal + 1)
+        : requireValue(tokens.next().value, name);
+    if (value.trim().length === 0)
       throw new TypeError(`${name} requires a non-empty value`);
-    }
-    if (name === "--repo") {
-      if (startupRepo !== undefined) throw new TypeError("--repo was repeated");
-      startupRepo = parseRepositoryName(value);
-    } else {
-      if (startupWorkspace !== undefined) {
-        throw new TypeError("--workspace was repeated");
-      }
-      startupWorkspace = value;
-    }
+    if (options.has(name)) throw new TypeError(`${name} was repeated`);
+    options.set(name, name === "--repo" ? parseRepositoryName(value) : value);
   }
-
+  const startupRepo = options.get("--repo");
+  const startupWorkspace = options.get("--workspace");
   if (startupRepo !== undefined && startupWorkspace !== undefined) {
     throw new TypeError("--repo and --workspace are mutually exclusive");
   }
   return {
-    ...(allowAlwaysReturnChanges ? { allowAlwaysReturnChanges: true } : {}),
-    ...(startupRepo === undefined ? {} : { startupRepo }),
-    ...(startupWorkspace === undefined ? {} : { startupWorkspace }),
+    ...(options.has("--allow-always-return-changes")
+      ? { allowAlwaysReturnChanges: true }
+      : {}),
+    ...(typeof startupRepo === "string" ? { startupRepo } : {}),
+    ...(typeof startupWorkspace === "string" ? { startupWorkspace } : {}),
   };
 }
 
-function requireValue(
-  argv: readonly string[],
-  index: number,
-  name: string,
-): string {
-  const value = argv[index];
+function requireValue(value: string | undefined, name: string): string {
   if (value === undefined || value.startsWith("--")) {
     throw new TypeError(`${name} requires a value`);
   }

@@ -36,36 +36,42 @@ export function conversationSummary(
   >();
   const sessions = new Set<string>(),
     projects = new Set<string>();
-  let hasConflict = false;
-  for (const { record, targetPath } of snapshot.records) {
-    if (targetPath !== "events/conversation_evidence.jsonl") continue;
+  const evidence = snapshot.records.flatMap(({ record, targetPath }) => {
     if (
+      targetPath !== "events/conversation_evidence.jsonl" ||
       !record.payload ||
       typeof record.payload !== "object" ||
       Array.isArray(record.payload)
     )
-      continue;
-    const e = record.payload as Record<string, unknown>;
-    if (
-      record.record_type === "ConversationConflictRecorded" &&
-      Array.isArray(e.knowledge_ids) &&
-      e.knowledge_ids.includes(frontmatter.id)
-    ) {
-      hasConflict ||= e.knowledge_ids.every((id) =>
+      return [];
+    return [
+      {
+        type: record.record_type,
+        payload: record.payload as Record<string, unknown>,
+      },
+    ];
+  });
+  const hasConflict = evidence.some(
+    ({ type, payload }) =>
+      type === "ConversationConflictRecorded" &&
+      Array.isArray(payload.knowledge_ids) &&
+      payload.knowledge_ids.includes(frontmatter.id) &&
+      payload.knowledge_ids.every((id) =>
         snapshot.domain.knowledge.some(
           (k) =>
             k.id === id && k.status !== "deprecated" && k.status !== "rejected",
         ),
-      );
-    }
+      ),
+  );
+  for (const { type, payload: e } of evidence) {
     if (typeof e.evidence_id !== "string") continue;
     if (
-      record.record_type === "ConversationEvidenceSuperseded" ||
-      record.record_type === "ConversationEvidenceWithdrawn"
+      type === "ConversationEvidenceSuperseded" ||
+      type === "ConversationEvidenceWithdrawn"
     )
       supports.delete(e.evidence_id);
     if (
-      record.record_type === "ConversationEvidenceCreated" &&
+      type === "ConversationEvidenceCreated" &&
       e.knowledge_id === frontmatter.id &&
       e.polarity === "supports" &&
       e.status === "active" &&
@@ -81,6 +87,7 @@ export function conversationSummary(
   }
   const dates = [];
   for (const e of supports.values()) {
+    if (!IsoDateTimeSchema.safeParse(e.observed_at).success) continue;
     sessions.add(e.session_key);
     projects.add(e.project_key);
     dates.push(e.observed_at);

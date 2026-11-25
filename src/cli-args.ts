@@ -551,7 +551,8 @@ function parseAddActive(args: readonly string[]): ParsedCliCommand {
   }
   const required = (name: string): string => {
     const value = parsed.values.get(name);
-    if (value === undefined) throw usage(`add --active requires --${name}`);
+    if (value === undefined)
+      throw usage(`add --${global ? "global" : "active"} requires --${name}`);
     return value;
   };
   const input = {

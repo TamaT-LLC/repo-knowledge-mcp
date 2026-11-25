@@ -454,7 +454,7 @@ sys.exit(os.waitstatus_to_exitcode(status))`,
         "rk:global",
         id === conversationId
           ? {
-              scope: [],
+              scope: ["docs/**"],
               rule: "Prefer pnpm",
               origin: { type: "distilled", source: "conversation" },
               unexpected: "utterance-private",
@@ -479,18 +479,25 @@ sys.exit(os.waitstatus_to_exitcode(status))`,
       transactionId,
       fileWrites: [],
       appendRecords: [
+        evidence,
         {
-          targetPath: "events/conversation_evidence.jsonl",
-          record: {
-            schema_version: 1,
-            record_type: "ConversationEvidenceCreated",
-            recorded_at: timestamp,
-            record_id: createDomainId("event"),
-            transaction_id: transactionId,
-            payload: evidence,
-          },
+          ...evidence,
+          evidence_id: createDomainId("evidence"),
+          session_key: "invalid-session",
+          project_key: "invalid-project",
+          observed_at: "2026-01-01",
         },
-      ],
+      ].map((payload) => ({
+        targetPath: "events/conversation_evidence.jsonl",
+        record: {
+          schema_version: 1,
+          record_type: "ConversationEvidenceCreated",
+          recorded_at: timestamp,
+          record_id: createDomainId("event"),
+          transaction_id: transactionId,
+          payload,
+        },
+      })),
     });
     const cli = (...args: string[]) =>
       execa(process.execPath, ["dist/bin.js", ...args], {
@@ -559,6 +566,7 @@ sys.exit(os.waitstatus_to_exitcode(status))`,
     });
     expect(rules(4).rules).toHaveLength(9);
     expect(rules(4).rules.map((r) => r.id)).not.toContain(conversationId);
+    expect(rules(7).rules).toHaveLength(5);
     expect(
       rules(7)
         .rules.slice(3)
@@ -573,6 +581,7 @@ sys.exit(os.waitstatus_to_exitcode(status))`,
     expect(detail).toMatchObject({
       evidence: [],
       conversation_summary: {
+        period: { from: timestamp, to: timestamp },
         session_count: 1,
         project_count: 1,
         has_conflict: false,
@@ -585,10 +594,54 @@ sys.exit(os.waitstatus_to_exitcode(status))`,
 });
 
 describe("global matches across repeated reads", () => {
+  it("reserves configured slots while inactive and validates events before committing", async () => {
+    const { storageRoot } = await createOutcomeEnvironment();
+    const global = new GlobalStore(storageRoot);
+    await global.initialize();
+    const ids = Array.from({ length: 4 }, () => createDomainId("knowledge"));
+    const setStatus = (id: string, status: KnowledgeStatus) =>
+      writeKnowledge(global.reference.absolutePath, id, status, "rk:global");
+    const set = (id: string, enabled: boolean) =>
+      global.setAlwaysReturn(id, enabled, { actor: "cli" });
+    for (const id of ids) await setStatus(id, "active");
+    const first = ids[0]!,
+      fourth = ids[3]!;
+    await expect(
+      global.setAlwaysReturn(first, true, { actor: "mcp", caller_repo_id: "" }),
+    ).rejects.toThrow();
+    for (const id of ids.slice(0, 3)) await set(id, true);
+    await setStatus(first, "stale");
+    expect(await set(fourth, true)).toMatchObject({
+      reason: "limit_reached",
+      always_return_count: 2,
+    });
+    await setStatus(first, "active");
+    expect(await set(first, true)).toMatchObject({
+      state: "unchanged",
+      always_return_count: 3,
+    });
+    await setStatus(first, "stale");
+    expect(await set(first, false)).toMatchObject({
+      state: "changed",
+      always_return_count: 2,
+    });
+    expect(await set(fourth, true)).toMatchObject({
+      state: "changed",
+      always_return_count: 3,
+    });
+    await setStatus(first, "active");
+    expect(
+      (await global.listAlwaysReturn()).map((e) => e.knowledge_id),
+    ).toEqual(ids.slice(1));
+  });
+
   it("requires a real global directory and private entries under its configured root", async () => {
     const { storageRoot } = await createOutcomeEnvironment();
     const global = new GlobalStore(storageRoot);
     const other = join(storageRoot, "elsewhere");
+    await symlink(other, global.reference.absolutePath, "dir");
+    await expect(global.exists()).rejects.toThrow("symbolic link");
+    await rm(global.reference.absolutePath);
     await mkdir(other, { mode: 0o700 });
     await symlink(other, global.reference.absolutePath, "dir");
     await expect(global.readRules()).rejects.toThrow("directly inside");
@@ -619,13 +672,11 @@ describe("global matches across repeated reads", () => {
       repository: localStore,
       globalStore,
     });
-    for (let i = 0; i < 6; i++)
-      await writeKnowledge(
-        registered.absolutePath,
-        createDomainId("knowledge"),
-        "active",
-        REPO_ID,
-      );
+    const localIds = Array.from({ length: 6 }, () =>
+      createDomainId("knowledge"),
+    );
+    for (const id of localIds)
+      await writeKnowledge(registered.absolutePath, id, "active", REPO_ID);
     const input = { filePaths: ["src/a.ts"], limit: 5 };
     const baseline = await service.getRules(input);
     await globalStore.initialize();
@@ -650,6 +701,18 @@ describe("global matches across repeated reads", () => {
       global_matched_count: 0,
       global_truncated: false,
     });
+    await writeKnowledge(
+      globalStore.reference.absolutePath,
+      high,
+      "active",
+      "rk:global",
+      { scope: [] },
+    );
+    const allFiles = await service.getRules(input);
+    expect(allFiles.global_matched_count).toBe(1);
+    expect(
+      allFiles.rules.find((rule) => rule.id === high)?.match_reasons,
+    ).toEqual([{ type: "global_store", via: "scope" }]);
     await globalStore.setAlwaysReturn(always, true, { actor: "cli" });
     for (const [id, severity] of [
       [low, "consider"],
@@ -685,7 +748,9 @@ describe("global matches across repeated reads", () => {
     expect(
       (await service.getRules(input)).rules.map((rule) => rule.id),
     ).not.toContain(always);
-    expect(await globalStore.listAlwaysReturn()).toEqual([]);
+    expect(await globalStore.listAlwaysReturn()).toMatchObject([
+      { knowledge_id: always, actor: "cli" },
+    ]);
   });
 });
 

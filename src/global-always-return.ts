@@ -51,7 +51,13 @@ export function latestAlwaysReturn(
       record.record_type === "GlobalAlwaysReturnChanged"
     ) {
       const event = AlwaysReturnChangeSchema.parse(record.payload);
-      latest.set(event.knowledge_id, event);
+      latest.delete(event.knowledge_id);
+      if (event.enabled) {
+        latest.set(event.knowledge_id, event);
+        // Older histories could reuse a slot while its rule was inactive.
+        if (latest.size > ALWAYS_RETURN_LIMIT)
+          latest.delete(latest.keys().next().value!);
+      }
     }
   }
   return latest;

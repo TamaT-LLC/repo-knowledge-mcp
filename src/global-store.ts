@@ -1,9 +1,14 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
-import { resolveStorageRoot, ensurePrivateDirectory } from "./config.js";
+import {
+  resolveStorageRoot,
+  ensurePrivateDirectory,
+  assertPrivateDirectoryIdentity,
+} from "./config.js";
 import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
 import { AdminPlaneService } from "./admin-plane-service.js";
 import {
+  AlwaysReturnChangeSchema,
   ALWAYS_RETURN_LIMIT,
   ALWAYS_RETURN_PATH,
   GLOBAL_STORE_ID,
@@ -25,45 +30,60 @@ export function openStore(ref: StoreReference) {
   });
 }
 
-function activeSettings(snapshot: CanonicalProjectionSnapshot) {
+function activeSettings(
+  snapshot: CanonicalProjectionSnapshot,
+  configured: ReturnType<typeof latestAlwaysReturn>,
+) {
   const active = new Set(
     snapshot.domain.knowledge
       .filter((k) => k.repoId === GLOBAL_STORE_ID && k.status === "active")
       .map((k) => k.id),
   );
-  return [...latestAlwaysReturn(snapshot.records).values()].filter(
+  return [...configured.values()].filter(
     (e) => e.enabled && active.has(e.knowledge_id),
   );
 }
 
 export class GlobalStore {
   readonly reference: Extract<StoreReference, { kind: "global" }>;
-  readonly store: CanonicalTransactionStore;
+  private transactionStore?: CanonicalTransactionStore;
+  get store(): CanonicalTransactionStore {
+    this.transactionStore ??= openStore(this.reference);
+    return this.transactionStore;
+  }
   constructor(private readonly storageRoot: string) {
     this.reference = Object.freeze({
       kind: "global",
       repoId: GLOBAL_STORE_ID,
       absolutePath: resolve(storageRoot, "global"),
     } as const);
-    this.store = openStore(this.reference);
+  }
+
+  private validatedPath() {
+    const root = resolveStorageRoot(this.storageRoot);
+    // Validate the reference against the configured home before using either
+    // the store path or its parent in a filesystem operation.
+    const path = this.reference.absolutePath;
+    if (!path.startsWith(root + sep) || path !== join(root, "global")) {
+      throw new Error("Global store must be directly inside the storage root");
+    }
+    return path;
   }
 
   async exists(): Promise<boolean> {
     try {
-      const root = resolveStorageRoot(this.storageRoot);
-      // Validate the reference against the configured home before using either
-      // the store path or its parent in a filesystem operation.
-      const path = this.reference.absolutePath;
-      if (!path.startsWith(root + sep) || dirname(path) !== root) {
-        throw new Error(
-          "Global store must be directly inside the storage root",
-        );
-      }
+      const path = this.validatedPath();
       const directory = dirname(path);
-      if (!(await lstat(directory)).isDirectory())
+      const status = await lstat(directory);
+      if (!status.isDirectory())
         throw new Error("Storage root must be a real directory");
+      await assertPrivateDirectoryIdentity(directory, status);
       const parent = await realpath(directory);
       const expected = join(parent, "global");
+      if ((await lstat(path)).isSymbolicLink())
+        throw new Error(
+          "Global store must be directly inside the storage root, not a symbolic link",
+        );
       const actual = await realpath(path);
       if (actual !== expected || !actual.startsWith(parent + sep))
         throw new Error(
@@ -95,11 +115,12 @@ export class GlobalStore {
   }
 
   async initialize() {
-    await ensurePrivateDirectory(resolveStorageRoot(this.storageRoot));
+    const path = this.validatedPath();
+    await ensurePrivateDirectory(dirname(path));
     await this.exists();
-    await ensurePrivateDirectory(this.reference.absolutePath);
+    await ensurePrivateDirectory(path);
     for (const dir of ["knowledge", "events"])
-      await ensurePrivateDirectory(join(this.reference.absolutePath, dir));
+      await ensurePrivateDirectory(join(path, dir));
   }
 
   async addActive(input: Parameters<AdminPlaneService["addActive"]>[0]) {
@@ -123,9 +144,9 @@ export class GlobalStore {
     return (await this.exists()) ? this.store.readGlobalRules(task) : undefined;
   }
   async listAlwaysReturn() {
-    return (await this.exists())
-      ? activeSettings(await this.store.readSnapshot())
-      : [];
+    if (!(await this.exists())) return [];
+    const { records } = await this.store.readSnapshot();
+    return [...latestAlwaysReturn(records).values()];
   }
   async setAlwaysReturn(
     id: string,
@@ -145,26 +166,28 @@ export class GlobalStore {
       const knowledge = snapshot.domain.knowledge.find(
         (k) => k.id === id && k.repoId === GLOBAL_STORE_ID,
       );
-      const settings = activeSettings(snapshot);
-      const current = settings.find((e) => e.knowledge_id === id);
+      const configured = latestAlwaysReturn(snapshot.records);
+      const settings = activeSettings(snapshot, configured);
+      const current = configured.get(id);
+      const isActive = knowledge?.status === "active";
       const result = {
         knowledge_id: id,
-        always_return: !!current,
+        always_return: !!current && isActive,
         always_return_count: settings.length,
         ...(current ? { set_by: current.actor } : {}),
       };
-      let reason: AlwaysReturnResult["reason"];
-      if (!knowledge) reason = "not_global";
-      else if (knowledge.status !== "active") reason = "not_active";
-      else if (!enabled && actor.actor === "mcp" && current?.actor === "cli")
-        reason = "set_by_cli";
-      else if (enabled && !current && settings.length >= ALWAYS_RETURN_LIMIT)
-        reason = "limit_reached";
-      if (reason)
-        return {
-          transaction: null,
-          value: { ...result, state: "rejected", reason },
-        };
+      const reject = (reason: NonNullable<AlwaysReturnResult["reason"]>) => ({
+        transaction: null,
+        value: { ...result, state: "rejected" as const, reason },
+      });
+      const removingCliReservation =
+        !enabled && !!current && actor.actor === "cli";
+      if (!knowledge && !removingCliReservation) return reject("not_global");
+      if (!isActive && !removingCliReservation) return reject("not_active");
+      if (!enabled && actor.actor === "mcp" && current?.actor === "cli")
+        return reject("set_by_cli");
+      if (enabled && !current && configured.size >= ALWAYS_RETURN_LIMIT)
+        return reject("limit_reached");
       if (enabled === !!current)
         return { transaction: null, value: { ...result, state: "unchanged" } };
       const recordedAt = new Date().toISOString();
@@ -184,13 +207,13 @@ export class GlobalStore {
                 record_type: "GlobalAlwaysReturnChanged",
                 recorded_at: recordedAt,
                 transaction_id: transactionId,
-                payload: {
+                payload: AlwaysReturnChangeSchema.parse({
                   event_id: eventId,
                   knowledge_id: id,
                   enabled,
                   ...actor,
                   recorded_at: recordedAt,
-                },
+                }),
               },
             },
           ],
@@ -199,7 +222,8 @@ export class GlobalStore {
           knowledge_id: id,
           state: "changed",
           always_return: enabled,
-          always_return_count: settings.length + (enabled ? 1 : -1),
+          always_return_count:
+            settings.length + (enabled ? 1 : isActive ? -1 : 0),
           ...(enabled ? { set_by: actor.actor } : {}),
         },
       };

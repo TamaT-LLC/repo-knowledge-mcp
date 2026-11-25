@@ -415,7 +415,7 @@ function ensureCaptureProjected(
     (!global ||
       database
         .prepare(
-          "SELECT 1 FROM sqlite_schema WHERE name = 'global_always_return'",
+          "SELECT 1 FROM projection_meta WHERE key = 'global_settings_version' AND value = '1'",
         )
         .get())
   ) {
@@ -688,6 +688,11 @@ function rebuildDatabase(
       database.exec(
         "CREATE TABLE IF NOT EXISTS global_always_return (knowledge_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, payload_json TEXT NOT NULL); DELETE FROM global_always_return",
       );
+      database
+        .prepare(
+          "INSERT OR REPLACE INTO projection_meta (key, value) VALUES ('global_settings_version', '1')",
+        )
+        .run();
       const insert = database.prepare(
         "INSERT INTO global_always_return VALUES (?, ?, ?)",
       );
