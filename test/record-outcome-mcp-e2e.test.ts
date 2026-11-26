@@ -352,6 +352,15 @@ finally:
     expect(await setAlwaysReturn(id, true)).toMatchObject({
       state: "unchanged",
     });
+    // MCP may clear what MCP set, then set it again for the CLI checks below.
+    expect(await setAlwaysReturn(id, false)).toMatchObject({
+      state: "changed",
+      always_return: false,
+    });
+    expect(await setAlwaysReturn(id, true)).toMatchObject({
+      state: "changed",
+      set_by: "mcp",
+    });
     expect(
       JSON.parse((await runCli(environment, "always-return", "list")).stdout),
     ).toMatchObject([
@@ -441,9 +450,22 @@ finally:
       ok: true,
       result: { replayed: false, applied_count: 2 },
     });
+    // The CLI clears an MCP-set rule: exit 0 alone would also hide "unchanged".
+    const removed = await runCli(environment, "always-return", "remove", id);
+    expect(removed.exitCode).toBe(0);
+    expect(JSON.parse(removed.stdout)).toMatchObject({
+      state: "changed",
+      always_return: false,
+      reserved_count: 0,
+    });
     expect(
-      (await runCli(environment, "always-return", "remove", id)).exitCode,
-    ).toBe(0);
+      JSON.parse((await runCli(environment, "always-return", "list")).stdout),
+    ).toEqual([]);
+    expect(
+      GetRulesOutputSchema.parse(await tool("get_rules", {})).rules.map(
+        (rule) => rule.id,
+      ),
+    ).not.toContain(id);
     expect(
       (
         await stat(
@@ -550,6 +572,20 @@ finally:
           task: "schema",
           limit: 5,
         }),
+        callTool(8, "set_global_always_return", {
+          knowledge_id: ids[4],
+          enabled: true,
+        }),
+        callTool(9, "get_rules", {
+          repo: REPOSITORY,
+          file_paths: ["src/main.ts"],
+          limit: 1,
+        }),
+        callTool(10, "get_rules", {
+          repo: REPOSITORY,
+          file_paths: ["src/main.ts"],
+          limit: 2,
+        }),
       ],
       ["--repo", REPOSITORY, "--allow-always-return-changes"],
     );
@@ -578,6 +614,7 @@ finally:
     expect(rules(4).rules).toHaveLength(9);
     expect(rules(4).rules.map((r) => r.id)).not.toContain(conversationId);
     expect(rules(7).rules).toHaveLength(5);
+    expect(rules(7).rules.slice(3)).toHaveLength(2);
     expect(
       rules(7)
         .rules.slice(3)
@@ -588,6 +625,22 @@ finally:
         ),
     ).toBe(true);
     expect(structuredContent(base, 6)).toMatchObject({ reason: "not_active" });
+    // The limit holds over MCP too, and a limit below the reserved slots
+    // returns only always-return rules.
+    expect(structuredContent(base, 8)).toMatchObject({
+      state: "rejected",
+      reason: "limit_reached",
+      reserved_count: 3,
+    });
+    for (const [n, limit] of [
+      [9, 1],
+      [10, 2],
+    ] as const) {
+      expect(rules(n).rules).toHaveLength(limit);
+      expect(rules(n).rules.map((r) => r.match_reasons)).toEqual(
+        Array(limit).fill([{ type: "global_store", via: "always" }]),
+      );
+    }
     const detail = GetKnowledgeOutputSchema.parse(structuredContent(base, 5));
     expect(detail).toMatchObject({
       evidence: [],
@@ -870,6 +923,80 @@ describe("global store review follow-ups", () => {
         [reserved[2], "active"],
       ]),
     );
+  });
+
+  it("orders always-return rules by severity, then recency, then ID", async () => {
+    const { storageRoot, repositoryRoot } = await createOutcomeEnvironment();
+    const global = new GlobalStore(storageRoot);
+    await global.initialize();
+    const [newestShould, ...musts] = Array.from({ length: 3 }, () =>
+      createDomainId("knowledge"),
+    ) as [string, string, string];
+    await writeKnowledge(
+      global.reference.absolutePath,
+      newestShould,
+      "active",
+      "rk:global",
+      { severity: "should", updated_at: "2026-04-01T00:00:00.000Z" },
+    );
+    for (const id of musts)
+      await writeKnowledge(
+        global.reference.absolutePath,
+        id,
+        "active",
+        "rk:global",
+        {
+          severity: "must",
+          updated_at: "2026-02-01T00:00:00.000Z",
+        },
+      );
+    for (const id of [newestShould, ...musts])
+      await global.setAlwaysReturn(id, true, { actor: "cli" });
+    const result = await new KnowledgeReadService({
+      repo: REPOSITORY,
+      repoId: REPO_ID,
+      repository: new CanonicalTransactionStore(repositoryRoot),
+      globalStore: global,
+    }).getRules({ filePaths: ["docs/none.md"], limit: 10 });
+    expect(result.rules.map((rule) => rule.id)).toEqual([
+      ...[...musts].sort(),
+      newestShould,
+    ]);
+  });
+
+  it("keeps repository rules when global events are corrupt", async () => {
+    const { storageRoot, repositoryRoot } = await createOutcomeEnvironment();
+    const global = new GlobalStore(storageRoot);
+    await global.initialize();
+    const globalId = createDomainId("knowledge");
+    await writeKnowledge(
+      global.reference.absolutePath,
+      globalId,
+      "active",
+      "rk:global",
+    );
+    const service = new KnowledgeReadService({
+      repo: REPOSITORY,
+      repoId: REPO_ID,
+      repository: new CanonicalTransactionStore(repositoryRoot),
+      globalStore: global,
+    });
+    const input = { filePaths: ["src/x.ts"], limit: 10 };
+    expect(
+      (await service.getRules(input)).rules.map((rule) => rule.id),
+    ).toEqual([ACTIVE_ID, globalId]);
+    await writeFile(
+      join(global.reference.absolutePath, "events", "always_return.jsonl"),
+      "{not json\n",
+      { mode: 0o600 },
+    );
+    const failed = await service.getRules(input);
+    expect(failed).toMatchObject({
+      global_read_failed: true,
+      matched_count: 1,
+      rules: [{ id: ACTIVE_ID }],
+    });
+    expect(failed.rules).toHaveLength(1);
   });
 
   it("runs doctor from inside the storage root without failing the global store", {
