@@ -10,7 +10,6 @@ import {
   resolveStorageRoot,
 } from "./config.js";
 import { RepositoryNameSchema } from "./domain-schemas.js";
-import { pathExists } from "./durable-fs.js";
 import { LLM_PROVIDER_MODES } from "./llm-provider-config.js";
 
 export const CONVERSATION_CONFIG_FILE_NAME = "conversation-distillation.json";
@@ -114,15 +113,15 @@ export async function loadConversationConfig(
     resolveStorageRoot(storageRoot),
     CONVERSATION_CONFIG_FILE_NAME,
   );
-  if (!(await pathExists(path))) {
-    return parseConfigWithSchema(
-      ConversationDistillationConfigSchema,
-      { schemaVersion: 1 },
-      path,
-    );
-  }
+  const status = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw new RepoKnowledgeConfigError("CONFIG_IO_ERROR", path, error.message, {
+      cause: error,
+    });
+  });
   // redactTerms can hold third-party names; never read it from a shared file.
-  if (((await lstat(path)).mode & 0o077) !== 0) {
+  // A symlink or non-file is left to readJsonConfigFile's own error.
+  if (status?.isFile() === true && (status.mode & 0o077) !== 0) {
     throw new RepoKnowledgeConfigError(
       "CONFIG_PATH_UNSAFE",
       path,
@@ -131,7 +130,7 @@ export async function loadConversationConfig(
   }
   return parseConfigWithSchema(
     ConversationDistillationConfigSchema,
-    await readJsonConfigFile(path),
+    status === null ? { schemaVersion: 1 } : await readJsonConfigFile(path),
     path,
   );
 }

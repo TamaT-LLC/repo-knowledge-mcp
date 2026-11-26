@@ -30,6 +30,7 @@ import {
   type DoctorCheckStatus,
   type DoctorReport,
 } from "./doctor/report-builder.js";
+import { errorMessage } from "./doctor/util.js";
 import { ExecaGitRemoteReader, type GitRemoteReader } from "./git-remote.js";
 import type { GhRunnerLike } from "./gh-runner.js";
 import {
@@ -148,7 +149,7 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
       report.add({
         id: "conversations.key",
         status: "fail",
-        message: String(error),
+        message: errorMessage(error),
       });
     }
     const config = storageExists

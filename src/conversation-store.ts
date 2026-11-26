@@ -24,6 +24,7 @@ import {
   replaceDurable,
   writeDurable,
 } from "./durable-fs.js";
+import type { DoctorCheck } from "./doctor/report-builder.js";
 import { withPosixFileLock } from "./posix-file-lock.js";
 
 const CONVERSATIONS_DIRECTORY = "conversations";
@@ -40,6 +41,9 @@ const FILES = {
   lock: ".lock",
 } as const;
 const KEY_BYTES = 32;
+const RESET_KEY = "run `repo-knowledge conversations reset-key`";
+const FINISH_RESET = `${RESET_KEY} to finish it`;
+const RESTART_RESET = "run `repo-knowledge conversations reset-key --restart`";
 
 // ---------------------------------------------------------------------------
 // Records
@@ -132,16 +136,11 @@ const PurgeFilterShape = z
     name_with_owner: RepositoryNameSchema.optional(),
   })
   .strict();
-const atLeastOneCondition = (filter: object) => Object.keys(filter).length > 0;
 /**
- * A persisted filter, read back exactly as it was stored: re-resolving its
+ * A persisted filter is read back exactly as it was stored: re-resolving its
  * path later would let a changed symlink move what the filter deletes.
  */
-const PurgeFilterSchema = PurgeFilterShape.refine(
-  atLeastOneCondition,
-  "a purge filter needs at least one condition",
-);
-export type PurgeFilter = z.infer<typeof PurgeFilterSchema>;
+export type PurgeFilter = z.infer<typeof PurgeFilterShape>;
 /**
  * A filter as a user registers it. The path is resolved once, here, so
  * equivalent spellings dedupe and the stored value never changes meaning.
@@ -155,7 +154,17 @@ const PurgeFilterInputSchema = PurgeFilterShape.extend({
   name_with_owner: RepositoryNameSchema.transform((name) =>
     name.toLowerCase(),
   ).optional(),
-}).refine(atLeastOneCondition, "a purge filter needs at least one condition");
+}).refine(
+  (filter) => Object.keys(filter).length > 0,
+  "a purge filter needs at least one condition",
+);
+
+/** Every rule for adding a filter, for both counting and purging. */
+function parsePurgeFilterInput(input: PurgeFilter, now: Date): PurgeFilter {
+  const filter = PurgeFilterInputSchema.parse(input);
+  assertPurgeBeforeNotInFuture(filter, now);
+  return filter;
+}
 
 const PurgeFiltersFileSchema = z
   .object({
@@ -246,6 +255,12 @@ export function normalizeProjectPath(path: string): string {
       "CONVERSATION_RECORD_INVALID",
       "project paths must be absolute",
     );
+  }
+  try {
+    // The common case: the whole path exists and realpath resolves it alike.
+    return realpathSync.native(path);
+  } catch {
+    // Fall through: resolve what exists component by component.
   }
   let resolved = "/";
   let exists = true;
@@ -405,9 +420,10 @@ export type ConversationStoreErrorCode =
 export class ConversationStoreError extends Error {
   constructor(
     readonly code: ConversationStoreErrorCode,
-    message: string,
+    /** The message without the code, for callers that add their own. */
+    readonly detail: string,
   ) {
-    super(`${code}: ${message}`);
+    super(`${code}: ${detail}`);
     this.name = "ConversationStoreError";
   }
 }
@@ -515,7 +531,7 @@ export class ConversationStore {
     if ((await this.resetPending()) !== null) {
       throw new ConversationStoreError(
         "CONVERSATION_RESET_PENDING",
-        "a key reset is in progress; run `repo-knowledge conversations reset-key` to finish it",
+        `a key reset is in progress; ${FINISH_RESET}`,
       );
     }
   }
@@ -531,14 +547,8 @@ export class ConversationStore {
   async ensureKey(): Promise<Buffer> {
     return this.writeLocked(async () => {
       const existing = await this.readKey();
-      const records = await this.readRecords();
-      if (existing !== null) {
-        // Records hashed by another key would never match this one.
-        if (!recordsMatchKey(existing, records)) throw keyMismatch();
-        return existing;
-      }
-      // A new key could never match what the lost one hashed.
-      if (records.length > 0) throw keyLost();
+      assertKeyMatchesRecords(existing, await this.readRecords());
+      if (existing !== null) return existing;
       const key = randomBytes(KEY_BYTES);
       await writeDurable(this.path("key"), key, "wx");
       await fsyncDirectory(this.directory);
@@ -588,15 +598,7 @@ export class ConversationStore {
           "local.key does not exist",
         );
       }
-      // Every record hashes the `/` prefix; without it another key built it.
-      const root = pathPrefixHmac(key, "/");
-      if (
-        parsed.some(
-          (r) =>
-            r.type !== "superseded" &&
-            !r.project.path_prefix_hmacs.includes(root),
-        )
-      ) {
+      if (!recordsMatchKey(key, parsed)) {
         throw new ConversationStoreError(
           "CONVERSATION_KEY_MISMATCH",
           "records were built with a different local.key; ingest again",
@@ -661,7 +663,8 @@ export class ConversationStore {
 
   /** Read-only count used to confirm a purge before taking the lock. */
   async previewPurge(input: PurgeFilter): Promise<number> {
-    return (await this.matchingIds(PurgeFilterInputSchema.parse(input))).length;
+    return (await this.matchingIds(parsePurgeFilterInput(input, this.now())))
+      .length;
   }
 
   private async matchingIds(filter: PurgeFilter): Promise<string[]> {
@@ -674,8 +677,7 @@ export class ConversationStore {
       filter.project_path_prefix !== undefined &&
       records.some((record) => record.type !== "superseded")
     ) {
-      if (key === null) throw keyLost();
-      if (!recordsMatchKey(key, records)) throw keyMismatch();
+      assertKeyMatchesRecords(key, records);
     }
     const matches = purgeMatcher(key, [filter]);
     return records.flatMap((record) =>
@@ -688,8 +690,7 @@ export class ConversationStore {
   async purge(
     input: PurgeFilter,
   ): Promise<{ filter_added: boolean; purged_records: number }> {
-    const filter = PurgeFilterInputSchema.parse(input);
-    assertPurgeBeforeNotInFuture(filter, this.now());
+    const filter = parsePurgeFilterInput(input, this.now());
     return this.writeLocked(async () => {
       const progress: PurgeProgress = {
         schema_version: 1,
@@ -707,11 +708,12 @@ export class ConversationStore {
 
   /** Finishes an interrupted purge before anything reads or adds records. */
   private async resumePurge(): Promise<void> {
-    const pending = await readJsonFile(
-      this.path("purgeProgress"),
-      PurgeProgressSchema,
-    );
+    const pending = await this.readPurgeProgress();
     if (pending !== null) await this.finishPurge(pending);
+  }
+
+  private readPurgeProgress(): Promise<PurgeProgress | null> {
+    return readJsonFile(this.path("purgeProgress"), PurgeProgressSchema);
   }
 
   /**
@@ -796,16 +798,13 @@ export class ConversationStore {
       if (marker.completed_stage < 2) await this.resumePurge();
 
       // Stage 1: swap the key, then discard key-dependent state.
+      if (!(await this.canResume(marker))) {
+        throw new ConversationStoreError(
+          "CONVERSATION_RESET_UNRECOVERABLE",
+          `neither local.key nor local.key.next matches the reset marker; ${RESTART_RESET}`,
+        );
+      }
       if ((await keyIdOf(this.path("key"))) !== marker.key_id) {
-        if (
-          marker.completed_stage >= 1 ||
-          (await keyIdOf(this.path("nextKey"))) !== marker.key_id
-        ) {
-          throw new ConversationStoreError(
-            "CONVERSATION_RESET_UNRECOVERABLE",
-            "neither local.key nor local.key.next matches the reset marker; run `repo-knowledge conversations reset-key --restart`",
-          );
-        }
         await rename(this.path("nextKey"), this.path("key"));
         await fsyncDirectory(this.directory);
         this.inject("reset:key_renamed");
@@ -856,16 +855,11 @@ export class ConversationStore {
    * checked first: finishing or restarting a reset also replaces a damaged
    * local.key, so the key alone would point at the wrong recovery.
    */
-  async diagnose(): Promise<{
-    readonly status: "pass" | "warn" | "fail";
-    readonly message: string;
-    readonly remedy?: string;
-  } | null> {
+  async diagnose(): Promise<Pick<
+    DoctorCheck,
+    "status" | "message" | "remedy"
+  > | null> {
     if (!(await pathExists(this.directory))) return null;
-    const finish = "run `repo-knowledge conversations reset-key` to finish it";
-    const restart = "run `repo-knowledge conversations reset-key --restart`";
-    const inProgress =
-      "A conversation key reset is in progress; ingest is refused";
     let marker: ResetPendingMarker | null;
     try {
       marker = await this.resetPending();
@@ -873,33 +867,32 @@ export class ConversationStore {
       return {
         status: "warn",
         message: "reset-pending.json is not valid",
-        remedy: restart,
+        remedy: RESTART_RESET,
       };
     }
     const key = await inspectKeyFile(this.path("key"));
     if (marker !== null) {
-      if (key.keyId === marker.key_id) {
-        return key.error === undefined
-          ? { status: "warn", message: inProgress, remedy: finish }
-          : {
-              status: "fail",
-              message: key.error.message,
-              remedy: `chmod 600 the key file, then ${finish}`,
-            };
+      // A key that only has too wide a mode still names its generation.
+      if (key.error !== undefined && key.keyId === marker.key_id) {
+        return {
+          status: "fail",
+          message: key.error.message,
+          remedy: `chmod 600 the key file, then ${FINISH_RESET}`,
+        };
       }
-      if (
-        marker.completed_stage < 1 &&
-        (await keyIdOf(this.path("nextKey"))) === marker.key_id
-      ) {
-        // The pending rename replaces local.key, damaged or not.
-        return { status: "warn", message: inProgress, remedy: finish };
-      }
-      return {
-        status: "warn",
-        message:
-          "Neither local.key nor local.key.next matches the reset marker",
-        remedy: restart,
-      };
+      return (await this.canResume(marker))
+        ? {
+            status: "warn",
+            message:
+              "A conversation key reset is in progress; ingest is refused",
+            remedy: FINISH_RESET,
+          }
+        : {
+            status: "warn",
+            message:
+              "Neither local.key nor local.key.next matches the reset marker",
+            remedy: RESTART_RESET,
+          };
     }
     if (key.error !== undefined) {
       return {
@@ -908,23 +901,20 @@ export class ConversationStore {
         remedy:
           key.error.code === "CONVERSATION_KEY_PERMISSIONS"
             ? "chmod 600 the key file"
-            : "run `repo-knowledge conversations reset-key`",
+            : RESET_KEY,
       };
     }
-    const records = await this.readRecords();
-    if (key.keyId === null && records.length > 0) {
+    try {
+      assertKeyMatchesRecords(key.key, await this.readRecords());
+    } catch (error) {
+      if (!(error instanceof ConversationStoreError)) throw error;
       return {
         status: "warn",
-        message: "Stored conversations exist but local.key is missing",
-        remedy: "run `repo-knowledge conversations reset-key`",
-      };
-    }
-    const current = await this.readKey();
-    if (current !== null && !recordsMatchKey(current, records)) {
-      return {
-        status: "warn",
-        message: "Stored conversations were hashed with a different local.key",
-        remedy: "run `repo-knowledge conversations reset-key`",
+        message:
+          error.code === "CONVERSATION_KEY_MISSING"
+            ? "Stored conversations exist but local.key is missing"
+            : "Stored conversations were hashed with a different local.key",
+        remedy: RESET_KEY,
       };
     }
     return {
@@ -953,9 +943,7 @@ export class ConversationStore {
       directory_exists: await pathExists(this.directory),
       key,
       reset_pending: await this.resetPending(),
-      purge_in_progress:
-        (await readJsonFile(this.path("purgeProgress"), PurgeProgressSchema))
-          ?.stage ?? null,
+      purge_in_progress: (await this.readPurgeProgress())?.stage ?? null,
       purge_filter_count: (await this.readPurgeFilters()).length,
       records,
     };
@@ -966,13 +954,6 @@ export class ConversationStore {
   private now(): Date {
     return this.options.now?.() ?? new Date();
   }
-}
-
-function keyMismatch(): ConversationStoreError {
-  return new ConversationStoreError(
-    "CONVERSATION_KEY_MISMATCH",
-    "stored conversations were hashed with a different local.key; run `repo-knowledge conversations reset-key` to start over with a new key",
-  );
 }
 
 /** Every stored utterance and tombstone hashes the `/` prefix. */
@@ -988,11 +969,27 @@ function recordsMatchKey(
   );
 }
 
-function keyLost(): ConversationStoreError {
-  return new ConversationStoreError(
-    "CONVERSATION_KEY_MISSING",
-    "stored conversations exist but local.key is missing; run `repo-knowledge conversations reset-key` to start over with a new key",
-  );
+/**
+ * The one rule for whether `key` can be used with the stored records: they
+ * need the key that hashed them, so a missing key or a different one would
+ * silently match nothing (and a new key would mint unrelated IDs).
+ */
+function assertKeyMatchesRecords(
+  key: Uint8Array | null,
+  records: readonly ConversationRecord[],
+): void {
+  if (key === null && records.length > 0) {
+    throw new ConversationStoreError(
+      "CONVERSATION_KEY_MISSING",
+      `stored conversations exist but local.key is missing; ${RESET_KEY} to start over with a new key`,
+    );
+  }
+  if (key !== null && !recordsMatchKey(key, records)) {
+    throw new ConversationStoreError(
+      "CONVERSATION_KEY_MISMATCH",
+      `stored conversations were hashed with a different local.key; ${RESET_KEY} to start over with a new key`,
+    );
+  }
 }
 
 /** True for records (not supersede links) that match any of `filters`. */
@@ -1088,12 +1085,13 @@ async function readKeyFile(path: string): Promise<Buffer | null> {
  * key that only needs chmod from a key that no longer matches.
  */
 async function inspectKeyFile(path: string): Promise<{
+  readonly key: Buffer | null;
   readonly keyId: string | null;
   readonly error?: ConversationStoreError;
 }> {
   try {
     const key = await readKeyFile(path);
-    return { keyId: key === null ? null : keyId(key) };
+    return { key, keyId: key === null ? null : keyId(key) };
   } catch (error) {
     if (!(error instanceof ConversationStoreError)) throw error;
     const bytes =
@@ -1101,6 +1099,7 @@ async function inspectKeyFile(path: string): Promise<{
         ? await readFile(path)
         : null;
     return {
+      key: null,
       keyId: bytes?.length === KEY_BYTES ? keyId(bytes) : null,
       error,
     };

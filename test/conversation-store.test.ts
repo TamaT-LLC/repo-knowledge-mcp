@@ -892,7 +892,7 @@ describe("path normalization at registration", () => {
     await store(root).compact(null);
     expect(
       (await store(root).readPurgeFilters()).map((f) => f.project_path_prefix),
-    ).toEqual([normalizeProjectPath(join(root, "w")) + "/a"]);
+    ).toEqual([`${normalizeProjectPath(join(root, "w"))}/a`]);
     expect(
       (await store(root).readRecords()).flatMap((r) =>
         r.type === "utterance" ? [r.session_id] : [],

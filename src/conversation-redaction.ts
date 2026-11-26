@@ -75,19 +75,18 @@ const SHARED_RULES: readonly Rule[] = SENSITIVE_PATTERNS.map(
     return { kind, pattern: global(pattern), replace: whole };
   },
 );
-const isSecretAssignment = (rule: Rule) =>
-  rule.kind === "generic_secret_assignment";
-const isAuthorizationHeader = (rule: Rule) =>
-  rule.kind === "authorization_header";
+/** Shared rules placed ahead of the rest; the others keep their order. */
+const PROMOTED = new Set(["generic_secret_assignment", "authorization_header"]);
+const shared = (kind: ConversationRedactionKind) =>
+  SHARED_RULES.filter((rule) => rule.kind === kind);
 
 /**
  * Order matters: wider rules run before the ones that would cut them short.
  * A secret assignment, an Authorization header and a bearer token run before
- * the other shared patterns so that a key inside them cannot leave the rest
- * of the value behind (`secret=AKIA...+tail`, `Bearer sk-...tail`); a
- * connection string's
- * `pass@host` looks like an email, and a JWT outside an assignment would
- * otherwise stop at its first dot.
+ * the other shared patterns, so a key inside them cannot leave the rest of
+ * the value behind (`secret=AKIA...+tail`, `Bearer sk-...tail`). A connection
+ * string's `pass@host` looks like an email, and a JWT outside an assignment
+ * would otherwise stop at its first dot.
  */
 const RULES: readonly Rule[] = [
   {
@@ -96,17 +95,15 @@ const RULES: readonly Rule[] = [
       /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/gu,
     replace: whole,
   },
-  ...SHARED_RULES.filter(isSecretAssignment),
+  ...shared("generic_secret_assignment"),
   {
     kind: "connection_credentials",
     pattern: /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/]*@/giu,
     replace: (_match, scheme) => `${scheme}${REDACTED}@`,
   },
   // The header keeps its whole value replaced, before the bare bearer rule.
-  ...SHARED_RULES.filter(isAuthorizationHeader),
+  ...shared("authorization_header"),
   {
-    // Before the shared patterns: a key inside the token (`sk-...`) would
-    // otherwise be replaced alone and leave the rest of the token behind.
     // A short token counts when it has a digit; prose such as "bearer of"
     // does not.
     kind: "bearer_token",
@@ -120,9 +117,7 @@ const RULES: readonly Rule[] = [
     pattern: /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*/gu,
     replace: whole,
   },
-  ...SHARED_RULES.filter(
-    (rule) => !isSecretAssignment(rule) && !isAuthorizationHeader(rule),
-  ),
+  ...SHARED_RULES.filter((rule) => !PROMOTED.has(rule.kind)),
   {
     kind: "long_token",
     pattern: /\S+/gu,
@@ -200,16 +195,22 @@ export function truncateRedactedText(
   let result = text;
   // Masking keeps or shortens a cut; the bound only guards NFKC expansions.
   for (let pass = 0; pass < 3; pass += 1) {
-    const codePoints = Array.from(result);
-    if (codePoints.length <= maxCharacters) return result;
-    let cut = codePoints.slice(0, maxCharacters).join("");
-    const marker = result.lastIndexOf(REDACTED, cut.length - 1);
-    if (marker >= 0 && marker + REDACTED.length > cut.length) {
-      cut = cut.slice(0, marker);
-    }
-    result = redactConversationText(cut, options).text;
+    if (Array.from(result).length <= maxCharacters) return result;
+    result = redactConversationText(
+      cutOutsideMarker(result, maxCharacters),
+      options,
+    ).text;
   }
-  return Array.from(result).slice(0, maxCharacters).join("");
+  return cutOutsideMarker(result, maxCharacters);
+}
+
+/** The first `maxCharacters` code points, never ending inside a marker. */
+function cutOutsideMarker(text: string, maxCharacters: number): string {
+  const cut = Array.from(text).slice(0, maxCharacters).join("");
+  const marker = text.lastIndexOf(REDACTED, cut.length - 1);
+  return marker >= 0 && marker + REDACTED.length > cut.length
+    ? cut.slice(0, marker)
+    : cut;
 }
 
 /** Versions the rules and the dictionary without revealing its terms. */

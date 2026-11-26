@@ -19,6 +19,7 @@ import type {
 import {
   assertPurgeBeforeNotInFuture,
   ConversationSourceSchema,
+  type ConversationStoreError,
 } from "./conversation-store.js";
 import { parseRepositoryName } from "./repository-resolver.js";
 import { StatsBucketSchema } from "./stats-read-service.js";
@@ -644,7 +645,7 @@ function parsePurgeBefore(value: string): string {
   try {
     assertPurgeBeforeNotInFuture({ before }, new Date());
   } catch (error) {
-    throw usage((error as Error).message.replace(/^[A-Z_]+: /u, ""), error);
+    throw usage((error as ConversationStoreError).detail, error);
   }
   return before;
 }
