@@ -17,6 +17,7 @@ Issueを作る前に、既存Issueと[READMEのトラブルシュート](./READM
 Node.js 22.13.0以上の22.x、または24.0.0以上を使用してください。
 CLI の対話操作を検証するテストでは Python 3 の PTY を使うため、`python3` を PATH に追加してください。
 CIの検証対象はNode.js 22と24です。許容範囲の正本は[package.json](./package.json)の`engines.node`です。
+ただし開発ではNode.js 25を使えません。テストに使うVitest 5の`engines.node`が`^22.12.0 || ^24.0.0 || >=26.0.0`で、25を含まないためです。
 依存packageのlifecycle scriptは、registry signatureと既知vulnerabilityを確認してから実行します。
 
 ```console
