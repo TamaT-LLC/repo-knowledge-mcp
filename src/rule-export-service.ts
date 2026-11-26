@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { z } from "zod";
 
+import { compareCodeUnits } from "./canonical.js";
 import { readTransactionJournal } from "./canonical-files.js";
 import { CANONICAL_WRITE_LOCK_NAME } from "./canonical-transaction-store.js";
 import {
@@ -236,18 +237,50 @@ async function readActiveRules(
     });
 }
 
-type WriterState = "abandoned" | "idle" | "writing";
+interface WriterObservation {
+  /** The prepared journal entries, sorted; identifies an abandoned journal. */
+  readonly entries: string;
+  readonly state: "abandoned" | "idle" | "writing";
+}
 
 /**
  * A commit keeps a journal entry under `transactions/` while it holds the
  * writer lock, so a journal with a live lock is a writer to wait for, and a
  * journal whose lock is free or owned by a dead process was interrupted.
+ * A staging directory without manifest.json or COMMITTED was never applied
+ * (a commit rejected by its precondition leaves one); recovery deletes it,
+ * so it does not make the canonical files unsafe to read.
  */
-async function writerState(storeRoot: string): Promise<WriterState> {
-  if ((await readTransactionJournal(storeRoot)).length === 0) return "idle";
-  return (await isPosixFileLockHeld(join(storeRoot, CANONICAL_WRITE_LOCK_NAME)))
-    ? "writing"
-    : "abandoned";
+async function observeWriter(storeRoot: string): Promise<WriterObservation> {
+  const prepared: string[] = [];
+  for (const entry of await readTransactionJournal(storeRoot)) {
+    const directory = join(storeRoot, "transactions", entry.name);
+    if (
+      !entry.isDirectory() ||
+      (await pathExists(join(directory, "manifest.json"))) ||
+      (await pathExists(join(directory, "COMMITTED")))
+    ) {
+      prepared.push(entry.name);
+    }
+  }
+  if (prepared.length === 0) return { entries: "", state: "idle" };
+  const held = await isPosixFileLockHeld(
+    join(storeRoot, CANONICAL_WRITE_LOCK_NAME),
+  );
+  return {
+    entries: prepared.sort(compareCodeUnits).join("/"),
+    state: held ? "writing" : "abandoned",
+  };
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 /**
@@ -255,7 +288,8 @@ async function writerState(storeRoot: string): Promise<WriterState> {
  * agree. A capture can only be torn by a commit that started and finished
  * inside it; the next capture then sees the committed state and the digests
  * differ. Capture errors from a concurrent commit (a half-appended line, a
- * file renamed away) are retried; an error on a quiet store is real.
+ * file renamed away) are retried; an error twice in a row on a quiet store
+ * is real.
  */
 async function captureConsistently(
   storeRoot: string,
@@ -263,31 +297,40 @@ async function captureConsistently(
   retry: RuleExportRetry,
 ): Promise<ReadOnlyCanonicalStateCapture> {
   let previousDigest: string | undefined;
-  let abandoned = 0;
+  let abandoned: string | undefined;
   let failed = 0;
   for (let attempt = 1; attempt <= retry.attempts; attempt += 1) {
-    const state = await writerState(storeRoot);
-    // Confirm an interrupted journal on a second look, so a commit that
-    // starts between the journal read and the lock probe is not misread.
-    abandoned = state === "abandoned" ? abandoned + 1 : 0;
-    if (abandoned >= 2) {
-      throw new RuleExportError(
-        "RULE_EXPORT_RECOVERY_REQUIRED",
-        `the store has an interrupted transaction; run ${remedy} and export again`,
-      );
+    const observed = await observeWriter(storeRoot);
+    if (observed.state === "abandoned") {
+      // Only the same journal, still without a live lock on a second look,
+      // is interrupted; a commit ending between the journal read and the
+      // lock probe looks abandoned once and is gone by the next look.
+      if (observed.entries === abandoned) {
+        throw new RuleExportError(
+          "RULE_EXPORT_RECOVERY_REQUIRED",
+          `the store has an interrupted transaction; run ${remedy} and export again`,
+        );
+      }
+      abandoned = observed.entries;
+    } else {
+      abandoned = undefined;
     }
-    if (state === "idle") {
+    if (observed.state !== "idle") {
+      failed = 0;
+    } else {
       let capture: ReadOnlyCanonicalStateCapture | undefined;
       try {
         capture = await captureCanonicalStateReadOnly(storeRoot);
         failed = 0;
       } catch (error) {
-        failed += 1;
-        if (failed >= 2 && (await writerState(storeRoot)) === "idle") {
-          throw error;
-        }
+        const quiet = (await observeWriter(storeRoot)).state === "idle";
+        failed = quiet ? failed + 1 : 0;
+        if (failed >= 2) throw error;
       }
-      if (capture !== undefined && (await writerState(storeRoot)) === "idle") {
+      if (
+        capture !== undefined &&
+        (await observeWriter(storeRoot)).state === "idle"
+      ) {
         if (capture.canonicalDigest === previousDigest) return capture;
         previousDigest = capture.canonicalDigest;
         continue; // Confirm at once; there is no writer to wait for.

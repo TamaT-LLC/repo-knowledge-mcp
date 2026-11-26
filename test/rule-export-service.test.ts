@@ -8,6 +8,7 @@ import {
   neutralizeExportedRuleText,
   renderRuleExport,
 } from "../src/cli-render.js";
+import { RepositoryRegistry } from "../src/repository-registry.js";
 import {
   RuleExportError,
   RuleExportService,
@@ -71,10 +72,11 @@ async function holdWriterLock(storeRoot: string, pid = process.pid) {
   );
 }
 
-async function openJournal(storeRoot: string) {
-  await mkdir(join(storeRoot, "transactions", "txn_pending"), {
-    recursive: true,
-  });
+/** A prepared transaction: a journal entry with its manifest written. */
+async function openJournal(storeRoot: string, name = "txn_pending") {
+  const directory = join(storeRoot, "transactions", name);
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "manifest.json"), "{}");
 }
 
 /** Lets a test act as a writer at a counted journal poll, not on a timer. */
@@ -418,6 +420,77 @@ describe("RuleExportService", () => {
     expect(capturesWhileWriting).toBe(0);
   });
 
+  it("ignores a staging directory that never got a manifest, as recovery would", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    // A commit rejected by its precondition leaves only staged payloads.
+    await mkdir(
+      join(home.globalRoot, "transactions", "txn_rejected", "staged"),
+      {
+        recursive: true,
+      },
+    );
+
+    expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
+  });
+
+  it("does not mistake back-to-back finished commits for an interrupted one", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    let polls = 0;
+    // Each look catches a different commit just after it released its lock.
+    journal.onRead = async (root) => {
+      polls += 1;
+      await rm(join(root, "transactions"), { force: true, recursive: true });
+      if (polls <= 3) await openJournal(root, `txn_${String(polls)}`);
+    };
+
+    expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
+  });
+
+  it("keeps retrying a torn capture when a writer was seen between failures", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    capture.failures = 2;
+    let started = false;
+    let pollsWhileWriting = 0;
+    capture.onCapture = async () => {
+      if (started) return;
+      started = true;
+      await openJournal(home.globalRoot);
+      await holdWriterLock(home.globalRoot);
+    };
+    journal.onRead = async (root) => {
+      if (!started) return;
+      pollsWhileWriting += 1;
+      if (pollsWhileWriting === 2) {
+        await rm(join(root, "transactions"), { recursive: true });
+        await rm(join(root, CANONICAL_WRITE_LOCK_NAME));
+      }
+    };
+
+    expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
+    expect(capture.calls).toBe(4);
+  });
+
+  it("prefers an exact registry match over names that differ only in case", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    const registry = new RepositoryRegistry(home.storageRoot);
+    await registry.register({
+      aliases: ["acme/Widget"],
+      currentName: "acme/gadget",
+      repoId: "R_renamed",
+    });
+    await registry.register({ currentName: "acme/widget", repoId: "R_new" });
+
+    expect(await registry.findByNameReadOnly("acme/widget")).toMatchObject({
+      repoId: "R_new",
+    });
+    expect(await registry.findByNameReadOnly("acme/Widget")).toMatchObject({
+      repoId: "R_renamed",
+    });
+    await expect(
+      registry.findByNameReadOnly("ACME/WIDGET"),
+    ).rejects.toMatchObject({ code: "REPOSITORY_NAME_AMBIGUOUS" });
+  });
+
   it("reports a busy store when a live writer never finishes", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await openJournal(home.globalRoot);
@@ -572,6 +645,14 @@ describe("renderRuleExport", () => {
     expect(block.split("\n")[3]).toBe(
       `- ${RULES.repoPlain}（適用範囲: \`src/db/**\`, \`\` a\`b \`\`, \`x&lt;!--y\`）`,
     );
+  });
+
+  it("drops a scope pattern with no visible text instead of rendering stray backticks", () => {
+    expect(
+      render("claude-md", "repository", [
+        { ...rule("repoPlain"), scope: ["src/**", " \n"] },
+      ]).split("\n")[3],
+    ).toBe(`- ${RULES.repoPlain}（適用範囲: \`src/**\`）`);
   });
 
   it("counts rules whose rule or scope text had to be escaped", () => {

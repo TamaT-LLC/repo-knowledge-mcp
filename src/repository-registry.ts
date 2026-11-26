@@ -363,16 +363,19 @@ function matchRepositoryName(
   name: string,
   ignoreCase = false,
 ): ResolvedRepository | null {
-  const key = (value: string): string =>
-    ignoreCase ? value.toLowerCase() : value;
-  const wanted = key(name);
-  const matches = Object.entries(repositories)
-    .filter(([, entry]) =>
+  const matching = (key: (value: string) => string) =>
+    Object.entries(repositories).filter(([, entry]) =>
       [entry.currentName, ...entry.aliases].some(
-        (candidate) => key(candidate) === wanted,
+        (candidate) => key(candidate) === key(name),
       ),
-    )
-    .sort(([a], [b]) => compareCodeUnits(a, b));
+    );
+  const exact = matching((value) => value);
+  // An exact match wins, so names differing only in case stay distinct.
+  const matches = (
+    exact.length > 0 || !ignoreCase
+      ? exact
+      : matching((value) => value.toLowerCase())
+  ).sort(([a], [b]) => compareCodeUnits(a, b));
   if (matches.length > 1) {
     throw new RepositoryRegistryError(
       "REPOSITORY_NAME_AMBIGUOUS",

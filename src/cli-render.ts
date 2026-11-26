@@ -255,7 +255,9 @@ export function renderRuleExport(
   const hook: string[] = [];
   for (const rule of rules) {
     const texts = [rule.rule, ...rule.scope].map(neutralizeExportedText);
-    const [text, ...scope] = texts;
+    const [text, ...rest] = texts;
+    // A scope pattern with no visible text would render as stray backticks.
+    const scope = rest.filter((entry) => entry.value.length > 0);
     if (text!.value.length === 0) {
       omitted += 1;
       continue;
