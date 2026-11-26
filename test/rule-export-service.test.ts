@@ -647,10 +647,16 @@ describe("renderRuleExport", () => {
       { ...rule("repoHook", true), rule: " \n\t" },
       // Rendering it without its only (invisible) scope would widen it.
       { ...rule("repoMarker"), scope: [" ", hidden] },
+      // Zero-width and other default-ignorable characters show nothing either.
+      {
+        ...rule("globalHook", true),
+        rule: String.fromCodePoint(0x200b, 0x2060, 0x00ad, 0x3164),
+      },
+      { ...rule("repoMalformedHint"), scope: [String.fromCodePoint(0x200b)] },
       rule("globalManual"),
     ]);
 
-    expect(rendered.omitted).toBe(3);
+    expect(rendered.omitted).toBe(5);
     expect(rendered.block).toBe(
       [
         "<!-- repo-knowledge:begin format=claude-md store=repository -->",

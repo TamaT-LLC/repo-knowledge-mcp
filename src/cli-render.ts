@@ -258,11 +258,11 @@ export function renderRuleExport(
     const scope = rule.scope.map(neutralizeExportedText);
     // A scope pattern with no visible text would render as stray backticks.
     const visible = scope.flatMap((entry) =>
-      entry.value.length === 0 ? [] : [codeSpan(entry.value)],
+      entry.visible ? [codeSpan(entry.value)] : [],
     );
     // Rendering a scoped rule without its scope would widen it to the whole
     // repository, so a rule whose patterns are all invisible is left out too.
-    if (text.value.length === 0 || (scope.length > 0 && visible.length === 0)) {
+    if (!text.visible || (scope.length > 0 && visible.length === 0)) {
       omitted += 1;
       continue;
     }
@@ -307,6 +307,8 @@ const RULE_EXPORT_FORBIDDEN = /<!--|--!?>|repo-knowledge:(?:begin|end)/iu;
 interface NeutralizedText {
   readonly escaped: boolean;
   readonly value: string;
+  /** False when only spaces and default-ignorable characters (U+200B…) remain. */
+  readonly visible: boolean;
 }
 
 /**
@@ -329,7 +331,13 @@ function neutralizeExportedText(value: string): NeutralizedText {
   if (RULE_EXPORT_FORBIDDEN.test(neutralized)) {
     throw new TypeError("exported rule text still contains a block marker");
   }
-  return { escaped: neutralized !== flattened, value: neutralized };
+  return {
+    escaped: neutralized !== flattened,
+    value: neutralized,
+    visible:
+      neutralized.replace(/[\p{Default_Ignorable_Code_Point}\s]+/gu, "")
+        .length > 0,
+  };
 }
 
 /** The text one rule renders as; exported for its adversarial tests. */
