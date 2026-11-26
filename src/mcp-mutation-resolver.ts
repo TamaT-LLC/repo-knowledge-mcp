@@ -1,6 +1,11 @@
+import { openStore, type GlobalStore } from "./global-store.js";
+import {
+  GLOBAL_STORE_ID,
+  type AlwaysReturnResult,
+} from "./global-always-return.js";
 import { type z } from "zod";
 
-import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
+import type { CanonicalTransactionStore } from "./canonical-transaction-store.js";
 import type { IngestPullRequestResult } from "./github-ingest-service.js";
 import type {
   PrepareDistillationRequest,
@@ -15,6 +20,7 @@ import {
   type ModelPlaneUpdateKnowledgeResult,
 } from "./model-plane-knowledge-service.js";
 import {
+  RecordOutcomeError,
   RecordOutcomeMutationService,
   type RecordOutcomeRequest,
   type RecordOutcomeResult,
@@ -67,6 +73,11 @@ export interface KnowledgeMutationServiceResolutionInput
 }
 
 export interface KnowledgeMutationServiceResolver {
+  setGlobalAlwaysReturn?(
+    selection: KnowledgeMutationServiceResolutionInput,
+    id: string,
+    enabled: boolean,
+  ): Promise<AlwaysReturnResult>;
   resolve(
     input: KnowledgeMutationServiceResolutionInput,
   ): Promise<KnowledgeMutationOperations>;
@@ -94,6 +105,7 @@ export type CanonicalKnowledgeMutationServiceResolverOptions = Omit<
   RepositoryResolverOptions,
   "startupRepo" | "startupWorkspace"
 > & {
+  readonly globalStore?: GlobalStore;
   readonly pipelineFactory: RepositoryMutationPipelineFactory;
 };
 
@@ -111,30 +123,38 @@ export class CanonicalKnowledgeMutationServiceResolver
     "startupRepo" | "startupWorkspace"
   >;
 
+  private readonly globalStore: GlobalStore | undefined;
   constructor(options: CanonicalKnowledgeMutationServiceResolverOptions) {
+    this.globalStore = options.globalStore;
     const { pipelineFactory, ...resolverOptions } = options;
     this.pipelineFactory = pipelineFactory;
     this.resolverOptions = resolverOptions;
   }
 
+  private resolveRepository(input: KnowledgeMutationServiceResolutionInput) {
+    return new RepositoryResolver({
+      ...this.resolverOptions,
+      ...input,
+    }).resolve(input);
+  }
+
+  async setGlobalAlwaysReturn(
+    input: KnowledgeMutationServiceResolutionInput,
+    id: string,
+    enabled: boolean,
+  ) {
+    if (!this.globalStore) throw new Error("Global store unavailable");
+    const repository = await this.resolveRepository(input);
+    return this.globalStore.setAlwaysReturn(id, enabled, {
+      actor: "mcp",
+      caller_repo_id: repository.repoId,
+    });
+  }
+
   async resolve(
     input: KnowledgeMutationServiceResolutionInput,
   ): Promise<KnowledgeMutationOperations> {
-    const resolver = new RepositoryResolver({
-      ...this.resolverOptions,
-      ...(input.startupRepo === undefined
-        ? {}
-        : { startupRepo: input.startupRepo }),
-      ...(input.startupWorkspace === undefined
-        ? {}
-        : { startupWorkspace: input.startupWorkspace }),
-    });
-    const repository = await resolver.resolve({
-      ...(input.repo === undefined ? {} : { repo: input.repo }),
-      ...(input.workspacePath === undefined
-        ? {}
-        : { workspacePath: input.workspacePath }),
-    });
+    const repository = await this.resolveRepository(input);
     const cached = this.operations.get(repository.repoId);
     if (cached !== undefined) return cached;
 
@@ -151,9 +171,7 @@ export class CanonicalKnowledgeMutationServiceResolver
   private async createOperations(
     repository: RepositoryResolution,
   ): Promise<KnowledgeMutationOperations> {
-    const repositoryStore = new CanonicalTransactionStore(
-      repository.absolutePath,
-    );
+    const repositoryStore = openStore({ kind: "repository", ...repository });
     const pipeline = await this.pipelineFactory.create({
       repository,
       repositoryStore,
@@ -172,7 +190,28 @@ export class CanonicalKnowledgeMutationServiceResolver
       addKnowledge: (request) => knowledge.addKnowledge(request),
       ingestPullRequest: (request) => pipeline.ingestPullRequest(request),
       prepareDistillation: (request) => pipeline.prepareDistillation(request),
-      recordOutcome: (request) => outcomes.recordOutcome(request),
+      recordOutcome: async (request) => {
+        try {
+          return await outcomes.recordOutcome(request);
+        } catch (error) {
+          if (
+            !(
+              error instanceof RecordOutcomeError &&
+              error.code === "KNOWLEDGE_NOT_FOUND" &&
+              this.globalStore &&
+              // A broken global store keeps the original NOT_FOUND.
+              (await this.globalStore.exists().catch(() => false))
+            )
+          )
+            throw error;
+          return new RecordOutcomeMutationService({
+            repo: repository.currentName,
+            repoId: GLOBAL_STORE_ID,
+            callerRepoId: repository.repoId,
+            repository: this.globalStore.store,
+          }).recordOutcome(request);
+        }
+      },
       submitExtract: (request) => pipeline.submitExtract(request),
       submitFinalize: (request) => pipeline.submitFinalize(request),
       syncRepo: (request) => pipeline.syncRepo(request),

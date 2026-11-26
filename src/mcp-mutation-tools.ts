@@ -3,8 +3,11 @@ import {
   type McpServer,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { AlwaysReturnResultSchema } from "./global-always-return.js";
+import { KnowledgeIdSchema } from "./domain-schemas.js";
 
 import { mapMutationError } from "./mcp-mutation-error-mapping.js";
+import { RepositoryResolutionError } from "./repository-resolver.js";
 import {
   resolveMutationService,
   type KnowledgeMutationServiceResolver,
@@ -86,6 +89,7 @@ export {
 } from "./mcp-mutation-schemas.js";
 
 export interface RegisterMutationToolsOptions {
+  readonly allowAlwaysReturnChanges?: boolean;
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
   readonly startupRepo?: string;
   readonly startupWorkspace?: string;
@@ -96,6 +100,70 @@ export function registerMutationTools(
   server: McpServer,
   options: RegisterMutationToolsOptions,
 ): void {
+  if (options.allowAlwaysReturnChanges) {
+    server.registerTool(
+      "set_global_always_return",
+      {
+        description:
+          "Set or clear always-return on an existing active personal rule.",
+        inputSchema: z
+          .object({ knowledge_id: KnowledgeIdSchema, enabled: z.boolean() })
+          .strict(),
+        outputSchema: AlwaysReturnResultSchema,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (input) => {
+        const service = options.mutationServiceResolver;
+        if (!service.setGlobalAlwaysReturn)
+          throw new Error("Global store unavailable");
+        try {
+          const result = AlwaysReturnResultSchema.parse(
+            await service.setGlobalAlwaysReturn(
+              {
+                ...(options.startupRepo
+                  ? { startupRepo: options.startupRepo }
+                  : {}),
+                ...(options.startupWorkspace
+                  ? { startupWorkspace: options.startupWorkspace }
+                  : {}),
+              },
+              input.knowledge_id,
+              input.enabled,
+            ),
+          );
+          return {
+            structuredContent: result,
+            content: [{ type: "text", text: result.reason ?? result.state }],
+          };
+        } catch (error) {
+          const mapped = mapMutationError(error);
+          // This tool has no repo argument: the repository comes from startup.
+          const nextAction =
+            error instanceof RepositoryResolutionError
+              ? "Restart the server with --repo <owner/name> or --workspace <path>; set_global_always_return takes no repository argument."
+              : mapped.next_action;
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: [
+                  `### ${mapped.code}`,
+                  mapped.message,
+                  ...(nextAction ? [`Next action: ${nextAction}`] : []),
+                ].join("\n\n"),
+              },
+            ],
+          };
+        }
+      },
+    );
+  }
   server.registerTool(
     "ingest_pr",
     {

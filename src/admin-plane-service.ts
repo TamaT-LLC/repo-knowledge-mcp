@@ -1,3 +1,4 @@
+import { GLOBAL_STORE_ID } from "./global-always-return.js";
 import { createInterface } from "node:readline/promises";
 
 import { canonicalizeJson, compareCodeUnits } from "./canonical.js";
@@ -107,7 +108,10 @@ export class AdminPlaneService {
   private readonly repository: CanonicalTransactionStore;
 
   constructor(options: AdminPlaneServiceOptions) {
-    this.repo = RepositoryNameSchema.parse(options.repo);
+    this.repo =
+      options.repo === GLOBAL_STORE_ID && options.repoId === GLOBAL_STORE_ID
+        ? GLOBAL_STORE_ID
+        : RepositoryNameSchema.parse(options.repo);
     this.repoId = RepositoryIdSchema.parse(options.repoId);
     this.repository = options.repository;
     this.now = options.now ?? (() => new Date());

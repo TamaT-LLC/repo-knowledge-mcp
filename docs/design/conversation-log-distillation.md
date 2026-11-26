@@ -296,6 +296,7 @@ registry に未登録のリポジトリ（`unregistered`）については、`ow
 利用者は、グローバルストアの active ルールを最大 3 件まで常時返却に指定できる。
 常時返却のルールは、task や scope に関係なく `get_rules` が返す。
 常時返却でないグローバルルールは、task か scope に一致したものだけを最大 5 件返す。
+scope が空のグローバルルールは scope ではどのファイルにも一致せず、task に一致した場合だけ返す。scope が空のリポジトリのルール（`match_reasons` の `{ type: "global" }`）と違い、全リポジトリへの常時返却と同じ状態にならないようにするためである。
 常時返却の指定と解除は CLI の `always-return add` と `always-return remove` で行う。
 MCP からも、サーバーを `--allow-always-return-changes` 付きで起動した場合だけ指定と解除ができる。
 MCP から変更できるのは既に active なグローバルルールの常時返却だけで、ルールの作成や本文の変更はできない。
@@ -1419,6 +1420,7 @@ Provider 経路を使う利用者が、会話内容をエージェントに渡�
 - リポジトリのルールは、矛盾を理由に落ちることがない。R は手順 1 で確定し、その後に変わらないためである。`newer_side` は見ない（M4-FR-024）
 - 抑制は、返すリポジトリのルール（R）と矛盾するグローバルルールだけに適用する。task や scope に一致しない、または `limit` で切られて返らないリポジトリのルールを理由に、グローバルルールを外すことはない
 - グローバルの件数の上限（常時返却 3 件、それ以外 5 件）は、矛盾の除外の後に適用する。上位が除外されても、次の候補が繰り上がる
+- リポジトリのストアと同じ ID のグローバルルールは候補から除く。`get_knowledge` と `record_outcome` はその ID をリポジトリのストアに解決するため、グローバル側は二重に並ぶうえに参照できない
 - 常時返却は `qa`、task か scope に一致したグローバルルールは `qm` の枠を別々に持ち、常時返却が一致したルールの枠を押し出すことはない。リポジトリの一致件数が `limit` 以上でも、`qm` の分は切り捨てられない。ただし `limit` が常時返却の件数以下のときは `qm = 0` になり、常時返却が優先される
 - リポジトリのルールが `limit − q` 件より少ない場合は、余った枠をグローバルのルールが使える（手順 3 の上限 `limit − |R|`）
 - 手順 2 で候補が減り、`q` の枠が埋まらなかった場合も、R に追加はしない。追加すると、そのリポジトリのルールと既に照合したグローバルのルールの組を照合し直す必要が生じるためである。このとき返す件数は `limit` より少なくなりうる
@@ -1426,7 +1428,7 @@ Provider 経路を使う利用者が、会話内容をエージェントに渡�
 
 `matched_count` と `truncated` は既存どおりリポジトリのストアのルールだけを対象にし、意味を変えない（M4-NFR-002）。
 `truncated` は、リポジトリの一致件数が R の件数より多い場合に true とする。
-グローバルストアに active ルールが一件以上ある場合だけ、出力に `global_matched_count`（2 の件数と 3 の絞り込み前の件数の合計）と、グローバルのルールを切り詰めたかを表す `global_truncated` を加算的に追加する。
+グローバルストアに active ルールが一件以上ある場合だけ、出力に `global_matched_count`（2 の件数と 3 の絞り込み前の件数の合計）と、グローバルのルールを切り詰めたかを表す `global_truncated` を加算的に追加する。グローバルストアの読み取りに失敗した場合は、リポジトリの一致ルールを返し、`global_read_failed: true` と診断コマンドの案内を応答に含める。
 手順 2 で除いたグローバルルールがある場合だけ、`suppressed_global_count` を加算的に追加する。
 グローバルストアがないか active ルールがない場合は、これらの field を省き、出力は既存と同一になる。
 
@@ -1469,7 +1471,8 @@ MCP の `update_knowledge` は常時返却を変更できない。
 - MCP から外せるのは MCP から付けた常時返却だけとし、CLI で付けたものは `set_by_cli` で拒否する
 - 変更は `GlobalAlwaysReturnChanged` に `actor: mcp` と呼び出し元のリポジトリを付けて記録する
 - `get_rules` の結果に `always_return_set_by: "mcp"` を付け、`conversations status` と `repo-knowledge always-return list` に操作した側と日時を表示する
-- CLI の `always-return remove` は、操作した側にかかわらず外せる
+- CLI の `always-return remove` は、操作した側にかかわらず外せる。4 件目を追加するには、既存の設定を明示的に解除して空きを作る。active なルールの MCP 由来の設定は MCP からも `enabled: false` で解除できる。CLI 由来の設定や非 active のルールの設定を解除するには CLI を使う。設定済みのルールが非 active になっても解除までは枠を保持し、active に戻れば再び返却する。`always-return list` は非 active の予約も含めて解除対象の ID を表示する
+- PR1 の `add_knowledge` と `update_knowledge` はリポジトリのストアを対象とする。グローバルルールの手動作成には CLI の `add --global` を使う
 
 フラグを `--allow-conversation-ingest` や `--allow-conversation-distillation` と分けるのは、この tool がすべてのリポジトリの `get_rules` の結果を持続的に変える、別の種類の権限だからである。
 

@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -272,6 +272,15 @@ describe("private storage initialization", () => {
     await expect(initializeStorage("/")).rejects.toMatchObject({
       code: "CONFIG_PATH_UNSAFE",
     });
+  });
+
+  it("rejects an alternate path to the working directory", async () => {
+    const parent = await temporaryDirectory();
+    const alias = join(parent, "parent");
+    await symlink(dirname(process.cwd()), alias, "dir");
+    await expect(
+      initializeStorage(join(alias, basename(process.cwd()))),
+    ).rejects.toMatchObject({ code: "CONFIG_PATH_UNSAFE" });
   });
 
   it("creates an atomic config with 700 and 600 permissions", async () => {

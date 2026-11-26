@@ -6,6 +6,7 @@ import {
   mkdir,
   open,
   readFile,
+  stat,
   rename,
   unlink,
 } from "node:fs/promises";
@@ -209,15 +210,7 @@ export async function initializeStorage(
   initialConfig: unknown = {},
 ): Promise<InitializedStorage> {
   assertSupportedPlatform();
-  if (storageRoot.trim().length === 0) {
-    throw new RepoKnowledgeConfigError(
-      "CONFIG_PATH_UNSAFE",
-      storageRoot,
-      "storage root must be explicit",
-    );
-  }
-  const rootPath = resolve(storageRoot);
-  assertSafeStorageRoot(rootPath);
+  const rootPath = resolveStorageRoot(storageRoot);
   const configPath = join(rootPath, DEFAULT_CONFIG_FILE_NAME);
   const config = parseRepoKnowledgeConfig(initialConfig, configPath);
 
@@ -231,6 +224,20 @@ export async function initializeStorage(
     configPath,
     rootPath,
   };
+}
+
+/** Validate a configured home before accessing its private stores. */
+export function resolveStorageRoot(storageRoot: string): string {
+  if (storageRoot.trim().length === 0) {
+    throw new RepoKnowledgeConfigError(
+      "CONFIG_PATH_UNSAFE",
+      storageRoot,
+      "storage root must be explicit",
+    );
+  }
+  const rootPath = resolve(storageRoot);
+  assertSafeStorageRoot(rootPath);
+  return rootPath;
 }
 
 /** Atomically updates a validated config while preserving private permissions. */
@@ -308,6 +315,27 @@ function assertSupportedPlatform(): void {
   }
 }
 
+/** Compare filesystem identities so aliases of protected directories are rejected. */
+export async function assertPrivateDirectoryIdentity(
+  path: string,
+  directory: { dev: number; ino: number },
+) {
+  for (const broad of ["/", homedir(), process.cwd()]) {
+    const protectedDirectory = await stat(broad).catch((error: unknown) => {
+      if (!hasErrorCode(error, "ENOENT")) throw error;
+    });
+    if (
+      protectedDirectory?.dev === directory.dev &&
+      protectedDirectory.ino === directory.ino
+    )
+      throw new RepoKnowledgeConfigError(
+        "CONFIG_PATH_UNSAFE",
+        path,
+        "refusing to change permissions on a broad directory",
+      );
+  }
+}
+
 function assertSafeStorageRoot(path: string): void {
   const forbiddenRoots = new Set([
     parse(path).root,
@@ -323,7 +351,7 @@ function assertSafeStorageRoot(path: string): void {
   }
 }
 
-async function ensurePrivateDirectory(path: string): Promise<void> {
+export async function ensurePrivateDirectory(path: string): Promise<void> {
   try {
     await mkdir(path, { mode: 0o700, recursive: true });
     const status = await lstat(path);
@@ -334,6 +362,7 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
         "storage root must be a real directory",
       );
     }
+    await assertPrivateDirectoryIdentity(path, status);
     await chmod(path, 0o700);
   } catch (error) {
     if (error instanceof RepoKnowledgeConfigError) throw error;

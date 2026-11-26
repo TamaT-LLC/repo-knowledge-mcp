@@ -1,3 +1,4 @@
+import { GlobalStore } from "./global-store.js";
 import { statfs } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -28,6 +29,7 @@ import {
   type DoctorCheckStatus,
   type DoctorReport,
 } from "./doctor/report-builder.js";
+import { errorMessage } from "./doctor/util.js";
 import { ExecaGitRemoteReader, type GitRemoteReader } from "./git-remote.js";
 import type { GhRunnerLike } from "./gh-runner.js";
 import {
@@ -117,6 +119,27 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
       this.storageRoot,
       this.filesystemTypeReader,
     );
+    const global = new GlobalStore(this.storageRoot);
+    const globalPath = global.reference.absolutePath;
+    try {
+      report.add({
+        id: "global.store",
+        status: "pass",
+        path: globalPath,
+        message: (await global.exists())
+          ? "Personal global store (rk:global) is present."
+          : "Personal global store (rk:global) has not been created yet.",
+      });
+    } catch (error) {
+      report.add({
+        id: "global.store",
+        status: "fail",
+        path: globalPath,
+        message: errorMessage(error),
+        remedy:
+          "Make the global directory a real directory inside the storage root (not a symbolic link); `repo-knowledge add --global` creates an empty one",
+      });
+    }
     const config = storageExists
       ? await inspectConfig(report, this.storageRoot)
       : null;
