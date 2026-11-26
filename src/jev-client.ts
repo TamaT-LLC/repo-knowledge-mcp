@@ -36,7 +36,7 @@ export interface JevChoiceQuestion {
 export interface JevClientRequest {
   readonly questions: Readonly<Record<string, JevChoiceQuestion>>;
   readonly signal?: AbortSignal;
-  readonly state: EntryType;
+  readonly state: NonNullable<EntryType>;
 }
 
 export interface JevClientResponse {

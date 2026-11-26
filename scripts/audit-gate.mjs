@@ -24,22 +24,7 @@ const KNOWN_SEVERITIES = new Set([
  * its exit condition holds; the gate warns once the advisory no longer appears
  * in `npm audit` output.
  */
-export const AUDIT_ALLOWLIST = Object.freeze([
-  Object.freeze({
-    id: "GHSA-fc5q-39xc-vjpf",
-    package: "picomatch",
-    reason:
-      "picomatch <= 4.0.7 has a ReDoS in single-branch repeated extglobs and " +
-      "no fixed release exists yet. Runtime scope matching compiles every " +
-      "glob with noextglob (src/scope-glob.ts), so extglob semantics are off " +
-      "and the vulnerable extglob path is not reachable from repository " +
-      "scopes. The remaining paths are dev-only (vitest, vite, tinyglobby, " +
-      "fdir) and only see globs from this repository's own configuration.",
-    removeWhen:
-      "Remove this entry once picomatch publishes a fixed release and the " +
-      "lockfile resolves every picomatch copy to it.",
-  }),
-]);
+export const AUDIT_ALLOWLIST = Object.freeze([]);
 
 export class AuditGateError extends Error {
   constructor(message, options) {
