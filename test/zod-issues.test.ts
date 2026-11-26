@@ -156,8 +156,7 @@ describe("addDuplicateIdIssues", () => {
   const input = { rows: [{ id: "a" }, { id: "b" }, { id: "a" }, { id: "a" }] };
 
   it("points at each repeated entry's id in the input", () => {
-    const issues = issuesOf(WithField, input);
-    expect(issues).toEqual([
+    expect(issuesOf(WithField, input)).toEqual([
       {
         code: "custom",
         message: "duplicate rows id a",
@@ -169,10 +168,6 @@ describe("addDuplicateIdIssues", () => {
         path: ["rows", 3, "id"],
       },
     ]);
-    for (const issue of issues) {
-      const [, index] = issue.path;
-      expect(input.rows[index as number]?.id).toBe("a");
-    }
   });
 
   it("uses the label in the message when one is given", () => {
