@@ -22,7 +22,7 @@ export const UtcDaySchema = z
         parsed.toISOString().slice(0, "YYYY-MM-DD".length) === value
       );
     },
-    { message: "must be a valid UTC calendar day" },
+    { error: "must be a valid UTC calendar day" },
   );
 
 /**

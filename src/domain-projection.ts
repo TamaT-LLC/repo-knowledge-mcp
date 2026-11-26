@@ -65,7 +65,7 @@ const KnowledgeProjectionFrontmatterSchema = z
     status: KnowledgeStatusSchema,
     updated_at: z.iso.datetime({ offset: true }),
   })
-  .passthrough();
+  .loose();
 
 export type DomainProjectionErrorCode = "INVALID_DOMAIN_RECORD";
 

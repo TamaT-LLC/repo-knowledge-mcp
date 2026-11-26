@@ -20,7 +20,7 @@ const GraphqlEnvelopeSchema = z
     data: z.unknown().nullable().optional(),
     errors: z.array(z.unknown()).optional(),
   })
-  .passthrough();
+  .loose();
 
 export type GitHubSnapshotErrorCode =
   | "DUPLICATE_GRAPHQL_NODE"

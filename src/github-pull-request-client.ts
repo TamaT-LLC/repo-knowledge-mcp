@@ -226,7 +226,7 @@ const ReviewCommentSchema = z
     diffHunk: z.string(),
     id: GitHubNodeIdSchema,
     updatedAt: IsoDateTimeSchema,
-    url: z.string().url(),
+    url: z.url(),
   })
   .strict();
 
@@ -264,7 +264,7 @@ const ReviewSummarySchema = z
     state: z.string().min(1),
     submittedAt: IsoDateTimeSchema.nullable(),
     updatedAt: IsoDateTimeSchema,
-    url: z.string().url(),
+    url: z.url(),
   })
   .strict();
 

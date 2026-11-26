@@ -46,7 +46,7 @@ const GitHubRepositoryResponseSchema = z
       .optional(),
     errors: z.array(z.unknown()).optional(),
   })
-  .passthrough();
+  .loose();
 
 export type RepositoryResolutionSource =
   | "config-default-repo"

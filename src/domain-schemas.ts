@@ -289,7 +289,7 @@ export const CommentObservationSchema = z
     snapshot_id: SnapshotIdSchema,
     thread_id: NonEmptyStringSchema,
     updated_at: IsoDateTimeSchema,
-    url: z.string().url(),
+    url: z.url(),
   })
   .strict();
 
@@ -562,7 +562,7 @@ export const KnowledgeEvidenceSchema = z
     superseded_by: EvidenceIdSchema.optional(),
     supersedes: EvidenceIdSchema.optional(),
     thread_id: NonEmptyStringSchema,
-    url: z.string().url().optional(),
+    url: z.url().optional(),
   })
   .strict();
 
