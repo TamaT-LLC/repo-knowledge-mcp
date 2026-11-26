@@ -421,7 +421,8 @@ export class KnowledgeReadService {
       !localSnapshot.domain.knowledge.some(
         (k) => k.id === id && k.repoId === this.repoId,
       ) &&
-      (await this.globalStore.exists());
+      // A broken global store must not replace the repository's NOT_FOUND.
+      (await this.globalStore.exists().catch(() => false));
     const { repoId, snapshot } = useGlobal
       ? {
           repoId: GLOBAL_STORE_ID,

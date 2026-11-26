@@ -654,7 +654,27 @@ describe("global matches across repeated reads", () => {
     await expect(global.exists()).rejects.toThrow("symbolic link");
     const replies = await runServe(environment, [
       callTool(2, "get_rules", { repo: REPOSITORY, file_paths: ["src/x.ts"] }),
+      callTool(3, "record_outcome", {
+        repo: REPOSITORY,
+        knowledge_id: UNKNOWN_ID,
+        event_key: "work-1",
+        result_observed: true,
+        at: OUTCOME_AT,
+        outcome: "applied",
+        note: "Validated the schema",
+        context: { task_id: "task" },
+      }),
     ]);
+    // A broken global store must not replace the repository's NOT_FOUND.
+    expect(errorCode(replies, 3)).toBe("KNOWLEDGE_NOT_FOUND");
+    await expect(
+      new KnowledgeReadService({
+        repo: REPOSITORY,
+        repoId: REPO_ID,
+        repository: new CanonicalTransactionStore(environment.repositoryRoot),
+        globalStore: global,
+      }).getKnowledge({ id: UNKNOWN_ID }),
+    ).rejects.toMatchObject({ code: "KNOWLEDGE_NOT_FOUND" });
     expect(replyById(replies, 2).result).toMatchObject({
       structuredContent: {
         global_read_failed: true,
