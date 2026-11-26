@@ -28,6 +28,10 @@
     "darwin",
     "linux"
   ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

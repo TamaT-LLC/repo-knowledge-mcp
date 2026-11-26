@@ -70,6 +70,7 @@ Codex、Claude Code、Cursor
 | --- | --- |
 | Node.js | 22.13.0 以上の 22.x、または 24.0.0 以上。CI は 22 / 24 |
 | OS | macOS、Linux |
+| CPU | x64、arm64（better-sqlite3 の同梱 prebuild がある CPU のみ） |
 | storage | ローカル filesystem |
 | transport | stdio |
 | GitHub access | `gh` CLI |
