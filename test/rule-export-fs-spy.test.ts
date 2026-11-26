@@ -15,16 +15,18 @@ import {
  * and `node:fs/promises` modules that the CLI graph imports. Opening for
  * reading is allowed; any other flag or any mutating call is recorded.
  */
-const spy = vi.hoisted(() => ({ recording: false, writes: [] as string[] }));
-
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return wrapFilesystem(actual, [
+const spy = vi.hoisted(() => ({
+  recording: false,
+  writes: [] as string[],
+  // One list for both modules: a name a module lacks is skipped, and the
+  // callback forms of node:fs are covered alongside the promise forms.
+  mutating: [
     "appendFile",
     "chmod",
     "chown",
     "copyFile",
     "cp",
+    "createWriteStream",
     "lchown",
     "link",
     "lutimes",
@@ -37,45 +39,27 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     "truncate",
     "unlink",
     "utimes",
+    "write",
     "writeFile",
-  ]);
-});
+  ].flatMap((name) => [name, `${name}Sync`]),
+}));
 
-vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
-  return wrapFilesystem(actual, [
-    "appendFileSync",
-    "chmodSync",
-    "chownSync",
-    "copyFileSync",
-    "cpSync",
-    "createWriteStream",
-    "linkSync",
-    "mkdirSync",
-    "mkdtempSync",
-    "renameSync",
-    "rmSync",
-    "rmdirSync",
-    "symlinkSync",
-    "truncateSync",
-    "unlinkSync",
-    "utimesSync",
-    "writeFileSync",
-    "writeSync",
-  ]);
-});
+vi.mock("node:fs/promises", async (importOriginal) =>
+  wrapFilesystem(await importOriginal<typeof import("node:fs/promises")>()),
+);
 
-function wrapFilesystem<T extends object>(
-  actual: T,
-  mutating: readonly string[],
-): T {
+vi.mock("node:fs", async (importOriginal) =>
+  wrapFilesystem(await importOriginal<typeof import("node:fs")>()),
+);
+
+function wrapFilesystem<T extends object>(actual: T): T {
   const record = (call: string): void => {
     if (spy.recording) spy.writes.push(call);
   };
   const wrapped: Record<string, unknown> = {
     ...(actual as Record<string, unknown>),
   };
-  for (const name of mutating) {
+  for (const name of spy.mutating) {
     const original = (actual as Record<string, unknown>)[name];
     if (typeof original !== "function") continue;
     wrapped[name] = (...args: unknown[]) => {

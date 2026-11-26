@@ -24,6 +24,7 @@ import {
   type CanonicalTransactionRequest,
   type KnowledgeEvidence,
 } from "../src/experimental.js";
+import { observeCanonicalWriter } from "../src/canonical-transaction-journal.js";
 
 const temporaryRepositories: string[] = [];
 const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -98,6 +99,63 @@ describe("M1-A canonical transaction recovery", () => {
       });
       expect(await readCanonicalLines(repository)).toHaveLength(1);
       expect(await transactionEntries(repository)).toEqual([]);
+    },
+  );
+});
+
+// Read-only observers (export) classify the journal by this protocol; the
+// contract pins it to what a real commit leaves at every commit point.
+describe("canonical writer observation contract", () => {
+  const allPoints: readonly CanonicalCommitPoint[] = [
+    ...prePreparedKillPoints,
+    "after_prepared",
+    "after_file_write",
+    "before_append_write",
+    "after_append_write",
+    "after_committed_marker_temp",
+    "after_committed",
+    "after_projection",
+  ];
+
+  it("sees a live commit as writing once its manifest exists, and idle before and after", async () => {
+    const repository = await createRepository();
+    await seedOldState(repository);
+    const observed = new Map<CanonicalCommitPoint, string>();
+    const store = new CanonicalTransactionStore(repository, {
+      async faultInjector(point) {
+        observed.set(point, (await observeCanonicalWriter(repository)).state);
+      },
+    });
+
+    await store.commit(transactionRequest());
+
+    expect(Object.fromEntries(observed)).toEqual(
+      Object.fromEntries(
+        allPoints.map((point) => [
+          point,
+          prePreparedKillPoints.includes(point) ? "idle" : "writing",
+        ]),
+      ),
+    );
+    expect(await observeCanonicalWriter(repository)).toEqual({
+      prepared: [],
+      state: "idle",
+    });
+  });
+
+  it.each(allPoints)(
+    "classifies a process killed at %s as recovery would treat it",
+    async (point) => {
+      const repository = await createRepository();
+      await seedOldState(repository);
+
+      await expectKilledCommit(repository, transactionRequest(), point);
+
+      expect(await observeCanonicalWriter(repository)).toEqual(
+        prePreparedKillPoints.includes(point)
+          ? { prepared: [], state: "idle" }
+          : { prepared: ["txn_acceptance_25"], state: "abandoned" },
+      );
     },
   );
 });

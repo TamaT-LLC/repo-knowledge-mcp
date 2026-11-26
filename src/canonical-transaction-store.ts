@@ -11,6 +11,13 @@ import {
 import { join, resolve, sep } from "node:path";
 
 import {
+  CANONICAL_WRITE_LOCK_NAME,
+  TRANSACTION_COMMITTED_FILE,
+  TRANSACTION_MANIFEST_FILE,
+  TRANSACTIONS_DIRECTORY,
+} from "./canonical-transaction-journal.js";
+
+import {
   canonicalJsonlLineSha256,
   parseCanonicalJsonlLine,
   serializeCanonicalJsonlRecord,
@@ -65,9 +72,6 @@ import type {
   KnowledgeSearchRequest,
   KnowledgeSearchResult,
 } from "./knowledge-search.js";
-
-/** The repository writer lock every canonical commit and recovery holds. */
-export const CANONICAL_WRITE_LOCK_NAME = ".write.lock";
 
 export { CanonicalStoreError };
 export type { CanonicalStoreErrorCode } from "./canonical-path-validation.js";
@@ -369,7 +373,7 @@ export class CanonicalTransactionStore {
     }
     const transactionDirectory = join(
       this.repositoryRoot,
-      "transactions",
+      TRANSACTIONS_DIRECTORY,
       request.transactionId,
     );
     const stagedFilesDirectory = join(transactionDirectory, "staged", "files");
@@ -475,7 +479,7 @@ export class CanonicalTransactionStore {
       "utf8",
     );
     const manifestTempPath = join(transactionDirectory, "manifest.tmp");
-    const manifestPath = join(transactionDirectory, "manifest.json");
+    const manifestPath = join(transactionDirectory, TRANSACTION_MANIFEST_FILE);
     await writeDurable(manifestTempPath, manifestBytes, "wx");
     await this.injectFault("after_manifest_temp", request.transactionId);
     await rename(manifestTempPath, manifestPath);
@@ -490,7 +494,10 @@ export class CanonicalTransactionStore {
   }
 
   private async recoverLocked(): Promise<void> {
-    const transactionsDirectory = join(this.repositoryRoot, "transactions");
+    const transactionsDirectory = join(
+      this.repositoryRoot,
+      TRANSACTIONS_DIRECTORY,
+    );
     const entries = await readdir(transactionsDirectory, {
       withFileTypes: true,
     });
@@ -506,13 +513,20 @@ export class CanonicalTransactionStore {
       }
       const transactionId = entry.name;
       const transactionDirectory = join(transactionsDirectory, transactionId);
-      const manifestPath = join(transactionDirectory, "manifest.json");
+      const manifestPath = join(
+        transactionDirectory,
+        TRANSACTION_MANIFEST_FILE,
+      );
       let manifestBytes: Buffer;
       try {
         manifestBytes = await readFile(manifestPath);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        if (await pathExists(join(transactionDirectory, "COMMITTED"))) {
+        if (
+          await pathExists(
+            join(transactionDirectory, TRANSACTION_COMMITTED_FILE),
+          )
+        ) {
           throw new CanonicalStoreError(
             "UNRECOVERABLE_TRANSACTION",
             `Transaction ${transactionId} has COMMITTED but no manifest`,
@@ -525,7 +539,10 @@ export class CanonicalTransactionStore {
       }
 
       const manifest = parseManifest(transactionId, manifestBytes);
-      const committedPath = join(transactionDirectory, "COMMITTED");
+      const committedPath = join(
+        transactionDirectory,
+        TRANSACTION_COMMITTED_FILE,
+      );
       if (await pathExists(committedPath)) {
         const marker = parseCommittedMarker(
           transactionId,
@@ -747,7 +764,7 @@ export class CanonicalTransactionStore {
   ): Promise<void> {
     const transactionDirectory = join(
       this.repositoryRoot,
-      "transactions",
+      TRANSACTIONS_DIRECTORY,
       manifest.transaction_id,
     );
     const marker: CommittedMarker = {
@@ -758,7 +775,7 @@ export class CanonicalTransactionStore {
     };
     const markerBytes = Buffer.from(`${canonicalizeJson(marker)}\n`, "utf8");
     const temporaryPath = join(transactionDirectory, "COMMITTED.tmp");
-    const markerPath = join(transactionDirectory, "COMMITTED");
+    const markerPath = join(transactionDirectory, TRANSACTION_COMMITTED_FILE);
     await removeRegularTransactionTemp(temporaryPath, manifest.transaction_id);
     await writeDurable(temporaryPath, markerBytes, "wx");
     if (injectFault) {
@@ -792,7 +809,10 @@ export class CanonicalTransactionStore {
   }
 
   private async cleanupTransaction(transactionId: string): Promise<void> {
-    const transactionsDirectory = join(this.repositoryRoot, "transactions");
+    const transactionsDirectory = join(
+      this.repositoryRoot,
+      TRANSACTIONS_DIRECTORY,
+    );
     await rm(join(transactionsDirectory, transactionId), {
       force: true,
       recursive: true,
@@ -812,7 +832,7 @@ export class CanonicalTransactionStore {
   private async ensureLayout(): Promise<void> {
     await mkdir(this.repositoryRoot, { mode: 0o700, recursive: true });
     await chmod(this.repositoryRoot, 0o700);
-    await mkdir(join(this.repositoryRoot, "transactions"), {
+    await mkdir(join(this.repositoryRoot, TRANSACTIONS_DIRECTORY), {
       mode: 0o700,
       recursive: true,
     });

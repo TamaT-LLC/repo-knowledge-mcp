@@ -4,9 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { z } from "zod";
 
-import { compareCodeUnits } from "./canonical.js";
-import { readTransactionJournal } from "./canonical-files.js";
-import { CANONICAL_WRITE_LOCK_NAME } from "./canonical-transaction-store.js";
+import { observeCanonicalWriter } from "./canonical-transaction-journal.js";
 import {
   DEFAULT_CONFIG_FILE_NAME,
   loadRepoKnowledgeConfigIfPresent,
@@ -19,7 +17,6 @@ import {
 import { buildDomainProjectionSnapshot } from "./domain-projection.js";
 import { GLOBAL_STORE_ID } from "./global-always-return.js";
 import { GlobalStore } from "./global-store.js";
-import { isPosixFileLockHeld } from "./posix-file-lock.js";
 import { RepositoryRegistry } from "./repository-registry.js";
 import { selectConfiguredRepository } from "./repository-resolver.js";
 import {
@@ -237,52 +234,6 @@ async function readActiveRules(
     });
 }
 
-interface WriterObservation {
-  /** The prepared journal entries, sorted; identifies an abandoned journal. */
-  readonly entries: string;
-  readonly state: "abandoned" | "idle" | "writing";
-}
-
-/**
- * A commit keeps a journal entry under `transactions/` while it holds the
- * writer lock, so a journal with a live lock is a writer to wait for, and a
- * journal whose lock is free or owned by a dead process was interrupted.
- * A staging directory without manifest.json or COMMITTED was never applied
- * (a commit rejected by its precondition leaves one); recovery deletes it,
- * so it does not make the canonical files unsafe to read.
- */
-async function observeWriter(storeRoot: string): Promise<WriterObservation> {
-  const prepared: string[] = [];
-  for (const entry of await readTransactionJournal(storeRoot)) {
-    const directory = join(storeRoot, "transactions", entry.name);
-    if (
-      !entry.isDirectory() ||
-      (await pathExists(join(directory, "manifest.json"))) ||
-      (await pathExists(join(directory, "COMMITTED")))
-    ) {
-      prepared.push(entry.name);
-    }
-  }
-  if (prepared.length === 0) return { entries: "", state: "idle" };
-  const held = await isPosixFileLockHeld(
-    join(storeRoot, CANONICAL_WRITE_LOCK_NAME),
-  );
-  return {
-    entries: prepared.sort(compareCodeUnits).join("/"),
-    state: held ? "writing" : "abandoned",
-  };
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
-}
-
 /**
  * Captures until two consecutive captures taken while no writer was active
  * agree. A capture can only be torn by a commit that started and finished
@@ -300,18 +251,19 @@ async function captureConsistently(
   let abandoned: string | undefined;
   let failed = 0;
   for (let attempt = 1; attempt <= retry.attempts; attempt += 1) {
-    const observed = await observeWriter(storeRoot);
+    const observed = await observeCanonicalWriter(storeRoot);
     if (observed.state === "abandoned") {
       // Only the same journal, still without a live lock on a second look,
       // is interrupted; a commit ending between the journal read and the
       // lock probe looks abandoned once and is gone by the next look.
-      if (observed.entries === abandoned) {
+      const entries = observed.prepared.join("/");
+      if (entries === abandoned) {
         throw new RuleExportError(
           "RULE_EXPORT_RECOVERY_REQUIRED",
           `the store has an interrupted transaction; run ${remedy} and export again`,
         );
       }
-      abandoned = observed.entries;
+      abandoned = entries;
     } else {
       abandoned = undefined;
     }
@@ -323,13 +275,14 @@ async function captureConsistently(
         capture = await captureCanonicalStateReadOnly(storeRoot);
         failed = 0;
       } catch (error) {
-        const quiet = (await observeWriter(storeRoot)).state === "idle";
+        const quiet =
+          (await observeCanonicalWriter(storeRoot)).state === "idle";
         failed = quiet ? failed + 1 : 0;
         if (failed >= 2) throw error;
       }
       if (
         capture !== undefined &&
-        (await observeWriter(storeRoot)).state === "idle"
+        (await observeCanonicalWriter(storeRoot)).state === "idle"
       ) {
         if (capture.canonicalDigest === previousDigest) return capture;
         previousDigest = capture.canonicalDigest;

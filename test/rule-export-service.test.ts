@@ -3,12 +3,15 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CANONICAL_WRITE_LOCK_NAME } from "../src/canonical-transaction-store.js";
+import {
+  CANONICAL_WRITE_LOCK_NAME,
+  TRANSACTION_MANIFEST_FILE,
+  TRANSACTIONS_DIRECTORY,
+} from "../src/canonical-transaction-journal.js";
 import {
   neutralizeExportedRuleText,
   renderRuleExport,
 } from "../src/cli-render.js";
-import { RepositoryRegistry } from "../src/repository-registry.js";
 import {
   RuleExportError,
   RuleExportService,
@@ -74,9 +77,21 @@ async function holdWriterLock(storeRoot: string, pid = process.pid) {
 
 /** A prepared transaction: a journal entry with its manifest written. */
 async function openJournal(storeRoot: string, name = "txn_pending") {
-  const directory = join(storeRoot, "transactions", name);
+  const directory = join(storeRoot, TRANSACTIONS_DIRECTORY, name);
   await mkdir(directory, { recursive: true });
-  await writeFile(join(directory, "manifest.json"), "{}");
+  await writeFile(join(directory, TRANSACTION_MANIFEST_FILE), "{}");
+}
+
+/** A live writer in the middle of a commit: prepared journal plus its lock. */
+async function startWriter(storeRoot: string) {
+  await openJournal(storeRoot);
+  await holdWriterLock(storeRoot);
+}
+
+/** The writer's commit completes: journal cleaned up, lock released. */
+async function finishWriter(storeRoot: string) {
+  await rm(join(storeRoot, TRANSACTIONS_DIRECTORY), { recursive: true });
+  await rm(join(storeRoot, CANONICAL_WRITE_LOCK_NAME));
 }
 
 /** Lets a test act as a writer at a counted journal poll, not on a timer. */
@@ -84,14 +99,16 @@ const journal = vi.hoisted(() => ({
   onRead: undefined as ((root: string) => Promise<void>) | undefined,
 }));
 
-vi.mock("../src/canonical-files.js", async (importOriginal) => {
+vi.mock("../src/canonical-transaction-journal.js", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../src/canonical-files.js")>();
+    await importOriginal<
+      typeof import("../src/canonical-transaction-journal.js")
+    >();
   return {
     ...actual,
-    readTransactionJournal: async (root: string) => {
+    observeCanonicalWriter: async (root: string) => {
       await journal.onRead?.(root);
-      return actual.readTransactionJournal(root);
+      return actual.observeCanonicalWriter(root);
     },
   };
 });
@@ -122,20 +139,16 @@ const rule = (key: keyof typeof RULES, hook = false): ExportedRule => ({
 
 const GLOBAL_RULES = [rule("globalHook", true), rule("globalManual")];
 
-function service(home: RuleExportHome, cwd = home.workspace) {
-  return new RuleExportService({
-    cwd,
-    retry: FAST_RETRY,
-    storageRoot: home.storageRoot,
-  });
-}
-
 async function collect(
   home: RuleExportHome,
   request: Partial<RuleExportRequest>,
   cwd?: string,
 ) {
-  return service(home, cwd).collect({
+  return new RuleExportService({
+    cwd: cwd ?? home.workspace,
+    retry: FAST_RETRY,
+    storageRoot: home.storageRoot,
+  }).collect({
     origin: "all",
     store: "repository",
     ...request,
@@ -400,8 +413,7 @@ describe("RuleExportService", () => {
 
   it("waits for a live writer and reads the store once its commit finishes", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
-    await openJournal(home.globalRoot);
-    await holdWriterLock(home.globalRoot);
+    await startWriter(home.globalRoot);
     let polls = 0;
     let capturesWhileWriting = -1;
     journal.onRead = async (root) => {
@@ -409,14 +421,11 @@ describe("RuleExportService", () => {
       if (polls === 4) {
         // No capture ran while the writer held its journal.
         capturesWhileWriting = capture.calls;
-        await rm(join(root, "transactions"), { recursive: true });
-        await rm(join(root, CANONICAL_WRITE_LOCK_NAME));
+        await finishWriter(root);
       }
     };
 
-    expect(
-      await service(home).collect({ origin: "all", store: "global" }),
-    ).toEqual(GLOBAL_RULES);
+    expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
     expect(capturesWhileWriting).toBe(0);
   });
 
@@ -424,10 +433,8 @@ describe("RuleExportService", () => {
     const home = await createRuleExportHome(temporaryDirectories);
     // A commit rejected by its precondition leaves only staged payloads.
     await mkdir(
-      join(home.globalRoot, "transactions", "txn_rejected", "staged"),
-      {
-        recursive: true,
-      },
+      join(home.globalRoot, TRANSACTIONS_DIRECTORY, "txn_rejected", "staged"),
+      { recursive: true },
     );
 
     expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
@@ -439,7 +446,10 @@ describe("RuleExportService", () => {
     // Each look catches a different commit just after it released its lock.
     journal.onRead = async (root) => {
       polls += 1;
-      await rm(join(root, "transactions"), { force: true, recursive: true });
+      await rm(join(root, TRANSACTIONS_DIRECTORY), {
+        force: true,
+        recursive: true,
+      });
       if (polls <= 3) await openJournal(root, `txn_${String(polls)}`);
     };
 
@@ -449,52 +459,24 @@ describe("RuleExportService", () => {
   it("keeps retrying a torn capture when a writer was seen between failures", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     capture.failures = 2;
-    let started = false;
     let pollsWhileWriting = 0;
+    // The first (failing) capture overlaps a writer that starts inside it.
     capture.onCapture = async () => {
-      if (started) return;
-      started = true;
-      await openJournal(home.globalRoot);
-      await holdWriterLock(home.globalRoot);
+      if (capture.calls === 1) await startWriter(home.globalRoot);
     };
     journal.onRead = async (root) => {
-      if (!started) return;
+      if (capture.calls === 0) return;
       pollsWhileWriting += 1;
-      if (pollsWhileWriting === 2) {
-        await rm(join(root, "transactions"), { recursive: true });
-        await rm(join(root, CANONICAL_WRITE_LOCK_NAME));
-      }
+      if (pollsWhileWriting === 2) await finishWriter(root);
     };
 
     expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
     expect(capture.calls).toBe(4);
   });
 
-  it("prefers an exact registry match over names that differ only in case", async () => {
-    const home = await createRuleExportHome(temporaryDirectories);
-    const registry = new RepositoryRegistry(home.storageRoot);
-    await registry.register({
-      aliases: ["acme/Widget"],
-      currentName: "acme/gadget",
-      repoId: "R_renamed",
-    });
-    await registry.register({ currentName: "acme/widget", repoId: "R_new" });
-
-    expect(await registry.findByNameReadOnly("acme/widget")).toMatchObject({
-      repoId: "R_new",
-    });
-    expect(await registry.findByNameReadOnly("acme/Widget")).toMatchObject({
-      repoId: "R_renamed",
-    });
-    await expect(
-      registry.findByNameReadOnly("ACME/WIDGET"),
-    ).rejects.toMatchObject({ code: "REPOSITORY_NAME_AMBIGUOUS" });
-  });
-
   it("reports a busy store when a live writer never finishes", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
-    await openJournal(home.globalRoot);
-    await holdWriterLock(home.globalRoot);
+    await startWriter(home.globalRoot);
 
     await expect(collect(home, { store: "global" })).rejects.toMatchObject({
       code: "RULE_EXPORT_STORE_BUSY",
@@ -514,31 +496,21 @@ describe("RuleExportService", () => {
 
   it("discards a capture taken while a writer started, then reads the committed state", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
-    let started = false;
     let pollsWhileWriting = 0;
+    // A writer opens its journal while the first capture is running ...
     capture.onCapture = async () => {
-      if (started) return;
-      started = true;
-      // A writer opens its journal while the first capture is running.
-      await openJournal(home.globalRoot);
-      await holdWriterLock(home.globalRoot);
+      if (capture.calls === 1) await startWriter(home.globalRoot);
     };
-    // The writer commits after export has seen its journal three times.
+    // ... and commits after export has seen its journal three times.
     journal.onRead = async (root) => {
-      if (!started || root !== home.globalRoot) return;
+      if (capture.calls === 0) return;
       pollsWhileWriting += 1;
-      if (pollsWhileWriting === 3) {
-        await rm(join(root, "transactions"), { recursive: true });
-        await rm(join(root, CANONICAL_WRITE_LOCK_NAME));
-      }
+      if (pollsWhileWriting === 3) await finishWriter(root);
     };
 
-    expect(
-      await service(home).collect({ origin: "all", store: "global" }),
-    ).toEqual(GLOBAL_RULES);
+    expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
     // The torn first capture is discarded; two later ones agree.
     expect(capture.calls).toBe(3);
-    expect(pollsWhileWriting).toBeGreaterThanOrEqual(3);
   });
 
   it("fails closed on an invalid canonical knowledge document", async () => {

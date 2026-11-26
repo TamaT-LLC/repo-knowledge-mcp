@@ -254,19 +254,21 @@ export function renderRuleExport(
   const prose: string[] = [];
   const hook: string[] = [];
   for (const rule of rules) {
-    const texts = [rule.rule, ...rule.scope].map(neutralizeExportedText);
-    const [text, ...rest] = texts;
-    // A scope pattern with no visible text would render as stray backticks.
-    const scope = rest.filter((entry) => entry.value.length > 0);
-    if (text!.value.length === 0) {
+    const text = neutralizeExportedText(rule.rule);
+    if (text.value.length === 0) {
       omitted += 1;
       continue;
     }
-    if (texts.some((entry) => entry.escaped)) neutralized += 1;
+    const scope = rule.scope.map(neutralizeExportedText);
+    if ([text, ...scope].some((entry) => entry.escaped)) neutralized += 1;
+    // A scope pattern with no visible text would render as stray backticks.
+    const visible = scope.flatMap((entry) =>
+      entry.value.length === 0 ? [] : [codeSpan(entry.value)],
+    );
     const item =
-      scope.length === 0
-        ? `- ${text!.value}`
-        : `- ${text!.value}（適用範囲: ${scope.map(codeSpan).join(", ")}）`;
+      visible.length === 0
+        ? `- ${text.value}`
+        : `- ${text.value}（適用範囲: ${visible.join(", ")}）`;
     (rule.hook ? hook : prose).push(item);
   }
   const lines = [
@@ -287,7 +289,7 @@ export function renderRuleExport(
 }
 
 /** Wraps neutralized text in a code span whose fence no backtick run can close. */
-function codeSpan({ value }: NeutralizedText): string {
+function codeSpan(value: string): string {
   const longestRun = Math.max(
     0,
     ...[...value.matchAll(/`+/gu)].map((match) => match[0].length),

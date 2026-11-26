@@ -92,22 +92,16 @@ describe("export --format CLI E2E", () => {
         "",
       ].join("\n"),
     );
-    for (const [format, block] of [
-      ["claude-md", claude.stdout],
-      ["agents-md", agents.stdout],
-    ] as const) {
-      expect(block.match(/<!--/gu)).toHaveLength(2);
-      expect(block.match(/-->/gu)).toHaveLength(2);
-      expect(block.match(/repo-knowledge:(?:begin|end)/giu)).toHaveLength(2);
-      expect(
-        block.startsWith(
-          `<!-- repo-knowledge:begin format=${format} store=all -->`,
+    // The exact claude-md block above has one begin and one end marker; the
+    // agents-md block differs only in the format attribute and hook section.
+    expect(agents.stdout).toBe(
+      claude.stdout
+        .replace("format=claude-md", "format=agents-md")
+        .replace(
+          "### hook での強制を推奨",
+          "> 注: 次のルールは hook での強制が推奨されています。AGENTS.md からは hook を設定できないため、指示として守ってください。",
         ),
-      ).toBe(true);
-      expect(block.endsWith("<!-- repo-knowledge:end -->")).toBe(true);
-      expect(block).toContain(sanitizedMarkerRule);
-      expect(block).toContain(`- ${RULES.repoHook}\n- ${RULES.globalHook}\n`);
-    }
+    );
 
     // No lock, projection, registry, or config file appeared or changed,
     // which also covers native SQLite writes the in-process fs spy cannot see.

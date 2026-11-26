@@ -87,6 +87,41 @@ describe("repository registry", () => {
     });
     await expect(registry.resolveById("toString")).resolves.toEqual(reserved);
   });
+
+  it("looks names up read-only, ignoring case only when nothing matches exactly", async () => {
+    const root = await createRegistryRoot();
+    const missing = join(root, "missing");
+    // A registry that does not exist yet reads as empty and is not created.
+    expect(
+      await new RepositoryRegistry(missing).findByNameReadOnly("acme/widget"),
+    ).toBeNull();
+    await expect(
+      readFile(join(missing, "repositories.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    const registry = new RepositoryRegistry(root);
+    await registry.register({
+      aliases: ["acme/Widget"],
+      currentName: "acme/gadget",
+      repoId: "R_renamed",
+    });
+    await registry.register({ currentName: "acme/widget", repoId: "R_new" });
+
+    expect(await registry.findByNameReadOnly("acme/widget")).toMatchObject({
+      repoId: "R_new",
+    });
+    expect(await registry.findByNameReadOnly("acme/Widget")).toMatchObject({
+      repoId: "R_renamed",
+    });
+    expect(await registry.findByNameReadOnly("ACME/GADGET")).toMatchObject({
+      repoId: "R_renamed",
+    });
+    await expect(
+      registry.findByNameReadOnly("ACME/WIDGET"),
+    ).rejects.toMatchObject({ code: "REPOSITORY_NAME_AMBIGUOUS" });
+    await expect(registry.findByNameReadOnly("bad")).rejects.toMatchObject({
+      code: "INVALID_REPOSITORY_REGISTRY",
+    });
+  });
 });
 
 async function createRegistryRoot(): Promise<string> {

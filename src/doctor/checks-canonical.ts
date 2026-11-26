@@ -3,7 +3,7 @@ import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { canonicalizeJson, compareCodeUnits } from "../canonical.js";
-import { readTransactionJournal } from "../canonical-files.js";
+import { readTransactionJournal } from "../canonical-transaction-journal.js";
 import { CanonicalJsonlError } from "../canonical-jsonl.js";
 import {
   buildDomainProjectionSnapshot,

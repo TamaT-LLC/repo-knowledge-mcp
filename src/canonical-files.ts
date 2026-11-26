@@ -1,4 +1,3 @@
-import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 
@@ -13,23 +12,6 @@ const SKIPPED_DIRECTORY_NAMES = new Set([
   "node_modules",
   "transactions",
 ]);
-
-/**
- * Lists the transaction journal without recovering it: any entry means a
- * commit was interrupted or is in progress. A missing journal is empty.
- */
-export async function readTransactionJournal(
-  repositoryRoot: string,
-): Promise<Dirent[]> {
-  try {
-    return await readdir(join(repositoryRoot, "transactions"), {
-      withFileTypes: true,
-    });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
-}
 
 /** Finds every canonical JSONL file while excluding journals and projections. */
 export async function findCanonicalJsonlPaths(

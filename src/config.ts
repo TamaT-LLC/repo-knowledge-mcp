@@ -151,7 +151,7 @@ export async function loadRepoKnowledgeConfigIfPresent(
     if (
       error instanceof RepoKnowledgeConfigError &&
       error.code === "CONFIG_IO_ERROR" &&
-      (error.cause as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
+      hasErrorCode(error.cause, "ENOENT")
     ) {
       return null;
     }
