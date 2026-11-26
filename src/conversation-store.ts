@@ -354,6 +354,7 @@ function matchesPurgeFilter(
 
 export type ConversationStoreErrorCode =
   | "CONVERSATION_KEY_INVALID"
+  | "CONVERSATION_PURGE_BEFORE_IN_FUTURE"
   | "CONVERSATION_KEY_MISMATCH"
   | "CONVERSATION_KEY_MISSING"
   | "CONVERSATION_KEY_PERMISSIONS"
@@ -369,6 +370,26 @@ export class ConversationStoreError extends Error {
   ) {
     super(`${code}: ${message}`);
     this.name = "ConversationStoreError";
+  }
+}
+
+/**
+ * A purge filter also applies to every later ingest and cannot be removed,
+ * so a future `before` would silently drop conversations until that time.
+ * Checked where filters are added, never where persisted ones are read.
+ */
+export function assertPurgeBeforeNotInFuture(
+  filter: Pick<PurgeFilter, "before">,
+  now: Date,
+): void {
+  if (
+    filter.before !== undefined &&
+    Date.parse(filter.before) > now.getTime()
+  ) {
+    throw new ConversationStoreError(
+      "CONVERSATION_PURGE_BEFORE_IN_FUTURE",
+      "--before must not be in the future: the purge filter also drops conversations ingested later and cannot be removed",
+    );
   }
 }
 
@@ -610,6 +631,7 @@ export class ConversationStore {
     input: PurgeFilter,
   ): Promise<{ filter_added: boolean; purged_records: number }> {
     const filter = PurgeFilterSchema.parse(input);
+    assertPurgeBeforeNotInFuture(filter, this.now());
     return this.writeLocked(async () => {
       const progress: PurgeProgress = {
         schema_version: 1,

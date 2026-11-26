@@ -565,6 +565,30 @@ describe("recovery and normalization", () => {
     ).toEqual({ appended: 1, skipped_by_purge_filter: 0 });
   });
 
+  it("refuses a future --before but still reads persisted future filters", async () => {
+    const root = await home();
+    await seed(root);
+    // NOW is 2026-06-01: a filter until year end would also drop new ingests.
+    await expect(
+      store(root).purge({ before: "2026-12-31T00:00:00Z" }),
+    ).rejects.toThrow("CONVERSATION_PURGE_BEFORE_IN_FUTURE");
+    expect(await store(root).readPurgeFilters()).toEqual([]);
+    expect(await store(root).readRecords()).toHaveLength(4);
+    await expect(
+      store(root).purge({ before: NOW.toISOString() }),
+    ).resolves.toMatchObject({ filter_added: true });
+    await writeFile(
+      join(root, "conversations", "purge-filters.json"),
+      `${JSON.stringify({
+        schema_version: 1,
+        filters: [
+          { before: "2999-01-01T00:00:00Z", added_at: NOW.toISOString() },
+        ],
+      })}\n`,
+    );
+    expect(await store(root).readPurgeFilters()).toHaveLength(1);
+  });
+
   it("rejects records built with another key", async () => {
     const root = await home();
     await store(root).ensureKey();

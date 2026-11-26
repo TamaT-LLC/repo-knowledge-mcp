@@ -16,7 +16,10 @@ import type {
   CliRepositorySelection,
   ParsedCliCommand,
 } from "./cli-types.js";
-import { ConversationSourceSchema } from "./conversation-store.js";
+import {
+  assertPurgeBeforeNotInFuture,
+  ConversationSourceSchema,
+} from "./conversation-store.js";
 import { parseRepositoryName } from "./repository-resolver.js";
 import { StatsBucketSchema } from "./stats-read-service.js";
 import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
@@ -622,9 +625,7 @@ function parseConversations(args: readonly string[]): ParsedCliCommand {
     kind: "conversations-purge",
     filter: {
       ...(session === undefined ? {} : { session_id: session }),
-      ...(before === undefined
-        ? {}
-        : { before: parseSchema(IsoDateTimeSchema, before, "before") }),
+      ...(before === undefined ? {} : { before: parsePurgeBefore(before) }),
       ...(source === undefined
         ? {}
         : { source: parseSchema(ConversationSourceSchema, source, "source") }),
@@ -636,6 +637,16 @@ function parseConversations(args: readonly string[]): ParsedCliCommand {
     },
     yes: parsed.booleans.has("yes"),
   };
+}
+
+function parsePurgeBefore(value: string): string {
+  const before = parseSchema(IsoDateTimeSchema, value, "before");
+  try {
+    assertPurgeBeforeNotInFuture({ before }, new Date());
+  } catch (error) {
+    throw usage((error as Error).message.replace(/^[A-Z_]+: /u, ""), error);
+  }
+  return before;
 }
 
 interface CollectedOptions {

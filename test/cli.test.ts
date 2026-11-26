@@ -210,6 +210,7 @@ describe("repo-knowledge CLI", () => {
       ["conversations", "purge"],
       ["conversations", "purge", "--yes"],
       ["conversations", "purge", "--before", "yesterday"],
+      ["conversations", "purge", "--before", "2999-01-01T00:00:00Z"],
       ["conversations", "purge", "--source", "other"],
       ["conversations", "purge", "--project", "relative/path/x"],
       ["conversations", "purge", "--session", "a", "--session", "b"],
@@ -217,6 +218,16 @@ describe("repo-knowledge CLI", () => {
     ]) {
       expect(() => parseRepoKnowledgeCliArguments(argv, true)).toThrow();
     }
+    const future = run(
+      ["conversations", "purge", "--before", "2999-01-01T00:00:00Z"],
+      true,
+      true,
+    );
+    expect(await future.exit).toBe(REPO_KNOWLEDGE_CLI_EXIT.usage);
+    expect(future.current.stderr()).toContain(
+      "--before must not be in the future",
+    );
+    expect(future.current.options.io.confirm).not.toHaveBeenCalled();
     expect(REPO_KNOWLEDGE_CLI_HELP).toContain("conversations reset-key");
   });
 
