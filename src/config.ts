@@ -141,6 +141,24 @@ export async function loadRepoKnowledgeConfig(
   return parseRepoKnowledgeConfig(value, absolutePath);
 }
 
+/** Like loadRepoKnowledgeConfig, but a missing file reads as no config. */
+export async function loadRepoKnowledgeConfigIfPresent(
+  configPath: string,
+): Promise<RepoKnowledgeConfig | null> {
+  try {
+    return await loadRepoKnowledgeConfig(configPath);
+  } catch (error) {
+    if (
+      error instanceof RepoKnowledgeConfigError &&
+      error.code === "CONFIG_IO_ERROR" &&
+      (error.cause as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 /** Computes the repository-specific cloud transmission policy. */
 export function resolveRepositoryPolicy(
   config: RepoKnowledgeConfig,

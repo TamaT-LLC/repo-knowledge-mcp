@@ -1,8 +1,9 @@
 import type { Dirent, Stats } from "node:fs";
-import { lstat, readdir } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { canonicalizeJson, compareCodeUnits } from "../canonical.js";
+import { readTransactionJournal } from "../canonical-files.js";
 import { CanonicalJsonlError } from "../canonical-jsonl.js";
 import {
   buildDomainProjectionSnapshot,
@@ -34,17 +35,8 @@ export async function inspectTransactions(
   const path = join(repositoryRoot, "transactions");
   let entries: Dirent[];
   try {
-    entries = await readdir(path, { withFileTypes: true });
+    entries = await readTransactionJournal(repositoryRoot);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      report.add({
-        id: "canonical.transactions",
-        message: "No unresolved canonical transactions exist.",
-        path,
-        status: "pass",
-      });
-      return;
-    }
     report.add({
       details: { error: errorCode(error) },
       id: "canonical.transactions",

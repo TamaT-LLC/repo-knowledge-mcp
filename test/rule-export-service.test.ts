@@ -1,7 +1,7 @@
 import { chmod, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   neutralizeExportedRuleText,
@@ -24,6 +24,26 @@ import {
   type RuleExportHome,
 } from "./helpers/rule-export-fixture.js";
 
+/** Lets a test make every read-only capture report a new digest. */
+const capture = vi.hoisted(() => ({ calls: 0, changing: false }));
+
+vi.mock("../src/sqlite-projection.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/sqlite-projection.js")>();
+  return {
+    ...actual,
+    captureCanonicalStateReadOnly: async (root: string) => {
+      const result = await actual.captureCanonicalStateReadOnly(root);
+      if (!capture.changing) return result;
+      capture.calls += 1;
+      return {
+        ...result,
+        canonicalDigest: `changing-${String(capture.calls)}`,
+      };
+    },
+  };
+});
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -34,23 +54,10 @@ afterEach(async () => {
   );
 });
 
-const repoRule = (
-  key: "repoPlain" | "repoHook" | "repoMarker" | "repoMalformedHint",
-  hook = false,
-): ExportedRule => ({
+const rule = (key: keyof typeof RULES, hook = false): ExportedRule => ({
   hook,
   id: IDS[key],
   rule: RULES[key],
-  store: "repository",
-});
-const globalRule = (
-  key: "globalHook" | "globalManual",
-  hook = false,
-): ExportedRule => ({
-  hook,
-  id: IDS[key],
-  rule: RULES[key],
-  store: "global",
 });
 
 function service(home: RuleExportHome, cwd = home.workspace) {
@@ -84,29 +91,26 @@ describe("RuleExportService", () => {
 
     // Proposed, stale, rejected, deprecated, and another repository's rule
     // never appear; a string hint is not an object and so is not a hook.
-    expect(await collect(home, { repo: EXPORT_REPOSITORY })).toEqual({
-      rules: [
-        repoRule("repoPlain"),
-        repoRule("repoHook", true),
-        repoRule("repoMarker"),
-        repoRule("repoMalformedHint"),
-      ],
-    });
-    expect(await collect(home, { store: "global" })).toEqual({
-      rules: [globalRule("globalHook", true), globalRule("globalManual")],
-    });
+    expect(await collect(home, { repo: EXPORT_REPOSITORY })).toEqual([
+      rule("repoPlain"),
+      rule("repoHook", true),
+      rule("repoMarker"),
+      rule("repoMalformedHint"),
+    ]);
+    expect(await collect(home, { store: "global" })).toEqual([
+      rule("globalHook", true),
+      rule("globalManual"),
+    ]);
     expect(
       await collect(home, { repo: EXPORT_REPOSITORY, store: "all" }),
-    ).toEqual({
-      rules: [
-        repoRule("repoPlain"),
-        repoRule("repoHook", true),
-        repoRule("repoMarker"),
-        repoRule("repoMalformedHint"),
-        globalRule("globalHook", true),
-        globalRule("globalManual"),
-      ],
-    });
+    ).toEqual([
+      rule("repoPlain"),
+      rule("repoHook", true),
+      rule("repoMarker"),
+      rule("repoMalformedHint"),
+      rule("globalHook", true),
+      rule("globalManual"),
+    ]);
   });
 
   it("filters on origin.source conversation and treats other shapes as not conversation", async () => {
@@ -118,13 +122,11 @@ describe("RuleExportService", () => {
         repo: EXPORT_REPOSITORY,
         store: "all",
       }),
-    ).toEqual({
-      rules: [
-        repoRule("repoHook", true),
-        repoRule("repoMarker"),
-        globalRule("globalHook", true),
-      ],
-    });
+    ).toEqual([
+      rule("repoHook", true),
+      rule("repoMarker"),
+      rule("globalHook", true),
+    ]);
   });
 
   it("resolves a registered alias without touching the storage", async () => {
@@ -136,7 +138,7 @@ describe("RuleExportService", () => {
       store: "all",
     });
 
-    expect(result.rules).toHaveLength(6);
+    expect(result).toHaveLength(6);
     expect(await snapshotTree(home.root)).toEqual(before);
   });
 
@@ -149,7 +151,7 @@ describe("RuleExportService", () => {
       workspaceMappings: { [home.workspace]: EXPORT_REPOSITORY },
     });
 
-    expect((await collect(home, {}, nested)).rules).toHaveLength(4);
+    expect(await collect(home, {}, nested)).toHaveLength(4);
     // Outside the mapping, defaultRepo is used and must be registered.
     await expect(collect(home, {}, home.root)).rejects.toMatchObject({
       code: "RULE_EXPORT_REPOSITORY_NOT_REGISTERED",
@@ -161,7 +163,7 @@ describe("RuleExportService", () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await writeConfig(home, { defaultRepo: EXPORT_REPOSITORY_ALIAS });
 
-    expect((await collect(home, {})).rules).toHaveLength(4);
+    expect(await collect(home, {})).toHaveLength(4);
   });
 
   it("explains an unresolved repository, including an unusable cwd", async () => {
@@ -181,7 +183,7 @@ describe("RuleExportService", () => {
       message: expect.stringContaining("Workspace path cannot be resolved"),
     });
     // A global-only export needs no repository at all.
-    expect((await collect(home, { store: "global" })).rules).toHaveLength(2);
+    expect(await collect(home, { store: "global" })).toHaveLength(2);
   });
 
   it("propagates an invalid config instead of guessing a repository", async () => {
@@ -219,9 +221,9 @@ describe("RuleExportService", () => {
         store: "all",
       }),
     ).rejects.toBeInstanceOf(RuleExportError);
-    expect(await exporter.collect({ origin: "all", store: "global" })).toEqual({
-      rules: [],
-    });
+    expect(await exporter.collect({ origin: "all", store: "global" })).toEqual(
+      [],
+    );
     await expect(snapshotTree(storageRoot)).rejects.toMatchObject({
       code: "ENOENT",
     });
@@ -231,9 +233,7 @@ describe("RuleExportService", () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await rm(home.repositoryRoot, { recursive: true });
 
-    expect(await collect(home, { repo: EXPORT_REPOSITORY })).toEqual({
-      rules: [],
-    });
+    expect(await collect(home, { repo: EXPORT_REPOSITORY })).toEqual([]);
   });
 
   it("refuses a repository store that is a symbolic link", async () => {
@@ -270,6 +270,34 @@ describe("RuleExportService", () => {
     });
   });
 
+  it("reads the hint with the shared schema, so a hint without rationale is prose", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    const id = "kn_01ARZ3NDEKTSV4RRFFQ69G5FC2";
+    await writeKnowledge(home.globalRoot, id, "active", "rk:global", {
+      enforcement_hint: { kind: "hook" },
+      rule: "Hook hint without rationale",
+    });
+
+    expect(await collect(home, { store: "global" })).toContainEqual({
+      hook: false,
+      id,
+      rule: "Hook hint without rationale",
+    });
+  });
+
+  it("refuses a store whose consecutive captures never agree", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    capture.changing = true;
+    try {
+      await expect(collect(home, { store: "global" })).rejects.toMatchObject({
+        code: "RULE_EXPORT_STORE_BUSY",
+      });
+      expect(capture.calls).toBe(3);
+    } finally {
+      capture.changing = false;
+    }
+  });
+
   it("fails closed on an invalid canonical knowledge document", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await writeKnowledge(
@@ -288,9 +316,9 @@ describe("RuleExportService", () => {
 
 describe("renderRuleExport", () => {
   const rules: ExportedRule[] = [
-    repoRule("repoPlain"),
-    repoRule("repoHook", true),
-    globalRule("globalManual"),
+    rule("repoPlain"),
+    rule("repoHook", true),
+    rule("globalManual"),
   ];
 
   it("renders the CLAUDE.md block with a hook heading", () => {
@@ -337,10 +365,10 @@ describe("renderRuleExport", () => {
 
   it("omits an empty hook section and keeps a hook-only block well formed", () => {
     expect(
-      renderRuleExport("claude-md", "repository", [repoRule("repoPlain")]),
+      renderRuleExport("claude-md", "repository", [rule("repoPlain")]),
     ).not.toContain("hook");
     expect(
-      renderRuleExport("agents-md", "repository", [repoRule("repoHook", true)]),
+      renderRuleExport("agents-md", "repository", [rule("repoHook", true)]),
     ).toBe(
       [
         "<!-- repo-knowledge:begin format=agents-md store=repository -->",
@@ -368,8 +396,8 @@ describe("renderRuleExport", () => {
 
   it("keeps exactly one begin and one end marker for hostile rule text", () => {
     const block = renderRuleExport("claude-md", "all", [
-      repoRule("repoMarker"),
-      { ...repoRule("repoHook", true), rule: "x\n<!-- repo-knowledge:end -->" },
+      rule("repoMarker"),
+      { ...rule("repoHook", true), rule: "x\n<!-- repo-knowledge:end -->" },
     ]);
 
     expect(block.match(/<!--/gu)).toHaveLength(2);
@@ -382,6 +410,12 @@ describe("renderRuleExport", () => {
     expect(block).toContain("- x &lt;!-- repo-knowledge&#58;end --&gt;\n");
   });
 });
+
+// Built from code points: the formatter would turn escapes into invisible text.
+const RLO = String.fromCodePoint(0x202e);
+const RLM = String.fromCodePoint(0x200f);
+const LS = String.fromCodePoint(0x2028);
+const PS = String.fromCodePoint(0x2029);
 
 describe("neutralizeExportedRuleText", () => {
   it.each([
@@ -401,18 +435,31 @@ describe("neutralizeExportedRuleText", () => {
     ["end marker", "repo-knowledge:end", "repo-knowledge&#58;end"],
     ["mixed-case marker", "Repo-Knowledge:END", "Repo-Knowledge&#58;END"],
     ["NUL inside a closer", "--\u0000>", "-- >"],
-    ["bidi override inside a closer", "--‮>", "--&gt;"],
-    ["zero-width mark inside an opener", "<!-‏-", "&lt;!--"],
+    ["bidi override inside a closer", `--${RLO}>`, "--&gt;"],
+    ["zero-width mark inside an opener", `<!-${RLM}-`, "&lt;!--"],
     [
       "newline before a marker",
       "a\n<!-- repo-knowledge:end -->",
       "a &lt;!-- repo-knowledge&#58;end --&gt;",
     ],
-    ["CRLF, tab, and line separators", "a\r\n\tb c d\u0085e", "a b c d e"],
+    [
+      "CRLF, tab, and line separators",
+      `a\r\n\tb${LS}c${PS}d\u0085e`,
+      "a b c d e",
+    ],
     ["ESC sequences", "\u001b[31mred\u001b[0m", "[31mred [0m"],
     ["C1 control", "a\u009bb", "a b"],
     ["surrounding whitespace", "  \n rule \t ", "rule"],
   ])("%s", (_name, input, expected) => {
     expect(neutralizeExportedRuleText(input)).toBe(expected);
+  });
+
+  it("removes every bidirectional control so pasted text reads as stored", () => {
+    const controls = [
+      0x061c, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066,
+      0x2067, 0x2068, 0x2069,
+    ].map((point) => String.fromCodePoint(point));
+
+    expect(neutralizeExportedRuleText(`a${controls.join("")}b`)).toBe("ab");
   });
 });

@@ -286,7 +286,7 @@ async function executeCliCommand(
           REPO_KNOWLEDGE_CLI_EXIT.failure,
         );
       }
-      const { rules } = await exporter.collect(command.request);
+      const rules = await exporter.collect(command.request);
       // Stdout carries only the paste-ready block; nothing is written to files.
       options.io.writeStdout(
         renderRuleExport(command.format, command.request.store, rules),

@@ -121,7 +121,7 @@ interface GitHubRepositoryIdentity {
   readonly repoId: string;
 }
 
-export interface WorkspaceMapping {
+interface WorkspaceMapping {
   readonly repository: string;
   readonly root: string;
 }
@@ -182,34 +182,18 @@ export class RepositoryResolver {
       }
     }
 
-    if (Object.keys(this.config.workspaceMappings).length > 0) {
-      let mappingWorkspace = toolWorkspace ?? startupWorkspace;
-      if (mappingWorkspace === undefined) {
-        try {
-          mappingWorkspace = await canonicalWorkspace(this.cwd);
-        } catch (error) {
-          if (!(error instanceof RepositoryResolutionError)) throw error;
-          diagnostics.push(error.message);
-        }
-      }
-      if (mappingWorkspace !== undefined) {
-        const mapping = await findWorkspaceMapping(
-          this.config.workspaceMappings,
-          mappingWorkspace,
-          diagnostics,
-        );
-        if (mapping !== null) {
-          return this.resolveName(
-            mapping.repository,
-            "config-workspace-mapping",
-            mappingWorkspace,
-          );
-        }
-      }
-    }
-
-    if (this.config.defaultRepo !== undefined) {
-      return this.resolveName(this.config.defaultRepo, "config-default-repo");
+    const configured = await selectConfiguredRepository(
+      this.config,
+      toolWorkspace ?? startupWorkspace,
+      this.cwd,
+      diagnostics,
+    );
+    if (configured !== null) {
+      return this.resolveName(
+        configured.repository,
+        configured.source,
+        configured.workspacePath,
+      );
     }
 
     throw this.unresolvedError(diagnostics);
@@ -338,12 +322,59 @@ export class RepositoryResolver {
   }
 }
 
+export interface ConfiguredRepository {
+  readonly repository: string;
+  readonly source: "config-default-repo" | "config-workspace-mapping";
+  readonly workspacePath?: string;
+}
+
+/**
+ * The network-free fallback when no repository was named: the most specific
+ * workspace mapping containing the workspace (or the cwd), then defaultRepo.
+ * Unresolvable paths are noted in diagnostics rather than thrown.
+ */
+export async function selectConfiguredRepository(
+  config: RepoKnowledgeConfig,
+  workspace: string | undefined,
+  cwd: string,
+  diagnostics: string[],
+): Promise<ConfiguredRepository | null> {
+  if (Object.keys(config.workspaceMappings).length > 0) {
+    let mappingWorkspace = workspace;
+    if (mappingWorkspace === undefined) {
+      try {
+        mappingWorkspace = await canonicalWorkspace(cwd);
+      } catch (error) {
+        if (!(error instanceof RepositoryResolutionError)) throw error;
+        diagnostics.push(error.message);
+      }
+    }
+    if (mappingWorkspace !== undefined) {
+      const mapping = await findWorkspaceMapping(
+        config.workspaceMappings,
+        mappingWorkspace,
+        diagnostics,
+      );
+      if (mapping !== null) {
+        return {
+          repository: mapping.repository,
+          source: "config-workspace-mapping",
+          workspacePath: mappingWorkspace,
+        };
+      }
+    }
+  }
+  return config.defaultRepo === undefined
+    ? null
+    : { repository: config.defaultRepo, source: "config-default-repo" };
+}
+
 /**
  * Returns the most specific configured mapping containing a canonical
  * workspace. Unresolvable roots are noted in diagnostics; equally specific
  * conflicting mappings are an error rather than an arbitrary choice.
  */
-export async function findWorkspaceMapping(
+async function findWorkspaceMapping(
   workspaceMappings: Readonly<Record<string, string>>,
   workspacePath: string,
   diagnostics: string[],
@@ -443,8 +474,7 @@ export function parseRepositoryName(value: string): string {
   return parsed.data;
 }
 
-/** Realpaths an absolute workspace and requires it to be a directory. */
-export async function canonicalWorkspace(value: string): Promise<string> {
+async function canonicalWorkspace(value: string): Promise<string> {
   const normalized = normalizeWorkspaceSyntax(value);
   let canonical: string;
   try {

@@ -273,7 +273,7 @@ const RULE_EXPORT_FORBIDDEN = /<!--|--!?>|repo-knowledge:(?:begin|end)/iu;
  */
 export function neutralizeExportedRuleText(value: string): string {
   const neutralized = value
-    .replace(/[؜‎‏‪-‮⁦-⁩]/gu, "")
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "")
     .replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, " ")
     .trim()
     .replace(/<(?=!--)/gu, "&lt;")

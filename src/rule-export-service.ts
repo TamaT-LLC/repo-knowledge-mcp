@@ -1,31 +1,35 @@
-import { lstat, readdir } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import { compareCodeUnits } from "./canonical.js";
+import { readTransactionJournal } from "./canonical-files.js";
 import {
   DEFAULT_CONFIG_FILE_NAME,
-  loadRepoKnowledgeConfig,
-  RepoKnowledgeConfigError,
+  loadRepoKnowledgeConfigIfPresent,
 } from "./config.js";
+import {
+  isConversationKnowledge,
+  readEnforcementHint,
+} from "./conversation-knowledge-summary.js";
 import { buildDomainProjectionSnapshot } from "./domain-projection.js";
-import type { RepoKnowledgeConfig } from "./domain-schemas.js";
 import { GLOBAL_STORE_ID } from "./global-always-return.js";
 import { GlobalStore } from "./global-store.js";
 import { RepositoryRegistry } from "./repository-registry.js";
+import { selectConfiguredRepository } from "./repository-resolver.js";
 import {
-  canonicalWorkspace,
-  findWorkspaceMapping,
-  RepositoryResolutionError,
-} from "./repository-resolver.js";
-import { captureCanonicalStateReadOnly } from "./sqlite-projection.js";
+  captureCanonicalStateReadOnly,
+  type ReadOnlyCanonicalStateCapture,
+} from "./sqlite-projection.js";
 
-export const RULE_EXPORT_FORMATS = ["claude-md", "agents-md"] as const;
-export const RULE_EXPORT_STORES = ["repository", "global", "all"] as const;
-export const RULE_EXPORT_ORIGINS = ["conversation", "all"] as const;
+export const RuleExportFormatSchema = z.enum(["claude-md", "agents-md"]);
+export const RuleExportStoreSchema = z.enum(["repository", "global", "all"]);
+export const RuleExportOriginSchema = z.enum(["conversation", "all"]);
 
-export type RuleExportFormat = (typeof RULE_EXPORT_FORMATS)[number];
-export type RuleExportStore = (typeof RULE_EXPORT_STORES)[number];
-export type RuleExportOrigin = (typeof RULE_EXPORT_ORIGINS)[number];
+export type RuleExportFormat = z.infer<typeof RuleExportFormatSchema>;
+export type RuleExportStore = z.infer<typeof RuleExportStoreSchema>;
+export type RuleExportOrigin = z.infer<typeof RuleExportOriginSchema>;
 
 export interface RuleExportRequest {
   readonly origin: RuleExportOrigin;
@@ -35,26 +39,22 @@ export interface RuleExportRequest {
 }
 
 export interface ExportedRule {
-  /** True only for `enforcement_hint.kind: hook`; anything else is prose. */
+  /** True only for a valid `enforcement_hint` of kind `hook`. */
   readonly hook: boolean;
   readonly id: string;
   readonly rule: string;
-  readonly store: "global" | "repository";
-}
-
-export interface RuleExportResult {
-  /** Repository rules first, then global rules; each ordered by knowledge ID. */
-  readonly rules: readonly ExportedRule[];
 }
 
 export interface RuleExporter {
-  collect(request: RuleExportRequest): Promise<RuleExportResult>;
+  /** Repository rules first, then global rules; each ordered by knowledge ID. */
+  collect(request: RuleExportRequest): Promise<readonly ExportedRule[]>;
 }
 
 export type RuleExportErrorCode =
   | "RULE_EXPORT_RECOVERY_REQUIRED"
   | "RULE_EXPORT_REPOSITORY_NOT_REGISTERED"
   | "RULE_EXPORT_REPOSITORY_UNRESOLVED"
+  | "RULE_EXPORT_STORE_BUSY"
   | "RULE_EXPORT_STORE_UNSAFE";
 
 export class RuleExportError extends Error {
@@ -74,6 +74,9 @@ export interface RuleExportServiceOptions {
   readonly storageRoot: string;
 }
 
+/** Consecutive captures compared before a store that keeps changing is refused. */
+const CONSISTENT_CAPTURE_ATTEMPTS = 3;
+
 /**
  * Collects active rules for `export --format` strictly read-only: no lock
  * files, no registry registration, no projection rebuild, no recovery, and no
@@ -89,26 +92,23 @@ export class RuleExportService implements RuleExporter {
     this.storageRoot = options.storageRoot;
   }
 
-  async collect(request: RuleExportRequest): Promise<RuleExportResult> {
+  async collect(request: RuleExportRequest): Promise<readonly ExportedRule[]> {
+    const conversationOnly = request.origin === "conversation";
     const repository =
       request.store === "global"
         ? []
-        : await this.readRepositoryRules(request.repo);
+        : await this.readRepositoryRules(request.repo, conversationOnly);
     const global =
-      request.store === "repository" ? [] : await this.readGlobalRules();
-    return {
-      rules: [...repository, ...global]
-        .filter(
-          (entry) =>
-            request.origin === "all" || entry.origin === "conversation",
-        )
-        .map(({ origin: _origin, ...rule }) => rule),
-    };
+      request.store === "repository"
+        ? []
+        : await this.readGlobalRules(conversationOnly);
+    return [...repository, ...global];
   }
 
   private async readRepositoryRules(
     repo: string | undefined,
-  ): Promise<CollectedRule[]> {
+    conversationOnly: boolean,
+  ): Promise<ExportedRule[]> {
     const name = repo ?? (await this.configuredRepositoryName());
     const registered = await new RepositoryRegistry(
       this.storageRoot,
@@ -136,45 +136,40 @@ export class RuleExportService implements RuleExporter {
     return readActiveRules(
       registered.absolutePath,
       registered.repoId,
-      "repository",
+      conversationOnly,
       `repo-knowledge reindex ${registered.currentName}`,
     );
   }
 
-  private async readGlobalRules(): Promise<CollectedRule[]> {
+  private async readGlobalRules(
+    conversationOnly: boolean,
+  ): Promise<ExportedRule[]> {
     const store = new GlobalStore(this.storageRoot);
     if (!(await store.exists())) return [];
     return readActiveRules(
       store.reference.absolutePath,
       GLOBAL_STORE_ID,
-      "global",
+      conversationOnly,
       "repo-knowledge reindex --global",
     );
   }
 
-  /** Mirrors the CLI resolver without a repository argument: cwd mapping, then defaultRepo. */
+  /** The same fallback as the CLI resolver, without its GitHub lookup. */
   private async configuredRepositoryName(): Promise<string> {
-    const config = await this.readConfig();
+    const config = await loadRepoKnowledgeConfigIfPresent(
+      join(this.storageRoot, DEFAULT_CONFIG_FILE_NAME),
+    );
     const diagnostics: string[] = [];
-    if (config !== null && Object.keys(config.workspaceMappings).length > 0) {
-      let workspace: string | undefined;
-      try {
-        workspace = await canonicalWorkspace(this.cwd);
-      } catch (error) {
-        if (!(error instanceof RepositoryResolutionError)) throw error;
-        diagnostics.push(error.message);
-      }
-      const mapping =
-        workspace === undefined
-          ? null
-          : await findWorkspaceMapping(
-              config.workspaceMappings,
-              workspace,
-              diagnostics,
-            );
-      if (mapping !== null) return mapping.repository;
-    }
-    if (config?.defaultRepo !== undefined) return config.defaultRepo;
+    const configured =
+      config === null
+        ? null
+        : await selectConfiguredRepository(
+            config,
+            undefined,
+            this.cwd,
+            diagnostics,
+          );
+    if (configured !== null) return configured.repository;
     throw new RuleExportError(
       "RULE_EXPORT_REPOSITORY_UNRESOLVED",
       [
@@ -183,86 +178,79 @@ export class RuleExportService implements RuleExporter {
       ].join(". "),
     );
   }
-
-  private async readConfig(): Promise<RepoKnowledgeConfig | null> {
-    try {
-      return await loadRepoKnowledgeConfig(
-        join(this.storageRoot, DEFAULT_CONFIG_FILE_NAME),
-      );
-    } catch (error) {
-      if (
-        error instanceof RepoKnowledgeConfigError &&
-        (error.cause as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
-      ) {
-        return null;
-      }
-      throw error;
-    }
-  }
-}
-
-interface CollectedRule extends ExportedRule {
-  readonly origin: "conversation" | "other";
 }
 
 async function readActiveRules(
   storeRoot: string,
   storeId: string,
-  store: ExportedRule["store"],
+  conversationOnly: boolean,
   remedy: string,
-): Promise<CollectedRule[]> {
-  await assertNoUnrecoveredTransaction(storeRoot, remedy);
-  const capture = await captureCanonicalStateReadOnly(storeRoot);
-  // Validates every record and frontmatter, as a locked read would.
+): Promise<ExportedRule[]> {
+  const capture = await captureConsistently(storeRoot, remedy);
+  // Fails closed on any invalid record or frontmatter, as doctor does.
   const domain = buildDomainProjectionSnapshot(
     capture.records.map((entry) => entry.record),
     capture.knowledge,
   );
-  // A writer that started during the capture leaves a journal entry behind.
-  await assertNoUnrecoveredTransaction(storeRoot, remedy);
   const frontmatter = new Map(
     capture.knowledge.map((document) => [document.path, document.frontmatter]),
   );
   return domain.knowledge
     .filter((entry) => entry.status === "active" && entry.repoId === storeId)
-    .sort((left, right) => compareCodeUnits(left.id, right.id))
-    .map((entry) => {
-      const fields = frontmatter.get(entry.path);
-      return {
-        hook: objectField(fields?.enforcement_hint, "kind") === "hook",
-        id: entry.id,
-        origin:
-          objectField(fields?.origin, "source") === "conversation"
-            ? "conversation"
-            : "other",
-        rule: entry.rule,
-        store,
-      };
-    });
+    .flatMap((entry) => {
+      const fields = frontmatter.get(entry.path)!;
+      if (conversationOnly && !isConversationKnowledge(fields)) return [];
+      return [
+        {
+          hook: readEnforcementHint(fields)?.kind === "hook",
+          id: entry.id,
+          rule: entry.rule,
+        },
+      ];
+    })
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
+}
+
+/**
+ * Captures until two consecutive journal-guarded captures agree. A writer
+ * leaves a journal entry while it applies a commit, so a guarded capture can
+ * only be torn by a commit that started and finished inside it; the next
+ * capture then sees the committed state and the digests differ.
+ */
+async function captureConsistently(
+  storeRoot: string,
+  remedy: string,
+): Promise<ReadOnlyCanonicalStateCapture> {
+  let previous = await guardedCapture(storeRoot, remedy);
+  for (let attempt = 1; attempt < CONSISTENT_CAPTURE_ATTEMPTS; attempt += 1) {
+    const current = await guardedCapture(storeRoot, remedy);
+    if (current.canonicalDigest === previous.canonicalDigest) return current;
+    previous = current;
+  }
+  throw new RuleExportError(
+    "RULE_EXPORT_STORE_BUSY",
+    "the store kept changing while it was read; export again",
+  );
+}
+
+async function guardedCapture(
+  storeRoot: string,
+  remedy: string,
+): Promise<ReadOnlyCanonicalStateCapture> {
+  await assertNoUnrecoveredTransaction(storeRoot, remedy);
+  const capture = await captureCanonicalStateReadOnly(storeRoot);
+  await assertNoUnrecoveredTransaction(storeRoot, remedy);
+  return capture;
 }
 
 async function assertNoUnrecoveredTransaction(
   storeRoot: string,
   remedy: string,
 ): Promise<void> {
-  let entries: string[];
-  try {
-    entries = await readdir(join(storeRoot, "transactions"));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  if (entries.length > 0) {
+  if ((await readTransactionJournal(storeRoot)).length > 0) {
     throw new RuleExportError(
       "RULE_EXPORT_RECOVERY_REQUIRED",
       `the store has an unrecovered transaction; run ${remedy} and export again`,
     );
   }
-}
-
-/** Reads one string field of an optional passthrough frontmatter object. */
-function objectField(value: unknown, key: string): unknown {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)[key]
-    : undefined;
 }

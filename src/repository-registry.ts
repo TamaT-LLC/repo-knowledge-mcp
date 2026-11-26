@@ -141,12 +141,7 @@ export class RepositoryRegistry {
   }
 
   async resolveByName(name: string): Promise<ResolvedRepository | null> {
-    if (!RepositoryNameSchema.safeParse(name).success) {
-      throw new RepositoryRegistryError(
-        "INVALID_REPOSITORY_REGISTRY",
-        "Repository name must use owner/name form",
-      );
-    }
+    assertRepositoryName(name);
     await this.ensureLayout();
     return withPosixFileLock(
       join(this.registryRoot, ".registry.lock"),
@@ -166,17 +161,11 @@ export class RepositoryRegistry {
    * document; a missing registry means nothing is registered yet.
    */
   async findByNameReadOnly(name: string): Promise<ResolvedRepository | null> {
-    const parsed = RepositoryNameSchema.safeParse(name);
-    if (!parsed.success) {
-      throw new RepositoryRegistryError(
-        "INVALID_REPOSITORY_REGISTRY",
-        "Repository name must use owner/name form",
-      );
-    }
+    assertRepositoryName(name);
     return matchRepositoryName(
       this.registryRoot,
       (await this.readSnapshot()).document.repositories,
-      parsed.data,
+      name,
     );
   }
 
@@ -354,6 +343,15 @@ function findRepositoryEntry(
   return Object.entries(repositories).find(
     ([candidate]) => candidate === repoId,
   )?.[1];
+}
+
+function assertRepositoryName(name: string): void {
+  if (!RepositoryNameSchema.safeParse(name).success) {
+    throw new RepositoryRegistryError(
+      "INVALID_REPOSITORY_REGISTRY",
+      "Repository name must use owner/name form",
+    );
+  }
 }
 
 function matchRepositoryName(

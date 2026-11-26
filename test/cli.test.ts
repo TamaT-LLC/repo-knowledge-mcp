@@ -491,17 +491,14 @@ describe("repo-knowledge CLI", () => {
       ["export", REPOSITORY, "--format", "claude-md", "--store", "global"],
       "export --store global cannot be combined with a repository",
     ],
-    [
-      ["export", "--format", "markdown"],
-      "format must be one of claude-md, agents-md",
-    ],
+    [["export", "--format", "markdown"], "format is invalid"],
     [
       ["export", "--format", "claude-md", "--store", "everything"],
-      "store must be one of repository, global, all",
+      "store is invalid",
     ],
     [
       ["export", "--format", "claude-md", "--origin", "review"],
-      "origin must be one of conversation, all",
+      "origin is invalid",
     ],
     [
       ["export", "--format", "claude-md", "--format", "agents-md"],
@@ -533,20 +530,10 @@ describe("repo-knowledge CLI", () => {
 
   it("prints an exported rule block on stdout only and never resolves services", async () => {
     const rules = [
-      {
-        hook: false,
-        id: KNOWLEDGE_ID,
-        rule: "Validate fields",
-        store: "repository" as const,
-      },
-      {
-        hook: true,
-        id: KNOWLEDGE_ID,
-        rule: "Never force-push",
-        store: "global" as const,
-      },
+      { hook: false, id: KNOWLEDGE_ID, rule: "Validate fields" },
+      { hook: true, id: KNOWLEDGE_ID, rule: "Never force-push" },
     ];
-    const collect = vi.fn(async () => ({ rules }));
+    const collect = vi.fn(async () => rules);
     const current = fixture([
       "export",
       "--format",
@@ -579,7 +566,7 @@ describe("repo-knowledge CLI", () => {
     await expect(
       runRepoKnowledgeCli({
         ...empty.options,
-        ruleExporter: { collect: async () => ({ rules: [] }) },
+        ruleExporter: { collect: async () => [] },
       }),
     ).resolves.toBe(0);
     expect(empty.stdout()).toBe(

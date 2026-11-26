@@ -18,9 +18,9 @@ import type {
 } from "./cli-types.js";
 import { parseRepositoryName } from "./repository-resolver.js";
 import {
-  RULE_EXPORT_FORMATS,
-  RULE_EXPORT_ORIGINS,
-  RULE_EXPORT_STORES,
+  RuleExportFormatSchema,
+  RuleExportOriginSchema,
+  RuleExportStoreSchema,
 } from "./rule-export-service.js";
 import { StatsBucketSchema } from "./stats-read-service.js";
 import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
@@ -476,8 +476,8 @@ function parseExport(args: readonly string[]): ParsedCliCommand {
       "export --format selects a repository with --repo, not --workspace",
     );
   }
-  const store = parseChoice(
-    RULE_EXPORT_STORES,
+  const store = parseSchema(
+    RuleExportStoreSchema,
     parsed.values.get("store") ?? "repository",
     "store",
   );
@@ -487,10 +487,10 @@ function parseExport(args: readonly string[]): ParsedCliCommand {
   }
   return {
     kind: "export-rules",
-    format: parseChoice(RULE_EXPORT_FORMATS, format, "format"),
+    format: parseSchema(RuleExportFormatSchema, format, "format"),
     request: {
-      origin: parseChoice(
-        RULE_EXPORT_ORIGINS,
+      origin: parseSchema(
+        RuleExportOriginSchema,
         parsed.values.get("origin") ?? "all",
         "origin",
       ),
@@ -498,17 +498,6 @@ function parseExport(args: readonly string[]): ParsedCliCommand {
       store,
     },
   };
-}
-
-function parseChoice<const T extends string>(
-  choices: readonly T[],
-  value: string,
-  field: string,
-): T {
-  if (!(choices as readonly string[]).includes(value)) {
-    throw usage(`${field} must be one of ${choices.join(", ")}`);
-  }
-  return value as T;
 }
 
 function parseAdminId(
