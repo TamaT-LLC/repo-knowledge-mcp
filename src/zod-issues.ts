@@ -10,6 +10,8 @@ export interface CustomIssue {
  *
  * Fills in the fields that `.superRefine()`'s `addIssue` used to fill in:
  * the checked value as `input`, and `continue: true` so later checks still run.
+ * `addIssue` also set `inst`, which Zod reads only to find an error map for an
+ * issue without a message; every issue here has one.
  */
 export function addCustomIssue(
   context: z.core.ParsePayload,
