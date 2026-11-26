@@ -225,7 +225,8 @@ npm run --silent release:verify -- \
 
 この順序を入れ替えてはならない。
 lifecycle script を実行する `npm rebuild` は dependency と registry signature の検証後にだけ実行する。
-`package.json` の `allowScripts` は、review 済みの `better-sqlite3` を exact version で許可し、任意依存の `fsevents` を明示的に拒否する。
+`package.json` の `allowScripts` は、install script を持つ依存を review 済みの exact version で許可し、任意依存の `fsevents` を明示的に拒否する。
+`better-sqlite3` は 13.2.0 から prebuild を同梱して install script を持たなくなったため、現在は許可対象に含まれない。
 dependency 更新で install script の対象が変わった場合は、script と package 内容を再確認して decision を更新し、`install-scripts:check` を通す。
 
 ## 5. 公開手順
