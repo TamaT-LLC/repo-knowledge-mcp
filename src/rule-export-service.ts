@@ -9,7 +9,7 @@ import { CANONICAL_WRITE_LOCK_NAME } from "./canonical-transaction-store.js";
 import {
   DEFAULT_CONFIG_FILE_NAME,
   loadRepoKnowledgeConfigIfPresent,
-  resolveStorageRoot,
+  RepoKnowledgeConfigError,
 } from "./config.js";
 import {
   isConversationKnowledge,
@@ -105,8 +105,15 @@ export class RuleExportService implements RuleExporter {
   }
 
   async collect(request: RuleExportRequest): Promise<readonly ExportedRule[]> {
-    // Same guard as every other storage command; it reads nothing.
-    resolveStorageRoot(this.storageRoot);
+    // An empty root would read the cwd. The broad-directory guard (root,
+    // home, cwd) protects permission changes, so reads do not apply it.
+    if (this.storageRoot.trim().length === 0) {
+      throw new RepoKnowledgeConfigError(
+        "CONFIG_PATH_UNSAFE",
+        this.storageRoot,
+        "storage root must be explicit",
+      );
+    }
     const conversationOnly = request.origin === "conversation";
     const repository =
       request.store === "global"

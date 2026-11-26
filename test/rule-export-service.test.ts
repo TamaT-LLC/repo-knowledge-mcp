@@ -77,6 +77,23 @@ async function openJournal(storeRoot: string) {
   });
 }
 
+/** Lets a test act as a writer at a counted journal poll, not on a timer. */
+const journal = vi.hoisted(() => ({
+  onRead: undefined as ((root: string) => Promise<void>) | undefined,
+}));
+
+vi.mock("../src/canonical-files.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/canonical-files.js")>();
+  return {
+    ...actual,
+    readTransactionJournal: async (root: string) => {
+      await journal.onRead?.(root);
+      return actual.readTransactionJournal(root);
+    },
+  };
+});
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -86,6 +103,7 @@ afterEach(async () => {
     failures: 0,
     onCapture: undefined,
   });
+  journal.onRead = undefined;
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -101,14 +119,13 @@ const rule = (key: keyof typeof RULES, hook = false): ExportedRule => ({
 });
 
 const GLOBAL_RULES = [rule("globalHook", true), rule("globalManual")];
-const PATIENT_RETRY = { attempts: 200, delayMs: 5 };
 
-function service(
-  home: RuleExportHome,
-  cwd = home.workspace,
-  retry = FAST_RETRY,
-) {
-  return new RuleExportService({ cwd, retry, storageRoot: home.storageRoot });
+function service(home: RuleExportHome, cwd = home.workspace) {
+  return new RuleExportService({
+    cwd,
+    retry: FAST_RETRY,
+    storageRoot: home.storageRoot,
+  });
 }
 
 async function collect(
@@ -182,15 +199,21 @@ describe("RuleExportService", () => {
     expect(await collect(home, { repo: "OWNER/Renamed-From" })).toHaveLength(4);
   });
 
-  it("refuses an empty or broad storage root like other storage commands", async () => {
-    for (const storageRoot of ["", "/"]) {
-      await expect(
-        new RuleExportService({ storageRoot }).collect({
-          origin: "all",
-          store: "global",
-        }),
-      ).rejects.toMatchObject({ code: "CONFIG_PATH_UNSAFE" });
-    }
+  it("refuses an empty storage root but reads from a broad one, as doctor does", async () => {
+    await expect(
+      new RuleExportService({ storageRoot: " " }).collect({
+        origin: "all",
+        store: "global",
+      }),
+    ).rejects.toMatchObject({ code: "CONFIG_PATH_UNSAFE" });
+    // The broad-directory guard protects permission changes, not reads.
+    const home = await createRuleExportHome(temporaryDirectories);
+    expect(
+      await new RuleExportService({
+        cwd: home.storageRoot,
+        storageRoot: home.storageRoot,
+      }).collect({ origin: "all", store: "global" }),
+    ).toEqual(GLOBAL_RULES);
   });
 
   it("resolves a registered alias without touching the storage", async () => {
@@ -377,15 +400,22 @@ describe("RuleExportService", () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await openJournal(home.globalRoot);
     await holdWriterLock(home.globalRoot);
-    const exporter = service(home, home.workspace, PATIENT_RETRY);
+    let polls = 0;
+    let capturesWhileWriting = -1;
+    journal.onRead = async (root) => {
+      polls += 1;
+      if (polls === 4) {
+        // No capture ran while the writer held its journal.
+        capturesWhileWriting = capture.calls;
+        await rm(join(root, "transactions"), { recursive: true });
+        await rm(join(root, CANONICAL_WRITE_LOCK_NAME));
+      }
+    };
 
-    const pending = exporter.collect({ origin: "all", store: "global" });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(capture.calls).toBe(0);
-    await rm(join(home.globalRoot, "transactions"), { recursive: true });
-    await rm(join(home.globalRoot, CANONICAL_WRITE_LOCK_NAME));
-
-    expect(await pending).toEqual(GLOBAL_RULES);
+    expect(
+      await service(home).collect({ origin: "all", store: "global" }),
+    ).toEqual(GLOBAL_RULES);
+    expect(capturesWhileWriting).toBe(0);
   });
 
   it("reports a busy store when a live writer never finishes", async () => {
@@ -412,23 +442,30 @@ describe("RuleExportService", () => {
   it("discards a capture taken while a writer started, then reads the committed state", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     let started = false;
+    let pollsWhileWriting = 0;
     capture.onCapture = async () => {
       if (started) return;
       started = true;
       // A writer opens its journal while the first capture is running.
       await openJournal(home.globalRoot);
       await holdWriterLock(home.globalRoot);
-      setTimeout(() => {
-        void rm(join(home.globalRoot, "transactions"), { recursive: true });
-        void rm(join(home.globalRoot, CANONICAL_WRITE_LOCK_NAME));
-      }, 100);
     };
-    const exporter = service(home, home.workspace, PATIENT_RETRY);
+    // The writer commits after export has seen its journal three times.
+    journal.onRead = async (root) => {
+      if (!started || root !== home.globalRoot) return;
+      pollsWhileWriting += 1;
+      if (pollsWhileWriting === 3) {
+        await rm(join(root, "transactions"), { recursive: true });
+        await rm(join(root, CANONICAL_WRITE_LOCK_NAME));
+      }
+    };
 
-    expect(await exporter.collect({ origin: "all", store: "global" })).toEqual(
-      GLOBAL_RULES,
-    );
-    expect(capture.calls).toBeGreaterThanOrEqual(3);
+    expect(
+      await service(home).collect({ origin: "all", store: "global" }),
+    ).toEqual(GLOBAL_RULES);
+    // The torn first capture is discarded; two later ones agree.
+    expect(capture.calls).toBe(3);
+    expect(pollsWhileWriting).toBeGreaterThanOrEqual(3);
   });
 
   it("fails closed on an invalid canonical knowledge document", async () => {
