@@ -57,6 +57,20 @@ describe("default CLI runtime", () => {
     await expect(access(storageRoot)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("shows help on platforms without canonical storage support", async () => {
+    const help = output({ stdinIsTTY: true, stdoutIsTTY: true });
+    const platform = vi
+      .spyOn(process, "platform", "get")
+      .mockReturnValue("win32");
+    try {
+      expect(
+        await runDefaultRepoKnowledgeCli({ argv: ["--help"], io: help.io }),
+      ).toBe(0);
+      expect(help.stdout()).toBe(REPO_KNOWLEDGE_CLI_HELP);
+    } finally {
+      platform.mockRestore();
+    }
+  });
   it("keeps help and bootstrap output side-effect free", async () => {
     const parent = await temporaryDirectory();
     const storageRoot = join(parent, "not-created");

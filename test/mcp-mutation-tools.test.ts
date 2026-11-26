@@ -774,6 +774,37 @@ describe("MCP mutation tools", () => {
     });
   });
 
+  it("maps set_global_always_return errors and points at startup flags", async () => {
+    const unresolved = new RepositoryResolutionError(
+      "REPOSITORY_UNRESOLVED",
+      "select a repository",
+      { guidance: ["Pass repo"] },
+    );
+    const connection = await connect(
+      {
+        async resolve() {
+          throw unresolved;
+        },
+        async setGlobalAlwaysReturn() {
+          throw unresolved;
+        },
+      },
+      "legacy",
+      { allowAlwaysReturnChanges: true },
+    );
+    const response = await callTool(
+      connection.client,
+      "set_global_always_return",
+      { knowledge_id: KNOWLEDGE_ID, enabled: true },
+    );
+    expect(toolResult(response)).toMatchObject({ isError: true });
+    const text = toolText(response);
+    expect(text).toContain("REPOSITORY_UNRESOLVED");
+    // The tool takes no repo argument, so its guidance names startup flags.
+    expect(text).toContain("--repo <owner/name> or --workspace <path>");
+    expect(text).not.toContain("Pass repo");
+  });
+
   it.each([0, 1])(
     "waits for deferred PRs while preserving guidance for %i new jobs",
     async (jobsCreated) => {
@@ -965,6 +996,7 @@ describe("MCP mutation tools", () => {
 });
 
 interface ConnectOptions {
+  readonly allowAlwaysReturnChanges?: boolean;
   readonly startupRepo?: string;
   readonly startupWorkspace?: string;
 }
@@ -988,6 +1020,9 @@ async function connect(
     logger: { error: vi.fn() },
     mutationServiceResolver,
     readServiceResolver: unavailableReadResolver(),
+    ...(options.allowAlwaysReturnChanges
+      ? { allowAlwaysReturnChanges: true }
+      : {}),
     ...(options.startupRepo === undefined
       ? {}
       : { startupRepo: options.startupRepo }),
