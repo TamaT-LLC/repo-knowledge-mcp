@@ -151,25 +151,32 @@ export class RepositoryRegistry {
     return withPosixFileLock(
       join(this.registryRoot, ".registry.lock"),
       this.lockTimeoutMs,
-      async () => {
-        const repositories = (await this.readSnapshot()).document.repositories;
-        const matches = Object.entries(repositories)
-          .filter(
-            ([, entry]) =>
-              entry.currentName === name || entry.aliases.includes(name),
-          )
-          .sort(([a], [b]) => compareCodeUnits(a, b));
-        if (matches.length > 1) {
-          throw new RepositoryRegistryError(
-            "REPOSITORY_NAME_AMBIGUOUS",
-            `Repository name ${name} resolves to multiple repo IDs`,
-          );
-        }
-        const match = matches[0];
-        return match
-          ? toResolvedRepository(this.registryRoot, match[0], match[1])
-          : null;
-      },
+      async () =>
+        matchRepositoryName(
+          this.registryRoot,
+          (await this.readSnapshot()).document.repositories,
+          name,
+        ),
+    );
+  }
+
+  /**
+   * Looks a name up without creating the layout, taking the lock, or writing.
+   * Registry writes are atomic renames, so an unlocked read sees one whole
+   * document; a missing registry means nothing is registered yet.
+   */
+  async findByNameReadOnly(name: string): Promise<ResolvedRepository | null> {
+    const parsed = RepositoryNameSchema.safeParse(name);
+    if (!parsed.success) {
+      throw new RepositoryRegistryError(
+        "INVALID_REPOSITORY_REGISTRY",
+        "Repository name must use owner/name form",
+      );
+    }
+    return matchRepositoryName(
+      this.registryRoot,
+      (await this.readSnapshot()).document.repositories,
+      parsed.data,
     );
   }
 
@@ -347,6 +354,26 @@ function findRepositoryEntry(
   return Object.entries(repositories).find(
     ([candidate]) => candidate === repoId,
   )?.[1];
+}
+
+function matchRepositoryName(
+  registryRoot: string,
+  repositories: Readonly<Record<string, RepositoryRegistryEntry>>,
+  name: string,
+): ResolvedRepository | null {
+  const matches = Object.entries(repositories)
+    .filter(
+      ([, entry]) => entry.currentName === name || entry.aliases.includes(name),
+    )
+    .sort(([a], [b]) => compareCodeUnits(a, b));
+  if (matches.length > 1) {
+    throw new RepositoryRegistryError(
+      "REPOSITORY_NAME_AMBIGUOUS",
+      `Repository name ${name} resolves to multiple repo IDs`,
+    );
+  }
+  const match = matches[0];
+  return match ? toResolvedRepository(registryRoot, match[0], match[1]) : null;
 }
 
 function toResolvedRepository(

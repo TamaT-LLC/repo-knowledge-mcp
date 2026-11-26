@@ -11,7 +11,7 @@ import {
   REPO_KNOWLEDGE_CLI_EXIT,
   RepoKnowledgeCliError,
 } from "./cli-errors.js";
-import { renderGuidedSetupSummary } from "./cli-render.js";
+import { renderGuidedSetupSummary, renderRuleExport } from "./cli-render.js";
 import {
   assertReviewTerminal,
   executeReviewSession,
@@ -81,6 +81,11 @@ Commands:
   reconcile [repo] --write-derived-metadata
                                 Write an explicit derived metadata snapshot
   export [repo] --bootstrap     Print the one-line MCP bootstrap instruction
+  export --format claude-md|agents-md [--store repository|global|all]
+         [--repo <owner/name>] [--origin conversation|all]
+                                Print active rules as a Markdown block to paste
+                                into CLAUDE.md or AGENTS.md (stdout only; no
+                                file is written)
   approve <id>                  Approve proposed or stale knowledge (TTY only)
   reject <id>                   Reject proposed or stale knowledge (TTY only)
   edit <id> <patch options>     Edit canonical knowledge (TTY only)
@@ -136,6 +141,18 @@ Stats options:
                                 buckets and requires --since and --until
   --since <iso-datetime>        Inclusive window start (ISO 8601 with offset)
   --until <iso-datetime>        Exclusive window end (ISO 8601 with offset)
+
+Export options:
+  --format <claude-md|agents-md>
+                                Block layout; hook-recommended rules get their
+                                own section (a note in agents-md)
+  --store <repository|global|all>
+                                Rules to print (default repository); global is
+                                your personal store and takes no repository
+  --repo <owner/name>           Registered repository; defaults to the mapped
+                                workspace or defaultRepo
+  --origin <conversation|all>   Only rules distilled from conversations, or all
+                                (default all)
 
 Stats exits 0 on success (including zero stats for an empty repository),
 1 on read failures, and 2 on usage errors including invalid windows.
@@ -258,6 +275,27 @@ async function executeCliCommand(
           ? REPO_KNOWLEDGE_BOOTSTRAP_INSTRUCTION
           : `Before modifying code, call the repo-knowledge MCP \`get_rules\` tool with ${JSON.stringify(selection)} and the files you expect to change.`;
       options.io.writeStdout(`${instruction}\n`);
+      return;
+    }
+    case "export-rules": {
+      const exporter = options.ruleExporter;
+      if (exporter === undefined) {
+        throw new RepoKnowledgeCliError(
+          "CLI_COMMAND_UNAVAILABLE",
+          "export --format is unavailable in this runtime",
+          REPO_KNOWLEDGE_CLI_EXIT.failure,
+        );
+      }
+      const { rules } = await exporter.collect(command.request);
+      // Stdout carries only the paste-ready block; nothing is written to files.
+      options.io.writeStdout(
+        renderRuleExport(command.format, command.request.store, rules),
+      );
+      if (rules.length === 0) {
+        options.io.writeStderr(
+          "No active rules matched; the block has no rules.\n",
+        );
+      }
       return;
     }
     default:

@@ -53,6 +53,7 @@ import {
   type GuidedSetupDependencies,
   type GuidedSetupRequest,
 } from "./setup-service.js";
+import { RuleExportService } from "./rule-export-service.js";
 import { SetupStateStore } from "./setup-state-store.js";
 import { captureCanonicalStateReadOnly } from "./sqlite-projection.js";
 import { SyncCheckpointStore } from "./sync-checkpoint-store.js";
@@ -175,6 +176,10 @@ export async function runDefaultRepoKnowledgeCli(
       storageRoot,
     }),
     io: options.io ?? createProcessCliIo(),
+    ruleExporter: new RuleExportService({
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      storageRoot,
+    }),
     scheduler: new SyncScheduler(
       createProcessSyncScheduleSystem({
         binPath: fileURLToPath(new URL("./bin.js", import.meta.url)),

@@ -121,7 +121,7 @@ interface GitHubRepositoryIdentity {
   readonly repoId: string;
 }
 
-interface WorkspaceMapping {
+export interface WorkspaceMapping {
   readonly repository: string;
   readonly root: string;
 }
@@ -193,7 +193,8 @@ export class RepositoryResolver {
         }
       }
       if (mappingWorkspace !== undefined) {
-        const mapping = await this.findWorkspaceMapping(
+        const mapping = await findWorkspaceMapping(
+          this.config.workspaceMappings,
           mappingWorkspace,
           diagnostics,
         );
@@ -316,48 +317,6 @@ export class RepositoryResolver {
     }
   }
 
-  private async findWorkspaceMapping(
-    workspacePath: string,
-    diagnostics: string[],
-  ): Promise<WorkspaceMapping | null> {
-    const matches: WorkspaceMapping[] = [];
-    for (const [configuredRoot, repository] of Object.entries(
-      this.config.workspaceMappings,
-    )) {
-      let root: string;
-      try {
-        root = await canonicalWorkspace(configuredRoot);
-      } catch (error) {
-        if (!(error instanceof RepositoryResolutionError)) throw error;
-        diagnostics.push(error.message);
-        continue;
-      }
-      if (isWithin(root, workspacePath)) matches.push({ repository, root });
-    }
-    matches.sort((left, right) => {
-      const lengthOrder = right.root.length - left.root.length;
-      return lengthOrder !== 0
-        ? lengthOrder
-        : compareCodeUnits(left.repository, right.repository);
-    });
-    const best = matches[0];
-    if (best === undefined) return null;
-    const equallySpecific = matches.filter(
-      (candidate) => candidate.root.length === best.root.length,
-    );
-    const repositories = sortAndDedupeStrings(
-      equallySpecific.map((candidate) => candidate.repository),
-    );
-    if (repositories.length > 1) {
-      throw new RepositoryResolutionError(
-        "WORKSPACE_MAPPING_AMBIGUOUS",
-        `Workspace ${workspacePath} matches conflicting mappings`,
-        { candidates: repositories },
-      );
-    }
-    return best;
-  }
-
   private unresolvedError(diagnostics: readonly string[]): Error {
     const candidates = sortAndDedupeStrings([
       ...this.config.repos,
@@ -377,6 +336,54 @@ export class RepositoryResolver {
       { candidates, diagnostics, guidance },
     );
   }
+}
+
+/**
+ * Returns the most specific configured mapping containing a canonical
+ * workspace. Unresolvable roots are noted in diagnostics; equally specific
+ * conflicting mappings are an error rather than an arbitrary choice.
+ */
+export async function findWorkspaceMapping(
+  workspaceMappings: Readonly<Record<string, string>>,
+  workspacePath: string,
+  diagnostics: string[],
+): Promise<WorkspaceMapping | null> {
+  const matches: WorkspaceMapping[] = [];
+  for (const [configuredRoot, repository] of Object.entries(
+    workspaceMappings,
+  )) {
+    let root: string;
+    try {
+      root = await canonicalWorkspace(configuredRoot);
+    } catch (error) {
+      if (!(error instanceof RepositoryResolutionError)) throw error;
+      diagnostics.push(error.message);
+      continue;
+    }
+    if (isWithin(root, workspacePath)) matches.push({ repository, root });
+  }
+  matches.sort((left, right) => {
+    const lengthOrder = right.root.length - left.root.length;
+    return lengthOrder !== 0
+      ? lengthOrder
+      : compareCodeUnits(left.repository, right.repository);
+  });
+  const best = matches[0];
+  if (best === undefined) return null;
+  const equallySpecific = matches.filter(
+    (candidate) => candidate.root.length === best.root.length,
+  );
+  const repositories = sortAndDedupeStrings(
+    equallySpecific.map((candidate) => candidate.repository),
+  );
+  if (repositories.length > 1) {
+    throw new RepositoryResolutionError(
+      "WORKSPACE_MAPPING_AMBIGUOUS",
+      `Workspace ${workspacePath} matches conflicting mappings`,
+      { candidates: repositories },
+    );
+  }
+  return best;
 }
 
 /** Realpaths a workspace and proves it is inside at least one configured root. */
@@ -436,7 +443,8 @@ export function parseRepositoryName(value: string): string {
   return parsed.data;
 }
 
-async function canonicalWorkspace(value: string): Promise<string> {
+/** Realpaths an absolute workspace and requires it to be a directory. */
+export async function canonicalWorkspace(value: string): Promise<string> {
   const normalized = normalizeWorkspaceSyntax(value);
   let canonical: string;
   try {

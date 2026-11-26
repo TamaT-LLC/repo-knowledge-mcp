@@ -20,6 +20,8 @@ import {
   type RepositoryStats,
   type ReviewInboxItem,
 } from "../src/experimental.js";
+import { renderRuleExport } from "../src/cli-render.js";
+import { RuleExportError } from "../src/rule-export-service.js";
 
 const REPOSITORY = "owner/repository";
 const KNOWLEDGE_ID = "kn_01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -413,6 +415,206 @@ describe("repo-knowledge CLI", () => {
       expect(current.stdout()).not.toContain("canonical fixture rule");
     },
   );
+
+  it.each([
+    {
+      argv: ["export", "--format", "claude-md"],
+      format: "claude-md",
+      request: { origin: "all", store: "repository" },
+    },
+    {
+      argv: [
+        "export",
+        "--format=agents-md",
+        "--store",
+        "all",
+        "--repo",
+        REPOSITORY,
+        "--origin",
+        "conversation",
+      ],
+      format: "agents-md",
+      request: { origin: "conversation", repo: REPOSITORY, store: "all" },
+    },
+    {
+      argv: ["export", REPOSITORY, "--format", "claude-md"],
+      format: "claude-md",
+      request: { origin: "all", repo: REPOSITORY, store: "repository" },
+    },
+    {
+      argv: ["export", "--store", "global", "--format", "agents-md"],
+      format: "agents-md",
+      request: { origin: "all", store: "global" },
+    },
+  ])(
+    "parses export --format into a rule export request %#",
+    ({ argv, format, request }) => {
+      expect(parseRepoKnowledgeCliArguments(argv, false)).toEqual({
+        format,
+        kind: "export-rules",
+        request,
+      });
+    },
+  );
+
+  it.each([
+    [["export"], "export requires --format claude-md|agents-md or --bootstrap"],
+    [
+      ["export", "--bootstrap", "--format", "claude-md"],
+      "export accepts only one of --bootstrap or --format",
+    ],
+    [
+      ["export", "--bootstrap", "--store", "global"],
+      "--store is only supported with export --format",
+    ],
+    [
+      ["export", "--bootstrap", "--origin", "all"],
+      "--origin is only supported with export --format",
+    ],
+    [
+      ["export", "--format", "claude-md", "--workspace", "/work/repo"],
+      "export --format selects a repository with --repo, not --workspace",
+    ],
+    [
+      [
+        "export",
+        "--format",
+        "claude-md",
+        "--store",
+        "global",
+        "--repo",
+        REPOSITORY,
+      ],
+      "export --store global cannot be combined with a repository",
+    ],
+    [
+      ["export", REPOSITORY, "--format", "claude-md", "--store", "global"],
+      "export --store global cannot be combined with a repository",
+    ],
+    [
+      ["export", "--format", "markdown"],
+      "format must be one of claude-md, agents-md",
+    ],
+    [
+      ["export", "--format", "claude-md", "--store", "everything"],
+      "store must be one of repository, global, all",
+    ],
+    [
+      ["export", "--format", "claude-md", "--origin", "review"],
+      "origin must be one of conversation, all",
+    ],
+    [
+      ["export", "--format", "claude-md", "--format", "agents-md"],
+      "--format was repeated",
+    ],
+    [
+      [
+        "export",
+        "--format",
+        "claude-md",
+        "--repo",
+        REPOSITORY,
+        "other/repository",
+      ],
+      "repository must not be supplied both positionally and by --repo",
+    ],
+    [
+      ["export", "--format", "claude-md", "--repo", "bad"],
+      "repository must use strict owner/name form",
+    ],
+  ])("rejects invalid export arguments %#", (argv, message) => {
+    expect(() => parseRepoKnowledgeCliArguments(argv, false)).toThrow(
+      expect.objectContaining({
+        code: "CLI_ARGUMENT_INVALID",
+        message: expect.stringContaining(message),
+      }),
+    );
+  });
+
+  it("prints an exported rule block on stdout only and never resolves services", async () => {
+    const rules = [
+      {
+        hook: false,
+        id: KNOWLEDGE_ID,
+        rule: "Validate fields",
+        store: "repository" as const,
+      },
+      {
+        hook: true,
+        id: KNOWLEDGE_ID,
+        rule: "Never force-push",
+        store: "global" as const,
+      },
+    ];
+    const collect = vi.fn(async () => ({ rules }));
+    const current = fixture([
+      "export",
+      "--format",
+      "agents-md",
+      "--store",
+      "all",
+      "--repo",
+      REPOSITORY,
+    ]);
+
+    await expect(
+      runRepoKnowledgeCli({ ...current.options, ruleExporter: { collect } }),
+    ).resolves.toBe(0);
+
+    expect(collect).toHaveBeenCalledWith({
+      origin: "all",
+      repo: REPOSITORY,
+      store: "all",
+    });
+    expect(current.stdout()).toBe(renderRuleExport("agents-md", "all", rules));
+    expect(current.stderr()).toBe("");
+    expect(current.resolveMutation).not.toHaveBeenCalled();
+    expect(current.resolveOperations).not.toHaveBeenCalled();
+    expect(current.setup).not.toHaveBeenCalled();
+    expect(current.doctorRun).not.toHaveBeenCalled();
+  });
+
+  it("notes an empty export on stderr and reports an unavailable exporter", async () => {
+    const empty = fixture(["export", "--format", "claude-md"]);
+    await expect(
+      runRepoKnowledgeCli({
+        ...empty.options,
+        ruleExporter: { collect: async () => ({ rules: [] }) },
+      }),
+    ).resolves.toBe(0);
+    expect(empty.stdout()).toBe(
+      renderRuleExport("claude-md", "repository", []),
+    );
+    expect(empty.stderr()).toBe(
+      "No active rules matched; the block has no rules.\n",
+    );
+
+    const missing = fixture(["export", "--format", "claude-md"]);
+    await expect(runRepoKnowledgeCli(missing.options)).resolves.toBe(1);
+    expect(missing.stdout()).toBe("");
+    expect(missing.stderr()).toBe(
+      "CLI_COMMAND_UNAVAILABLE: export --format is unavailable in this runtime\n",
+    );
+
+    const failing = fixture(["export", "--format", "claude-md"]);
+    await expect(
+      runRepoKnowledgeCli({
+        ...failing.options,
+        ruleExporter: {
+          collect: async () => {
+            throw new RuleExportError(
+              "RULE_EXPORT_REPOSITORY_UNRESOLVED",
+              "no repository was selected",
+            );
+          },
+        },
+      }),
+    ).resolves.toBe(1);
+    expect(failing.stdout()).toBe("");
+    expect(failing.stderr()).toBe(
+      "RULE_EXPORT_REPOSITORY_UNRESOLVED: no repository was selected\n",
+    );
+  });
 
   it("rejects admin commands without a real input and output TTY", async () => {
     const current = fixture(["approve", KNOWLEDGE_ID, "--repo", REPOSITORY], {
