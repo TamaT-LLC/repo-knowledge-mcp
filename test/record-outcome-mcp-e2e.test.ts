@@ -699,7 +699,9 @@ describe("global matches across repeated reads", () => {
       "dir",
     );
     await expect(global.reindex()).rejects.toThrow("symbolic links");
-    await expect(new GlobalStore("/").exists()).rejects.toThrow(
+    // The broad-directory guard runs where permissions change, not on reads.
+    await expect(new GlobalStore("/").exists()).resolves.toBe(false);
+    await expect(new GlobalStore("/").initialize()).rejects.toThrow(
       "broad directory",
     );
   });
@@ -802,6 +804,39 @@ describe("global matches across repeated reads", () => {
     expect(await globalStore.listAlwaysReturn()).toMatchObject([
       { knowledge_id: always, actor: "cli" },
     ]);
+  });
+});
+
+describe("global store review follow-ups", () => {
+  it("runs doctor from inside the storage root without failing the global store", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const environment = await createOutcomeEnvironment();
+    const doctor = async () =>
+      JSON.parse(
+        (
+          await execa(
+            process.execPath,
+            [join(process.cwd(), "dist/bin.js"), "doctor"],
+            {
+              cwd: environment.storageRoot,
+              env: environment.env,
+              reject: false,
+            },
+          )
+        ).stdout,
+      ) as { checks: { id: string; status: string; message: string }[] };
+    const check = async () =>
+      (await doctor()).checks.find((item) => item.id === "global.store");
+    expect(await check()).toMatchObject({
+      status: "pass",
+      message: expect.stringContaining("not been created"),
+    });
+    await new GlobalStore(environment.storageRoot).initialize();
+    expect(await check()).toMatchObject({
+      status: "pass",
+      message: expect.stringContaining("is present"),
+    });
   });
 });
 

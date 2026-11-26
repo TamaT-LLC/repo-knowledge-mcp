@@ -1,10 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
-import {
-  resolveStorageRoot,
-  ensurePrivateDirectory,
-  assertPrivateDirectoryIdentity,
-} from "./config.js";
+import { resolveStorageRoot, ensurePrivateDirectory } from "./config.js";
 import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
 import { AdminPlaneService } from "./admin-plane-service.js";
 import {
@@ -44,25 +40,14 @@ export class GlobalStore {
     } as const);
   }
 
-  private validatedPath() {
-    const root = resolveStorageRoot(this.storageRoot);
-    // Validate the reference against the configured home before using either
-    // the store path or its parent in a filesystem operation.
-    const path = this.reference.absolutePath;
-    if (!path.startsWith(root + sep) || path !== join(root, "global")) {
-      throw new Error("Global store must be directly inside the storage root");
-    }
-    return path;
-  }
-
+  /** Read-only: is `global` a real directory (no symlinks) inside the root? */
   async exists(): Promise<boolean> {
     try {
-      const path = this.validatedPath();
+      const path = this.reference.absolutePath;
       const directory = dirname(path);
       const status = await lstat(directory);
       if (!status.isDirectory())
         throw new Error("Storage root must be a real directory");
-      await assertPrivateDirectoryIdentity(directory, status);
       const parent = await realpath(directory);
       const expected = join(parent, "global");
       if ((await lstat(path)).isSymbolicLink())
@@ -100,7 +85,9 @@ export class GlobalStore {
   }
 
   async initialize() {
-    const path = this.validatedPath();
+    // The broad-directory guard belongs to writes, which change permissions.
+    resolveStorageRoot(this.storageRoot);
+    const path = this.reference.absolutePath;
     await ensurePrivateDirectory(dirname(path));
     await this.exists();
     await ensurePrivateDirectory(path);
