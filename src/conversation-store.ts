@@ -162,7 +162,8 @@ const PurgeProgressSchema = z
   .object({
     schema_version: z.literal(1),
     stage: z.enum(PURGE_STAGES),
-    // Recorded with the IDs so a crash before stage 2 still adds it.
+    // Recorded with the IDs (stage 2) so a crash before the filter is
+    // appended (stage 3) still adds it on resume. See design Q-017.
     filter: PurgeFilterShape,
     utterance_ids: z.array(UtteranceIdSchema),
   })
@@ -640,7 +641,8 @@ export class ConversationStore {
   private async finishPurge(progress: PurgeProgress): Promise<boolean> {
     let filterAdded = false;
     if (progress.stage === "ids_recorded") {
-      // Stage 2 before 3: even if interrupted, later ingests skip matches.
+      // Stage 3 starts by appending the filter recorded in stage 2, so later
+      // ingests skip matches even if compaction is interrupted.
       const file = await this.readPurgeFiltersFile();
       filterAdded = !file.filters.some(
         ({ added_at: _, ...existing }) =>

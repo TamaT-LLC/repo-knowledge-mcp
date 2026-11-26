@@ -7,7 +7,7 @@
 - Milestone: M4
 - Status: Draft（設計レビューと論点の決定を反映済み、未実装）
 - Open Questions: 0
-- Updated: 2026-11-20
+- Updated: 2026-11-26
 - Upstream: [repo-knowledge-mcp 統合仕様書 v0.3](./repo-knowledge-mcp-v0.3.md)、[M3 個人利用要件](./repo-knowledge-mcp-v0.3-personal-use.md)
 
 ## 概要
@@ -1602,18 +1602,20 @@ Claude Code の会話ファイルが削除される前に取り込めるよう�
 `conversations purge` は次の順で行う。
 
 1. 会話データ領域の `.lock` を取る
-2. 削除条件を `purge-filters.json` に追記する
-3. 条件に一致する発言と tombstone の ID を `purge-progress.json` に控え（`stage: ids_recorded`）、それらを除いて `utterances.jsonl` と `episodes.jsonl` を compaction する。同じ compaction で、代表発言が控えた ID に含まれるラベルの `labeled` と `label_pending` を `grouping-runs.jsonl` から消す。ラベルの文字列は削除した発言から作られたものなので、物理的に消し、以後の統合とラベル同士の照合で送らない。そのラベルを参照する `ClusterMerged` と `aliased` は ID だけなので残し、既に束ねたクラスタはそのままにする。compaction の rename が終わったら `stage: compacted` を記録する。4 と 5 の完了もそれぞれ記録し、5 まで終わったら `purge-progress.json` を消す
+2. 条件に一致する発言と tombstone の ID と、削除条件そのものを `purge-progress.json` に控える（`stage: ids_recorded`）
+3. 2 で控えた削除条件を `purge-filters.json` に追記し（同じ条件が既にあれば追記しない）、控えた ID を除いて `utterances.jsonl` と `episodes.jsonl` を compaction する。同じ compaction で、代表発言が控えた ID に含まれるラベルの `labeled` と `label_pending` を `grouping-runs.jsonl` から消す。ラベルの文字列は削除した発言から作られたものなので、物理的に消し、以後の統合とラベル同士の照合で送らない。そのラベルを参照する `ClusterMerged` と `aliased` は ID だけなので残し、既に束ねたクラスタはそのままにする。compaction の rename が終わったら `stage: compacted` を記録する。4 と 5 の完了もそれぞれ記録し、5 まで終わったら `purge-progress.json` を消す
 4. ストアごとに writer lock を取り、lock を持った状態で、3 で控えた ID を根拠とする active な evidence を列挙して `ConversationEvidenceWithdrawn` を追記する
 5. ストアごとに writer lock を取り、未完了の job のうち構成発言に 3 で控えた ID を含むものを failed にする
 
-2 を 3 より先に行うため、途中で中断しても、以後の取り込みは削除条件を参照して該当する発言を保存しない。
+削除条件を `purge-filters.json` より先に `purge-progress.json` に控える（Q-017）。
+会話データ領域へのすべての書き込み（取り込み、compaction、削除、鍵の作成）は、`.lock` を取ったあと本来の処理より先に、`purge-progress.json` があれば残りの段を終わらせる。
+そのため、どの段で中断しても、以後の取り込みは削除条件の追記と compaction を終えてから進み、該当する発言を保存しない。
 3 は tombstone も照合の対象にするため、保存期間で本文が消えた後の発言についても、4 で evidence を withdrawn にし、5 で job を failed にできる。照合に使った tombstone も compaction で消す。
-再実行すると、`purge-progress.json` がなければ 3 から、`ids_recorded` なら控えた ID のまま compaction から、`compacted` 以降なら記録された段の次からやり直す。
+再実行するか次の書き込みが来ると、`purge-progress.json` がなければ何もせず、`ids_recorded` なら控えた削除条件の追記（何度行っても同じ結果）と控えた ID のままの compaction から、`compacted` 以降なら記録された段の次からやり直す。
 ID の一時ファイルの有無だけで段を判断しないため、compaction の完了前に中断しても発言が物理的に残ることはない。
 
 4 で evidence の列挙を lock の後に行うのは、列挙と追記の間に submit が同じ発言の evidence を書く競合を防ぐためである。
-submit 側も、ストアの writer lock を持った状態で、書き込む evidence の発言が `purge-filters.json` に一致しないこと、会話データ領域に存在することを確かめる（[同時実行](#cd-concurrency)）。
+submit 側も、ストアの writer lock を持った状態で、書き込む evidence の発言が `purge-filters.json` と `purge-progress.json` の削除条件に一致しないこと、会話データ領域に存在することを確かめる（[同時実行](#cd-concurrency)）。
 
 各段階を実装する PR は次のとおりとする。
 
@@ -1632,12 +1634,13 @@ submit 側も、ストアの writer lock を持った状態で、書き込む ev
 | 取り込み同士、取り込みと削除 | 会話データ領域の `.lock` で直列化する。CLI と MCP の `ingest_conversations` も同じ lock を取る。MCP からの実行が lock を待つ場合は 5 秒で諦めて `rate_limited` を返す |
 | ストアをまたぐ照合 | finalize は job のストアの writer lock だけを取り、相手のストアは lock なしで読む。複数ストアの writer lock を同時に持つ処理はないため、ストア間の lock の順序は問題にならない |
 | job 作成 | 会話データ領域の `.lock` を取ってクラスタを読み、その後に各ストアの writer lock を取って job を追記する。ロックは常にこの順で取る |
-| 蒸留の submit | ストアの writer lock だけを取る。lock を持った状態で `purge-filters.json` と会話データ領域を読み、job の構成発言ごとに、発言か tombstone を引いて削除条件と照合する。どれかが削除条件に一致する場合、または発言も tombstone も見つからない場合（purge 済み）は、submit 全体を受け付けず、候補を一つも確定しない。job は `superseded_context` で終わらせる。作り直しは[再蒸留の条件](#cd-redistill)の「未完了の終了」に従う。削除された発言を見て作られた候補は、別の発言を根拠に挙げていても採用しない。tombstone だけが残り削除条件に一致しない発言（保存期間で消えただけのもの）は削除とみなさず、submit を受け付ける |
+| 蒸留の submit | ストアの writer lock だけを取る。lock を持った状態で `purge-filters.json`、`purge-progress.json`（あれば、控えた削除条件）、会話データ領域を読み、job の構成発言ごとに、発言か tombstone を引いて削除条件と照合する。どれかが削除条件に一致する場合、または発言も tombstone も見つからない場合（purge 済み）は、submit 全体を受け付けず、候補を一つも確定しない。job は `superseded_context` で終わらせる。作り直しは[再蒸留の条件](#cd-redistill)の「未完了の終了」に従う。削除された発言を見て作られた候補は、別の発言を根拠に挙げていても採用しない。tombstone だけが残り削除条件に一致しない発言（保存期間で消えただけのもの）は削除とみなさず、submit を受け付ける |
 | 削除の evidence 追記 | 会話データ領域の `.lock` を持ったままストアの writer lock を取り、lock の後で対象の evidence を列挙する。job 作成と同じ順序のため、互いに待ち合わない |
 | 鍵の作り直し | 会話データ領域の `.lock` を持ったまま、ストアごとに writer lock を取る。削除と同じ順序とする |
 
 submit は会話データ領域の `.lock` を取らない。
-削除が 2 まで進んだ後の submit は削除条件との照合で受け付けられず、2 より前に完了した submit の evidence は削除の 4 で withdrawn になる。
+削除が 2 まで進んだ後の submit は、`purge-progress.json` か `purge-filters.json` の削除条件との照合で受け付けられず、2 より前に完了した submit の evidence は削除の 4 で withdrawn になる。
+submit は `.lock` を取らないため、削除が中断して `purge-progress.json` だけが残っている間も、submit が次の書き込みより先に来ることがある。その場合も `purge-progress.json` の削除条件で拒否する（Q-017）。
 後者のナレッジ本文は残るが、根拠がなくなるため保留になり、review で「削除済み」と表示される。
 
 ### export の出力形式
@@ -2084,6 +2087,7 @@ v1 から外したものと、その理由を次に示す。
 | Q-014 | MCP からの取り込みの実行間隔の下限 | 15 分。`dry_run` も含め、確認と更新を `.lock` の中で一度に行う | 定期実行と併用しても負荷と悪用の余地を抑えられる |
 | Q-015 | 許可リスト経由の `medium` の発言 | 蒸留の対象に含める。evidence に `human_tier` を持たせ、review と閾値の判定の表示で人の発言だけの根拠と区別する | 自作ツールの発言を活かしつつ、根拠の質を利用者が見分けられるようにする |
 | Q-016 | 常時返却の設定経路 | CLI に加え、`--allow-always-return-changes` 付きのサーバーでは MCP の `set_global_always_return` でも付け外しできる。対象、上限、記録、表示、取り消しの制約を設ける | エージェントとの会話の流れで常時返却を調整できるようにしつつ、悪用の影響を限定する |
+| Q-017 | purge の削除条件を永続化する順番（2026-11-26 に改訂。PR2 の実装時に変更） | 削除条件と ID を `purge-progress.json` に控えてから `purge-filters.json` に追記する。会話データ領域への書き込みは、先に中断した purge を終わらせる。PR4b の submit は `purge-progress.json` の削除条件も照合する | 改訂前の順（`purge-filters.json` への追記が先）では、追記と `purge-progress.json` の作成の間で中断すると、次の書き込みが再開の手がかりを持たず、利用者が同じ purge を打ち直すまで発言がファイルに残った。改訂後は再開の手がかりが削除条件を持つため、どこで中断しても次の書き込みが削除を終える |
 
 ## 関連ドキュメント
 
