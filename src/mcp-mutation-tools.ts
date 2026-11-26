@@ -7,6 +7,7 @@ import { AlwaysReturnResultSchema } from "./global-always-return.js";
 import { KnowledgeIdSchema } from "./domain-schemas.js";
 
 import { mapMutationError } from "./mcp-mutation-error-mapping.js";
+import { RepositoryResolutionError } from "./repository-resolver.js";
 import {
   resolveMutationService,
   type KnowledgeMutationServiceResolver,
@@ -120,24 +121,46 @@ export function registerMutationTools(
         const service = options.mutationServiceResolver;
         if (!service.setGlobalAlwaysReturn)
           throw new Error("Global store unavailable");
-        const result = AlwaysReturnResultSchema.parse(
-          await service.setGlobalAlwaysReturn(
-            {
-              ...(options.startupRepo
-                ? { startupRepo: options.startupRepo }
-                : {}),
-              ...(options.startupWorkspace
-                ? { startupWorkspace: options.startupWorkspace }
-                : {}),
-            },
-            input.knowledge_id,
-            input.enabled,
-          ),
-        );
-        return {
-          structuredContent: result,
-          content: [{ type: "text", text: result.reason ?? result.state }],
-        };
+        try {
+          const result = AlwaysReturnResultSchema.parse(
+            await service.setGlobalAlwaysReturn(
+              {
+                ...(options.startupRepo
+                  ? { startupRepo: options.startupRepo }
+                  : {}),
+                ...(options.startupWorkspace
+                  ? { startupWorkspace: options.startupWorkspace }
+                  : {}),
+              },
+              input.knowledge_id,
+              input.enabled,
+            ),
+          );
+          return {
+            structuredContent: result,
+            content: [{ type: "text", text: result.reason ?? result.state }],
+          };
+        } catch (error) {
+          const mapped = mapMutationError(error);
+          // This tool has no repo argument: the repository comes from startup.
+          const nextAction =
+            error instanceof RepositoryResolutionError
+              ? "Restart the server with --repo <owner/name> or --workspace <path>; set_global_always_return takes no repository argument."
+              : mapped.next_action;
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: [
+                  `### ${mapped.code}`,
+                  mapped.message,
+                  ...(nextAction ? [`Next action: ${nextAction}`] : []),
+                ].join("\n\n"),
+              },
+            ],
+          };
+        }
       },
     );
   }
