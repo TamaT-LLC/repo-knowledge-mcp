@@ -902,6 +902,29 @@ describe("global store review follow-ups", () => {
       message: expect.stringContaining("is present"),
     });
   });
+
+  it("refuses add --global without a terminal before creating the store", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const environment = await createOutcomeEnvironment();
+    const result = await runCli(
+      environment,
+      "add",
+      "--global",
+      "--category",
+      "test",
+      "--detail",
+      "Validate fields",
+      "--rule",
+      "Validate schema",
+      "--severity",
+      "must",
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("CLI_TTY_REQUIRED");
+    expect(result.stderr).not.toContain("TTY_REQUIRED: TTY_REQUIRED");
+    expect(await new GlobalStore(environment.storageRoot).exists()).toBe(false);
+  });
 });
 
 function request(
