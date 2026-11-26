@@ -82,9 +82,10 @@ describe("addCustomIssue", () => {
       .string()
       .check((context) => addCustomIssue(context, issue))
       .check((context) => addCustomIssue(context, { message: "later" }));
-    expect(issuesOf(Chained, "x")).toEqual([
-      { code: "custom", message: "extra fields", path: [] },
-      { code: "custom", message: "later", path: [] },
+    const result = Chained.safeParse("x", { reportInput: true });
+    expect(result.error?.issues).toEqual([
+      { code: "custom", input: "x", message: "extra fields", path: [] },
+      { code: "custom", input: "x", message: "later", path: [] },
     ]);
   });
 
@@ -183,6 +184,23 @@ describe("addDuplicateIdIssues", () => {
         code: "custom",
         message: "duplicate rows id a",
         path: ["rows", 3, "id"],
+      },
+    ]);
+  });
+
+  it("prefixes the path when the schema is nested", () => {
+    expect(
+      issuesOf(z.strictObject({ child: WithField }), { child: input }),
+    ).toEqual([
+      {
+        code: "custom",
+        message: "duplicate rows id a",
+        path: ["child", "rows", 2, "id"],
+      },
+      {
+        code: "custom",
+        message: "duplicate rows id a",
+        path: ["child", "rows", 3, "id"],
       },
     ]);
   });

@@ -105,6 +105,17 @@ describe("GoldenFixtureSchema expected rules", () => {
       },
     ]);
   });
+
+  it("rejects duplicate search ids", async () => {
+    const fixture = await load();
+    at(fixture.searches, 1).id = at(fixture.searches, 0).id;
+    expect(customIssues(GoldenFixtureSchema, fixture)).toEqual([
+      {
+        message: `duplicate searches id ${at(fixture.searches, 0).id}`,
+        path: ["searches", 1, "id"],
+      },
+    ]);
+  });
 });
 
 describe("AnonymizedThreadCorpusSchema rules", () => {
@@ -291,6 +302,17 @@ describe("PilotHumanRubricSchema rules", () => {
       {
         message: `duplicate criterion id ${at(criteria, 0).id}`,
         path: ["queries", 0, "criteria", 1, "id"],
+      },
+    ]);
+  });
+
+  it("rejects duplicate checkpoint ids", async () => {
+    const rubric = await load();
+    at(rubric.checkpoints, 1).id = at(rubric.checkpoints, 0).id;
+    expect(customIssues(PilotHumanRubricSchema, rubric)).toEqual([
+      {
+        message: `duplicate checkpoints id ${at(rubric.checkpoints, 0).id}`,
+        path: ["checkpoints", 1, "id"],
       },
     ]);
   });
@@ -623,7 +645,7 @@ describe("refine error messages", () => {
 
   it("accepts the values next to each rejected one", () => {
     expect(customIssues(RepositoryNameSchema, "owner/.name")).toEqual([]);
-    expect(customIssues(UtcDaySchema, "2026-02-28")).toEqual([]);
+    expect(UtcDaySchema.parse("2026-02-28")).toBe("2026-02-28");
     expect(customIssues(KnowledgeRevisionPatchSchema, { rule: "x" })).toEqual(
       [],
     );
