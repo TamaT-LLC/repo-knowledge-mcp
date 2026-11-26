@@ -108,13 +108,8 @@ describe("M1-A canonical transaction recovery", () => {
 describe("canonical writer observation contract", () => {
   const allPoints: readonly CanonicalCommitPoint[] = [
     ...prePreparedKillPoints,
-    "after_prepared",
-    "after_file_write",
+    ...recoverableKillPoints,
     "before_append_write",
-    "after_append_write",
-    "after_committed_marker_temp",
-    "after_committed",
-    "after_projection",
   ];
 
   it("sees a live commit as writing once its manifest exists, and idle before and after", async () => {

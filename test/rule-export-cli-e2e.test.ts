@@ -1,4 +1,4 @@
-import { chmod, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { execa } from "execa";
@@ -9,6 +9,7 @@ import {
   EXPORT_REPOSITORY,
   RULES,
   snapshotTree,
+  writeConfig,
   type RuleExportHome,
 } from "./helpers/rule-export-fixture.js";
 
@@ -118,14 +119,9 @@ describe("export --format CLI E2E", () => {
     timeout: E2E_TIMEOUT_MS,
   }, async () => {
     const home = await createHome();
-    const configPath = join(home.storageRoot, "config.json");
-    await writeFile(
-      configPath,
-      JSON.stringify({
-        workspaceMappings: { [home.workspace]: EXPORT_REPOSITORY },
-      }),
-    );
-    await chmod(configPath, 0o600);
+    await writeConfig(home.storageRoot, {
+      workspaceMappings: { [home.workspace]: EXPORT_REPOSITORY },
+    });
 
     const result = await exportCli(
       home.storageRoot,

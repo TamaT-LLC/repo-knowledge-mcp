@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -10,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
+import { GLOBAL_STORE_ID } from "../../src/global-always-return.js";
 import { GlobalStore } from "../../src/global-store.js";
 import {
   RepositoryRegistry,
@@ -114,24 +116,21 @@ export async function createRuleExportHome(
   const global = new GlobalStore(storageRoot);
   await global.initialize();
   const globalRoot = global.reference.absolutePath;
-  await writeKnowledge(globalRoot, IDS.globalHook, "active", "rk:global", {
+  const globalRule = (
+    id: string,
+    status: KnowledgeStatus,
+    fields: Record<string, unknown>,
+  ) => writeKnowledge(globalRoot, id, status, GLOBAL_STORE_ID, fields);
+  await globalRule(IDS.globalHook, "active", {
     enforcement_hint: HOOK,
     origin: CONVERSATION,
     rule: RULES.globalHook,
   });
-  await writeKnowledge(globalRoot, IDS.globalManual, "active", "rk:global", {
+  await globalRule(IDS.globalManual, "active", {
     origin: { type: "manual" },
     rule: RULES.globalManual,
   });
-  await writeKnowledge(
-    globalRoot,
-    IDS.globalProposed,
-    "proposed",
-    "rk:global",
-    {
-      origin: CONVERSATION,
-    },
-  );
+  await globalRule(IDS.globalProposed, "proposed", { origin: CONVERSATION });
   return { globalRoot, repositoryRoot, root, storageRoot, workspace };
 }
 
@@ -198,4 +197,14 @@ export async function snapshotTree(directory: string): Promise<string[]> {
   };
   await visit(directory);
   return result;
+}
+
+/** Writes a private config.json into the fixture home. */
+export async function writeConfig(
+  storageRoot: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  const path = join(storageRoot, "config.json");
+  await writeFile(path, JSON.stringify(config));
+  await chmod(path, 0o600);
 }

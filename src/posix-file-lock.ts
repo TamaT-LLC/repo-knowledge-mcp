@@ -60,7 +60,7 @@ async function acquireLock(
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       }
 
-      if (await lockOwnerIsDead(lockPath)) {
+      if ((await lockOwnerState(lockPath)) === "dead") {
         try {
           await unlink(lockPath);
           await syncDirectory(dirname(lockPath));
@@ -101,10 +101,6 @@ async function releaseLock(
  */
 export async function isPosixFileLockHeld(lockPath: string): Promise<boolean> {
   return (await lockOwnerState(lockPath)) === "live";
-}
-
-async function lockOwnerIsDead(lockPath: string): Promise<boolean> {
-  return (await lockOwnerState(lockPath)) === "dead";
 }
 
 async function lockOwnerState(

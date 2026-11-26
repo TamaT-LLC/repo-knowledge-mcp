@@ -1,5 +1,6 @@
 import { safeTerminalValue } from "./admin-plane-service.js";
 import type { RepositoryTransmissionState } from "./config.js";
+import { longestBacktickRun } from "./knowledge-code-example.js";
 import type { GuidedSetupResult } from "./setup-service.js";
 import type { ReviewInboxItem } from "./review-inbox-service.js";
 import type {
@@ -292,10 +293,7 @@ export function renderRuleExport(
 
 /** Wraps neutralized text in a code span whose fence no backtick run can close. */
 function codeSpan(value: string): string {
-  const longestRun = Math.max(
-    0,
-    ...[...value.matchAll(/`+/gu)].map((match) => match[0].length),
-  );
+  const longestRun = longestBacktickRun(value);
   const fence = "`".repeat(longestRun + 1);
   const padding = longestRun > 0 ? " " : "";
   return `${fence}${padding}${value}${padding}${fence}`;

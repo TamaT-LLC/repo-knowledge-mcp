@@ -6,9 +6,9 @@ import { z } from "zod";
 
 import { observeCanonicalWriter } from "./canonical-transaction-journal.js";
 import {
+  assertExplicitStorageRoot,
   DEFAULT_CONFIG_FILE_NAME,
   loadRepoKnowledgeConfigIfPresent,
-  RepoKnowledgeConfigError,
 } from "./config.js";
 import {
   isConversationKnowledge,
@@ -103,15 +103,7 @@ export class RuleExportService implements RuleExporter {
   }
 
   async collect(request: RuleExportRequest): Promise<readonly ExportedRule[]> {
-    // An empty root would read the cwd. The broad-directory guard (root,
-    // home, cwd) protects permission changes, so reads do not apply it.
-    if (this.storageRoot.trim().length === 0) {
-      throw new RepoKnowledgeConfigError(
-        "CONFIG_PATH_UNSAFE",
-        this.storageRoot,
-        "storage root must be explicit",
-      );
-    }
+    assertExplicitStorageRoot(this.storageRoot);
     const conversationOnly = request.origin === "conversation";
     const repository =
       request.store === "global"
@@ -279,6 +271,7 @@ async function captureConsistently(
           (await observeCanonicalWriter(storeRoot)).state === "idle";
         failed = quiet ? failed + 1 : 0;
         if (failed >= 2) throw error;
+        if (quiet) continue; // Retry at once; there is no writer to wait for.
       }
       if (
         capture !== undefined &&

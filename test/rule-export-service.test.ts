@@ -1,4 +1,4 @@
-import { chmod, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,7 @@ import {
   neutralizeExportedRuleText,
   renderRuleExport,
 } from "../src/cli-render.js";
+import { GLOBAL_STORE_ID } from "../src/global-always-return.js";
 import {
   RuleExportError,
   RuleExportService,
@@ -27,6 +28,7 @@ import {
   RULES,
   snapshotTree,
   writeKnowledge,
+  writeConfig,
   type RuleExportHome,
 } from "./helpers/rule-export-fixture.js";
 
@@ -137,6 +139,12 @@ const rule = (key: keyof typeof RULES, hook = false): ExportedRule => ({
   scope: [],
 });
 
+const REPO_RULES = [
+  rule("repoPlain"),
+  rule("repoHook", true),
+  rule("repoMarker"),
+  rule("repoMalformedHint"),
+];
 const GLOBAL_RULES = [rule("globalHook", true), rule("globalManual")];
 
 async function collect(
@@ -155,38 +163,19 @@ async function collect(
   });
 }
 
-async function writeConfig(
-  home: RuleExportHome,
-  config: Record<string, unknown>,
-) {
-  const path = join(home.storageRoot, "config.json");
-  await writeFile(path, JSON.stringify(config));
-  await chmod(path, 0o600);
-}
-
 describe("RuleExportService", () => {
   it("returns only active rules of the selected stores in a stable order", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
 
     // Proposed, stale, rejected, deprecated, and another repository's rule
     // never appear; a string hint is not an object and so is not a hook.
-    expect(await collect(home, { repo: EXPORT_REPOSITORY })).toEqual([
-      rule("repoPlain"),
-      rule("repoHook", true),
-      rule("repoMarker"),
-      rule("repoMalformedHint"),
-    ]);
+    expect(await collect(home, { repo: EXPORT_REPOSITORY })).toEqual(
+      REPO_RULES,
+    );
     expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
     expect(
       await collect(home, { repo: EXPORT_REPOSITORY, store: "all" }),
-    ).toEqual([
-      rule("repoPlain"),
-      rule("repoHook", true),
-      rule("repoMarker"),
-      rule("repoMalformedHint"),
-      rule("globalHook", true),
-      rule("globalManual"),
-    ]);
+    ).toEqual([...REPO_RULES, ...GLOBAL_RULES]);
   });
 
   it("filters on origin.source conversation and treats other shapes as not conversation", async () => {
@@ -210,8 +199,10 @@ describe("RuleExportService", () => {
 
     expect(
       await collect(home, { repo: EXPORT_REPOSITORY.toUpperCase() }),
-    ).toHaveLength(4);
-    expect(await collect(home, { repo: "OWNER/Renamed-From" })).toHaveLength(4);
+    ).toEqual(REPO_RULES);
+    expect(await collect(home, { repo: "OWNER/Renamed-From" })).toEqual(
+      REPO_RULES,
+    );
   });
 
   it("refuses an empty storage root but reads from a broad one, as doctor does", async () => {
@@ -240,7 +231,7 @@ describe("RuleExportService", () => {
       store: "all",
     });
 
-    expect(result).toHaveLength(6);
+    expect(result).toEqual([...REPO_RULES, ...GLOBAL_RULES]);
     expect(await snapshotTree(home.root)).toEqual(before);
   });
 
@@ -248,12 +239,12 @@ describe("RuleExportService", () => {
     const home = await createRuleExportHome(temporaryDirectories);
     const nested = join(home.workspace, "src");
     await mkdir(nested);
-    await writeConfig(home, {
+    await writeConfig(home.storageRoot, {
       defaultRepo: "owner/unregistered",
       workspaceMappings: { [home.workspace]: EXPORT_REPOSITORY },
     });
 
-    expect(await collect(home, {}, nested)).toHaveLength(4);
+    expect(await collect(home, {}, nested)).toEqual(REPO_RULES);
     // Outside the mapping, defaultRepo is used and must be registered.
     await expect(collect(home, {}, home.root)).rejects.toMatchObject({
       code: "RULE_EXPORT_REPOSITORY_NOT_REGISTERED",
@@ -263,9 +254,11 @@ describe("RuleExportService", () => {
 
   it("uses defaultRepo when no mapping is configured", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
-    await writeConfig(home, { defaultRepo: EXPORT_REPOSITORY_ALIAS });
+    await writeConfig(home.storageRoot, {
+      defaultRepo: EXPORT_REPOSITORY_ALIAS,
+    });
 
-    expect(await collect(home, {})).toHaveLength(4);
+    expect(await collect(home, {})).toEqual(REPO_RULES);
   });
 
   it("explains an unresolved repository, including an unusable cwd", async () => {
@@ -275,7 +268,7 @@ describe("RuleExportService", () => {
       code: "RULE_EXPORT_REPOSITORY_UNRESOLVED",
       message: expect.stringContaining("pass --repo <owner/name>"),
     });
-    await writeConfig(home, {
+    await writeConfig(home.storageRoot, {
       workspaceMappings: { [home.workspace]: EXPORT_REPOSITORY },
     });
     await expect(
@@ -371,7 +364,7 @@ describe("RuleExportService", () => {
   it("reads the hint with the shared schema, so a hint without rationale is prose", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     const id = "kn_01ARZ3NDEKTSV4RRFFQ69G5FC2";
-    await writeKnowledge(home.globalRoot, id, "active", "rk:global", {
+    await writeKnowledge(home.globalRoot, id, "active", GLOBAL_STORE_ID, {
       enforcement_hint: { kind: "hook" },
       rule: "Hook hint without rationale",
     });
@@ -387,7 +380,7 @@ describe("RuleExportService", () => {
   it("carries a rule's scope so a scoped rule is not exported as store-wide", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     const id = "kn_01ARZ3NDEKTSV4RRFFQ69G5FC3";
-    await writeKnowledge(home.globalRoot, id, "active", "rk:global", {
+    await writeKnowledge(home.globalRoot, id, "active", GLOBAL_STORE_ID, {
       rule: "Wrap queries in a transaction",
       scope: ["src/db/**", "lib/sql/*.ts"],
     });
@@ -531,10 +524,15 @@ describe("RuleExportService", () => {
   it("reports a capture error on a quiet store after one retry, not after waiting", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await writeFile(join(home.globalRoot, "events", "broken.jsonl"), "{");
-
-    await expect(collect(home, { store: "global" })).rejects.toMatchObject({
-      path: "events/broken.jsonl",
+    // With no writer to wait for, the retry must not sleep at all.
+    const exporter = new RuleExportService({
+      retry: { attempts: 3, delayMs: 60_000 },
+      storageRoot: home.storageRoot,
     });
+
+    await expect(
+      exporter.collect({ origin: "all", store: "global" }),
+    ).rejects.toMatchObject({ path: "events/broken.jsonl" });
     expect(capture.calls).toBe(2);
   });
 });

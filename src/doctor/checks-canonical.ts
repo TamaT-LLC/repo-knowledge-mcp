@@ -3,7 +3,10 @@ import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { canonicalizeJson, compareCodeUnits } from "../canonical.js";
-import { readTransactionJournal } from "../canonical-transaction-journal.js";
+import {
+  readTransactionJournal,
+  TRANSACTIONS_DIRECTORY,
+} from "../canonical-transaction-journal.js";
 import { CanonicalJsonlError } from "../canonical-jsonl.js";
 import {
   buildDomainProjectionSnapshot,
@@ -32,7 +35,7 @@ export async function inspectTransactions(
   repositoryRoot: string,
   repository: string,
 ): Promise<void> {
-  const path = join(repositoryRoot, "transactions");
+  const path = join(repositoryRoot, TRANSACTIONS_DIRECTORY);
   let entries: Dirent[];
   try {
     entries = await readTransactionJournal(repositoryRoot);
