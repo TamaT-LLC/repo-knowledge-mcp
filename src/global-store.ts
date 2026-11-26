@@ -115,10 +115,17 @@ export class GlobalStore {
   async readRules(task?: string) {
     return (await this.exists()) ? this.store.readGlobalRules(task) : undefined;
   }
+  /** Every reservation, with its rule's status so a stale one can be freed. */
   async listAlwaysReturn() {
     if (!(await this.exists())) return [];
-    const { records } = await this.store.readSnapshot();
-    return [...latestAlwaysReturn(records).values()];
+    const { records, domain } = await this.store.readSnapshot();
+    const statuses = new Map(
+      domain.knowledge.map((knowledge) => [knowledge.id, knowledge.status]),
+    );
+    return [...latestAlwaysReturn(records).values()].map((setting) => ({
+      ...setting,
+      status: statuses.get(setting.knowledge_id) ?? ("missing" as const),
+    }));
   }
   async setAlwaysReturn(
     id: string,
@@ -133,6 +140,7 @@ export class GlobalStore {
         reason: "not_global",
         always_return: false,
         always_return_count: 0,
+        reserved_count: 0,
       };
     return this.store.runLockedMutation<AlwaysReturnResult>((snapshot) => {
       const knowledge = snapshot.domain.knowledge.find(
@@ -151,6 +159,7 @@ export class GlobalStore {
         knowledge_id: id,
         always_return: !!current && isActive,
         always_return_count: activeCount,
+        reserved_count: configured.size,
         ...(current ? { set_by: current.actor } : {}),
       };
       const reject = (reason: NonNullable<AlwaysReturnResult["reason"]>) => ({
@@ -200,6 +209,7 @@ export class GlobalStore {
           state: "changed",
           always_return: enabled,
           always_return_count: activeCount + (enabled ? 1 : isActive ? -1 : 0),
+          reserved_count: configured.size + (enabled ? 1 : -1),
           ...(enabled ? { set_by: actor.actor } : {}),
         },
       };

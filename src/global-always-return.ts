@@ -29,6 +29,8 @@ export const AlwaysReturnResultSchema = z
     always_return: z.boolean(),
     set_by: z.enum(["cli", "mcp"]).optional(),
     always_return_count: z.number().int().min(0).max(ALWAYS_RETURN_LIMIT),
+    /** Slots held, including inactive rules' reservations; the limit counts these. */
+    reserved_count: z.number().int().min(0).max(ALWAYS_RETURN_LIMIT),
     reason: z
       .enum(["not_global", "not_active", "limit_reached", "set_by_cli"])
       .optional(),

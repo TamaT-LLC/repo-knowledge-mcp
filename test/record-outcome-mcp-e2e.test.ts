@@ -808,6 +808,70 @@ describe("global matches across repeated reads", () => {
 });
 
 describe("global store review follow-ups", () => {
+  it("serializes simultaneous always-return changes and lists every reservation", async () => {
+    const { storageRoot } = await createOutcomeEnvironment();
+    const global = new GlobalStore(storageRoot);
+    await global.initialize();
+    const ids = Array.from({ length: 4 }, () => createDomainId("knowledge"));
+    for (const id of ids)
+      await writeKnowledge(
+        global.reference.absolutePath,
+        id,
+        "active",
+        "rk:global",
+      );
+    // All four start before any finishes, so the lock decides the winner.
+    const results = await Promise.all(
+      ids.map((id) => global.setAlwaysReturn(id, true, { actor: "cli" })),
+    );
+    expect(results.map((r) => r.state).sort()).toEqual([
+      "changed",
+      "changed",
+      "changed",
+      "rejected",
+    ]);
+    const rejected = results.find((r) => r.state === "rejected")!;
+    expect(rejected).toMatchObject({
+      reason: "limit_reached",
+      always_return_count: 3,
+      reserved_count: 3,
+    });
+    const reserved = results
+      .filter((r) => r.state === "changed")
+      .map((r) => r.knowledge_id);
+    await writeKnowledge(
+      global.reference.absolutePath,
+      reserved[0]!,
+      "stale",
+      "rk:global",
+    );
+    // An inactive rule keeps its slot; the counts and the list say so.
+    expect(
+      await global.setAlwaysReturn(rejected.knowledge_id, true, {
+        actor: "cli",
+      }),
+    ).toMatchObject({
+      reason: "limit_reached",
+      always_return_count: 2,
+      reserved_count: 3,
+    });
+    // Lock order, not Promise.all order, decides the list order.
+    expect(
+      new Map(
+        (await global.listAlwaysReturn()).map((e) => [
+          e.knowledge_id,
+          e.status,
+        ]),
+      ),
+    ).toEqual(
+      new Map([
+        [reserved[0], "stale"],
+        [reserved[1], "active"],
+        [reserved[2], "active"],
+      ]),
+    );
+  });
+
   it("runs doctor from inside the storage root without failing the global store", {
     timeout: E2E_TIMEOUT_MS,
   }, async () => {

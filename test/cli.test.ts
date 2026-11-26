@@ -62,6 +62,7 @@ describe("repo-knowledge CLI", () => {
       knowledge_id: KNOWLEDGE_ID,
       always_return: true,
       always_return_count: 1,
+      reserved_count: 1,
     } as const;
     const globalStore = {
       addActive: vi.fn(async () => ({ confirmed: false as const })),
