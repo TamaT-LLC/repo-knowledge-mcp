@@ -605,7 +605,8 @@ describe("repo-knowledge CLI", () => {
       exporter: { collect: async () => [rule(" \n\t"), rule("Kept")] },
       exitCode: 0,
       stdout: renderRuleExport("claude-md", "repository", [rule("Kept")]).block,
-      stderr: "1 rule(s) had no visible text and were left out.\n",
+      stderr:
+        "1 rule(s) had no visible rule or scope text and were left out.\n",
     },
     {
       name: "reports an exporter error without printing a block",

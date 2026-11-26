@@ -48,9 +48,14 @@ vi.mock("node:fs/promises", async (importOriginal) =>
   wrapFilesystem(await importOriginal<typeof import("node:fs/promises")>()),
 );
 
-vi.mock("node:fs", async (importOriginal) =>
-  wrapFilesystem(await importOriginal<typeof import("node:fs")>()),
-);
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  // fs.promises is the same API reached through node:fs.
+  return wrapFilesystem({
+    ...actual,
+    promises: wrapFilesystem(actual.promises),
+  });
+});
 
 function wrapFilesystem<T extends object>(actual: T): T {
   const record = (call: string): void => {
@@ -173,19 +178,32 @@ describe("export --format filesystem spy", () => {
     const home = await createRuleExportHome(temporaryDirectories);
     const missing = join(home.root, "missing-home");
 
-    for (const [storageRoot, argv] of [
+    // Each case must reach the read path and end as stated, so a write-free
+    // result cannot come from an argument error before export ran.
+    for (const [storageRoot, argv, exitCode, stderr] of [
       [
         missing,
-        ["export", "--format", "claude-md", "--repo", EXPORT_REPOSITORY],
+        ["--repo", EXPORT_REPOSITORY],
+        1,
+        "RULE_EXPORT_REPOSITORY_NOT_REGISTERED",
       ],
-      [missing, ["export", "--format", "claude-md", "--store", "global"]],
+      [missing, ["--store", "global"], 0, "No active rules matched"],
       [
         home.storageRoot,
-        ["export", "--format", "claude-md", "--repo", "owner/unknown"],
+        ["--repo", "owner/unknown"],
+        1,
+        "RULE_EXPORT_REPOSITORY_NOT_REGISTERED",
       ],
-      [home.storageRoot, ["export", "--format", "claude-md"]],
+      [home.storageRoot, [], 1, "RULE_EXPORT_REPOSITORY_UNRESOLVED"],
     ] as const) {
-      const result = await runExport(storageRoot, home.workspace, [...argv]);
+      const result = await runExport(storageRoot, home.workspace, [
+        "export",
+        "--format",
+        "claude-md",
+        ...argv,
+      ]);
+      expect(result.exitCode).toBe(exitCode);
+      expect(result.stderr()).toContain(stderr);
       expect(result.writes).toEqual([]);
     }
   });

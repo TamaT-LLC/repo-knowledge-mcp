@@ -232,7 +232,7 @@ export interface RenderedRuleExport {
   readonly block: string;
   /** Rules whose rule or scope text had comment or marker strings escaped. */
   readonly neutralized: number;
-  /** Rules left out because no visible text remained after flattening. */
+  /** Rules left out because their text, or every scope pattern, was invisible. */
   readonly omitted: number;
 }
 
@@ -255,16 +255,18 @@ export function renderRuleExport(
   const hook: string[] = [];
   for (const rule of rules) {
     const text = neutralizeExportedText(rule.rule);
-    if (text.value.length === 0) {
-      omitted += 1;
-      continue;
-    }
     const scope = rule.scope.map(neutralizeExportedText);
-    if ([text, ...scope].some((entry) => entry.escaped)) neutralized += 1;
     // A scope pattern with no visible text would render as stray backticks.
     const visible = scope.flatMap((entry) =>
       entry.value.length === 0 ? [] : [codeSpan(entry.value)],
     );
+    // Rendering a scoped rule without its scope would widen it to the whole
+    // repository, so a rule whose patterns are all invisible is left out too.
+    if (text.value.length === 0 || (scope.length > 0 && visible.length === 0)) {
+      omitted += 1;
+      continue;
+    }
+    if ([text, ...scope].some((entry) => entry.escaped)) neutralized += 1;
     const item =
       visible.length === 0
         ? `- ${text.value}`

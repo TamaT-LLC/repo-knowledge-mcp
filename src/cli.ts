@@ -301,7 +301,7 @@ async function executeCliCommand(
       }
       if (rendered.omitted > 0) {
         options.io.writeStderr(
-          `${String(rendered.omitted)} rule(s) had no visible text and were left out.\n`,
+          `${String(rendered.omitted)} rule(s) had no visible rule or scope text and were left out.\n`,
         );
       }
       if (rendered.neutralized > 0) {

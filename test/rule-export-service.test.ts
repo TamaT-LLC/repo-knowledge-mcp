@@ -645,10 +645,12 @@ describe("renderRuleExport", () => {
     const rendered = renderRuleExport("claude-md", "repository", [
       { ...rule("repoPlain"), rule: hidden },
       { ...rule("repoHook", true), rule: " \n\t" },
+      // Rendering it without its only (invisible) scope would widen it.
+      { ...rule("repoMarker"), scope: [" ", hidden] },
       rule("globalManual"),
     ]);
 
-    expect(rendered.omitted).toBe(2);
+    expect(rendered.omitted).toBe(3);
     expect(rendered.block).toBe(
       [
         "<!-- repo-knowledge:begin format=claude-md store=repository -->",
