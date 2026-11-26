@@ -71,7 +71,9 @@ describe("export --format CLI E2E", () => {
     ]);
 
     expect([claude.exitCode, agents.exitCode]).toEqual([0, 0]);
-    expect([claude.stderr, agents.stderr]).toEqual(["", ""]);
+    const notice =
+      "1 rule(s) contained HTML comment or block marker text; it was escaped (for example <!-- as &lt;!--) so the pasted block keeps its boundaries.";
+    expect([claude.stderr, agents.stderr]).toEqual([notice, notice]);
     expect(`${claude.stdout}\n`).toBe(
       [
         "<!-- repo-knowledge:begin format=claude-md store=all -->",

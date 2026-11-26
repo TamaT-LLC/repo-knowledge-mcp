@@ -11,7 +11,11 @@ import {
   REPO_KNOWLEDGE_CLI_EXIT,
   RepoKnowledgeCliError,
 } from "./cli-errors.js";
-import { renderGuidedSetupSummary, renderRuleExport } from "./cli-render.js";
+import {
+  countNeutralizedRules,
+  renderGuidedSetupSummary,
+  renderRuleExport,
+} from "./cli-render.js";
 import {
   assertReviewTerminal,
   executeReviewSession,
@@ -81,8 +85,8 @@ Commands:
   reconcile [repo] --write-derived-metadata
                                 Write an explicit derived metadata snapshot
   export [repo] --bootstrap     Print the one-line MCP bootstrap instruction
-  export --format claude-md|agents-md [--store repository|global|all]
-         [--repo <owner/name>] [--origin conversation|all]
+  export [repo] --format claude-md|agents-md
+         [--store repository|global|all] [--origin conversation|all]
                                 Print active rules as a Markdown block to paste
                                 into CLAUDE.md or AGENTS.md (stdout only; no
                                 file is written)
@@ -149,7 +153,7 @@ Export options:
   --store <repository|global|all>
                                 Rules to print (default repository); global is
                                 your personal store and takes no repository
-  --repo <owner/name>           Registered repository; defaults to the mapped
+  [repo] | --repo <owner/name>  Registered repository; defaults to the mapped
                                 workspace or defaultRepo
   --origin <conversation|all>   Only rules distilled from conversations, or all
                                 (default all)
@@ -294,6 +298,12 @@ async function executeCliCommand(
       if (rules.length === 0) {
         options.io.writeStderr(
           "No active rules matched; the block has no rules.\n",
+        );
+      }
+      const neutralized = countNeutralizedRules(rules);
+      if (neutralized > 0) {
+        options.io.writeStderr(
+          `${String(neutralized)} rule(s) contained HTML comment or block marker text; it was escaped (for example <!-- as &lt;!--) so the pasted block keeps its boundaries.\n`,
         );
       }
       return;

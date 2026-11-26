@@ -530,8 +530,13 @@ describe("repo-knowledge CLI", () => {
 
   it("prints an exported rule block on stdout only and never resolves services", async () => {
     const rules = [
-      { hook: false, id: KNOWLEDGE_ID, rule: "Validate fields" },
-      { hook: true, id: KNOWLEDGE_ID, rule: "Never force-push" },
+      { hook: false, id: KNOWLEDGE_ID, rule: "Validate fields", scope: [] },
+      {
+        hook: true,
+        id: KNOWLEDGE_ID,
+        rule: "Never force-push",
+        scope: ["src/**"],
+      },
     ];
     const collect = vi.fn(async () => rules);
     const current = fixture([
@@ -581,6 +586,27 @@ describe("repo-knowledge CLI", () => {
     expect(missing.stdout()).toBe("");
     expect(missing.stderr()).toBe(
       "CLI_COMMAND_UNAVAILABLE: export --format is unavailable in this runtime\n",
+    );
+
+    const escaped = fixture(["export", "--format", "claude-md"]);
+    await expect(
+      runRepoKnowledgeCli({
+        ...escaped.options,
+        ruleExporter: {
+          collect: async () => [
+            {
+              hook: false,
+              id: KNOWLEDGE_ID,
+              rule: "Keep <!-- x -->",
+              scope: [],
+            },
+          ],
+        },
+      }),
+    ).resolves.toBe(0);
+    expect(escaped.stdout()).toContain("- Keep &lt;!-- x --&gt;\n");
+    expect(escaped.stderr()).toBe(
+      "1 rule(s) contained HTML comment or block marker text; it was escaped (for example <!-- as &lt;!--) so the pasted block keeps its boundaries.\n",
     );
 
     const failing = fixture(["export", "--format", "claude-md"]);

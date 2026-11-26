@@ -388,7 +388,7 @@ MCP plane には承認・却下を直接指示する tool を公開しません�
 | `stats [repo]` | versioned aggregate を JSON で出力 |
 | `doctor [repo]` | installation と canonical state を診断 |
 | `export [repo] --bootstrap` | agent bootstrap の一文を出力 |
-| `export --format claude-md\|agents-md` | active rule を CLAUDE.md / AGENTS.md 向けの Markdown ブロックとして stdout に出力 |
+| `export [repo] --format claude-md\|agents-md` | active rule を CLAUDE.md / AGENTS.md 向けの Markdown ブロックとして stdout に出力 |
 | `serve` | stdio MCP server を明示起動 |
 
 command と主要 option は `repo-knowledge --help` と [CLI 操作一覧](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md#cli-commands)で確認できます。

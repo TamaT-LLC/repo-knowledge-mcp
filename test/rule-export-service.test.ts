@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  countNeutralizedRules,
   neutralizeExportedRuleText,
   renderRuleExport,
 } from "../src/cli-render.js";
@@ -24,8 +25,16 @@ import {
   type RuleExportHome,
 } from "./helpers/rule-export-fixture.js";
 
-/** Lets a test make every read-only capture report a new digest. */
-const capture = vi.hoisted(() => ({ calls: 0, changing: false }));
+/**
+ * Lets a test simulate a concurrent writer: every capture reports a new
+ * digest, or the next captures throw as a torn read would.
+ */
+const capture = vi.hoisted(() => ({
+  calls: 0,
+  changing: false,
+  failures: 0,
+  onCapture: undefined as (() => Promise<void>) | undefined,
+}));
 
 vi.mock("../src/sqlite-projection.js", async (importOriginal) => {
   const actual =
@@ -33,16 +42,48 @@ vi.mock("../src/sqlite-projection.js", async (importOriginal) => {
   return {
     ...actual,
     captureCanonicalStateReadOnly: async (root: string) => {
-      const result = await actual.captureCanonicalStateReadOnly(root);
-      if (!capture.changing) return result;
       capture.calls += 1;
-      return {
-        ...result,
-        canonicalDigest: `changing-${String(capture.calls)}`,
-      };
+      await capture.onCapture?.();
+      if (capture.failures > 0) {
+        capture.failures -= 1;
+        throw new Error("torn read: incomplete JSONL line");
+      }
+      const result = await actual.captureCanonicalStateReadOnly(root);
+      return capture.changing
+        ? { ...result, canonicalDigest: `changing-${String(capture.calls)}` }
+        : result;
     },
   };
 });
+
+afterEach(() => {
+  Object.assign(capture, {
+    calls: 0,
+    changing: false,
+    failures: 0,
+    onCapture: undefined,
+  });
+});
+
+const FAST_RETRY = { attempts: 6, delayMs: 1 };
+
+/** A lock file as a live writer (this test process) would leave it. */
+async function holdWriterLock(storeRoot: string, pid = process.pid) {
+  await writeFile(
+    join(storeRoot, ".write.lock"),
+    JSON.stringify({
+      acquired_at: "2026-11-20T00:00:00.000Z",
+      pid,
+      token: "t",
+    }),
+  );
+}
+
+async function openJournal(storeRoot: string) {
+  await mkdir(join(storeRoot, "transactions", "txn_pending"), {
+    recursive: true,
+  });
+}
 
 const temporaryDirectories: string[] = [];
 
@@ -58,10 +99,15 @@ const rule = (key: keyof typeof RULES, hook = false): ExportedRule => ({
   hook,
   id: IDS[key],
   rule: RULES[key],
+  scope: [],
 });
 
 function service(home: RuleExportHome, cwd = home.workspace) {
-  return new RuleExportService({ cwd, storageRoot: home.storageRoot });
+  return new RuleExportService({
+    cwd,
+    retry: FAST_RETRY,
+    storageRoot: home.storageRoot,
+  });
 }
 
 async function collect(
@@ -127,6 +173,26 @@ describe("RuleExportService", () => {
       rule("repoMarker"),
       rule("globalHook", true),
     ]);
+  });
+
+  it("matches a registered name ignoring case, as GitHub does", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+
+    expect(
+      await collect(home, { repo: EXPORT_REPOSITORY.toUpperCase() }),
+    ).toHaveLength(4);
+    expect(await collect(home, { repo: "OWNER/Renamed-From" })).toHaveLength(4);
+  });
+
+  it("refuses an empty or broad storage root like other storage commands", async () => {
+    for (const storageRoot of ["", "/"]) {
+      await expect(
+        new RuleExportService({ storageRoot }).collect({
+          origin: "all",
+          store: "global",
+        }),
+      ).rejects.toMatchObject({ code: "CONFIG_PATH_UNSAFE" });
+    }
   });
 
   it("resolves a registered alias without touching the storage", async () => {
@@ -247,22 +313,18 @@ describe("RuleExportService", () => {
     ).rejects.toMatchObject({ code: "RULE_EXPORT_STORE_UNSAFE" });
   });
 
-  it("refuses a store with an unrecovered transaction and names the recovery command", async () => {
+  it("refuses an interrupted transaction (no live lock holder) and names the recovery command", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
-    await mkdir(join(home.repositoryRoot, "transactions", "txn_pending"), {
-      recursive: true,
-    });
-    await mkdir(join(home.globalRoot, "transactions", "txn_pending"), {
-      recursive: true,
-    });
+    await openJournal(home.repositoryRoot);
+    await openJournal(home.globalRoot);
+    // A lock left by a process that no longer exists does not count as live.
+    await holdWriterLock(home.globalRoot, 2 ** 22 + 12_345);
 
     await expect(
       collect(home, { repo: EXPORT_REPOSITORY }),
     ).rejects.toMatchObject({
       code: "RULE_EXPORT_RECOVERY_REQUIRED",
-      message: expect.stringContaining(
-        `run repo-knowledge reindex ${EXPORT_REPOSITORY} and export again`,
-      ),
+      message: `the store has an interrupted transaction; run repo-knowledge reindex ${EXPORT_REPOSITORY} and export again`,
     });
     await expect(collect(home, { store: "global" })).rejects.toMatchObject({
       code: "RULE_EXPORT_RECOVERY_REQUIRED",
@@ -282,20 +344,106 @@ describe("RuleExportService", () => {
       hook: false,
       id,
       rule: "Hook hint without rationale",
+      scope: [],
+    });
+  });
+
+  it("carries a rule's scope so a scoped rule is not exported as store-wide", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    const id = "kn_01ARZ3NDEKTSV4RRFFQ69G5FC3";
+    await writeKnowledge(home.globalRoot, id, "active", "rk:global", {
+      rule: "Wrap queries in a transaction",
+      scope: ["src/db/**", "lib/sql/*.ts"],
+    });
+
+    expect(await collect(home, { store: "global" })).toContainEqual({
+      hook: false,
+      id,
+      rule: "Wrap queries in a transaction",
+      // The projection sorts and deduplicates scope patterns.
+      scope: ["lib/sql/*.ts", "src/db/**"],
     });
   });
 
   it("refuses a store whose consecutive captures never agree", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     capture.changing = true;
-    try {
-      await expect(collect(home, { store: "global" })).rejects.toMatchObject({
-        code: "RULE_EXPORT_STORE_BUSY",
-      });
-      expect(capture.calls).toBe(3);
-    } finally {
-      capture.changing = false;
-    }
+
+    await expect(collect(home, { store: "global" })).rejects.toMatchObject({
+      code: "RULE_EXPORT_STORE_BUSY",
+    });
+    expect(capture.calls).toBe(FAST_RETRY.attempts);
+  });
+
+  it("waits for a live writer and reads the store once its commit finishes", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    await openJournal(home.globalRoot);
+    await holdWriterLock(home.globalRoot);
+    const exporter = new RuleExportService({
+      retry: { attempts: 200, delayMs: 5 },
+      storageRoot: home.storageRoot,
+    });
+
+    const pending = exporter.collect({ origin: "all", store: "global" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(capture.calls).toBe(0);
+    await rm(join(home.globalRoot, "transactions"), { recursive: true });
+    await rm(join(home.globalRoot, ".write.lock"));
+
+    expect(await pending).toEqual([
+      rule("globalHook", true),
+      rule("globalManual"),
+    ]);
+  });
+
+  it("reports a busy store when a live writer never finishes", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    await openJournal(home.globalRoot);
+    await holdWriterLock(home.globalRoot);
+
+    await expect(collect(home, { store: "global" })).rejects.toMatchObject({
+      code: "RULE_EXPORT_STORE_BUSY",
+      message:
+        "another repo-knowledge command kept writing to the store; export again",
+    });
+    expect(capture.calls).toBe(0);
+  });
+
+  it("retries a capture torn by a concurrent commit", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    capture.failures = 1;
+
+    expect(await collect(home, { store: "global" })).toEqual([
+      rule("globalHook", true),
+      rule("globalManual"),
+    ]);
+    expect(capture.calls).toBe(3);
+  });
+
+  it("discards a capture taken while a writer started, then reads the committed state", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    let started = false;
+    capture.onCapture = async () => {
+      if (started) return;
+      started = true;
+      // A writer opens its journal while the first capture is running.
+      await openJournal(home.globalRoot);
+      await holdWriterLock(home.globalRoot);
+      setTimeout(() => {
+        void rm(join(home.globalRoot, "transactions"), { recursive: true });
+        void rm(join(home.globalRoot, ".write.lock"));
+      }, 10);
+    };
+    const exporter = new RuleExportService({
+      retry: { attempts: 200, delayMs: 5 },
+      storageRoot: home.storageRoot,
+    });
+
+    expect(await exporter.collect({ origin: "all", store: "global" })).toEqual([
+      rule("globalHook", true),
+      rule("globalManual"),
+    ]);
+    expect(capture.calls).toBeGreaterThanOrEqual(3);
   });
 
   it("fails closed on an invalid canonical knowledge document", async () => {
@@ -311,6 +459,16 @@ describe("RuleExportService", () => {
     await expect(
       collect(home, { repo: EXPORT_REPOSITORY }),
     ).rejects.toMatchObject({ code: "KNOWLEDGE_STORE_INVALID" });
+  });
+
+  it("reports a capture error on a quiet store after one retry, not after waiting", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    await writeFile(join(home.globalRoot, "events", "broken.jsonl"), "{");
+
+    await expect(collect(home, { store: "global" })).rejects.toMatchObject({
+      path: "events/broken.jsonl",
+    });
+    expect(capture.calls).toBe(2);
   });
 });
 
@@ -381,6 +539,29 @@ describe("renderRuleExport", () => {
         "",
       ].join("\n"),
     );
+  });
+
+  it("names the paths of a scoped rule in code spans no backtick can close", () => {
+    const block = renderRuleExport("claude-md", "repository", [
+      { ...rule("repoPlain"), scope: ["src/db/**", "a`b", "x<!--y"] },
+    ]);
+
+    expect(block.split("\n")[3]).toBe(
+      `- ${RULES.repoPlain}（適用範囲: \`src/db/**\`, \`\` a\`b \`\`, \`x&lt;!--y\`）`,
+    );
+  });
+
+  it("counts rules whose rule or scope text had to be escaped", () => {
+    expect(
+      countNeutralizedRules([
+        rule("repoPlain"),
+        rule("repoMarker"),
+        { ...rule("globalManual"), scope: ["docs/repo-knowledge:end"] },
+        // Control characters inside a token are flattened first, as rendered.
+        { ...rule("repoHook"), rule: "a <!\u0000-- b" },
+        { ...rule("globalHook"), rule: "--\u0000>" },
+      ]),
+    ).toBe(2);
   });
 
   it("renders a rule-free block that can replace a previously pasted one", () => {

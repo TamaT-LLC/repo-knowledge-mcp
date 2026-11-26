@@ -175,7 +175,8 @@ describe("export --format filesystem spy", () => {
         ...(store === "global" ? [] : ["--repo", EXPORT_REPOSITORY]),
       ]);
 
-      expect(result.stderr()).toBe("");
+      // The fixture's hostile rule produces the escaping notice, not an error.
+      expect(result.stderr()).not.toMatch(/^[A-Z_]+: /mu);
       expect(result.exitCode).toBe(0);
       expect(result.stdout()).toContain(
         `<!-- repo-knowledge:begin format=${format} store=${store} -->`,

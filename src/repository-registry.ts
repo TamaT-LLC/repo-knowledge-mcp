@@ -158,7 +158,9 @@ export class RepositoryRegistry {
   /**
    * Looks a name up without creating the layout, taking the lock, or writing.
    * Registry writes are atomic renames, so an unlocked read sees one whole
-   * document; a missing registry means nothing is registered yet.
+   * document; a missing registry means nothing is registered yet. Without
+   * GitHub to canonicalize the name, owner/name is compared ignoring case,
+   * as GitHub does.
    */
   async findByNameReadOnly(name: string): Promise<ResolvedRepository | null> {
     assertRepositoryName(name);
@@ -166,6 +168,7 @@ export class RepositoryRegistry {
       this.registryRoot,
       (await this.readSnapshot()).document.repositories,
       name,
+      true,
     );
   }
 
@@ -358,10 +361,16 @@ function matchRepositoryName(
   registryRoot: string,
   repositories: Readonly<Record<string, RepositoryRegistryEntry>>,
   name: string,
+  ignoreCase = false,
 ): ResolvedRepository | null {
+  const key = (value: string): string =>
+    ignoreCase ? value.toLowerCase() : value;
+  const wanted = key(name);
   const matches = Object.entries(repositories)
-    .filter(
-      ([, entry]) => entry.currentName === name || entry.aliases.includes(name),
+    .filter(([, entry]) =>
+      [entry.currentName, ...entry.aliases].some(
+        (candidate) => key(candidate) === wanted,
+      ),
     )
     .sort(([a], [b]) => compareCodeUnits(a, b));
   if (matches.length > 1) {

@@ -95,6 +95,20 @@ async function releaseLock(
   }
 }
 
+/**
+ * Read-only probe: is the lock file present and owned by a live process?
+ * It never takes, breaks, or rewrites the lock.
+ */
+export async function isPosixFileLockHeld(lockPath: string): Promise<boolean> {
+  try {
+    await readFile(lockPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  return !(await lockOwnerIsDead(lockPath));
+}
+
 async function lockOwnerIsDead(lockPath: string): Promise<boolean> {
   let first: Buffer;
   try {

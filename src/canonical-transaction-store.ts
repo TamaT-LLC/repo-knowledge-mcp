@@ -66,6 +66,9 @@ import type {
   KnowledgeSearchResult,
 } from "./knowledge-search.js";
 
+/** The repository writer lock every canonical commit and recovery holds. */
+export const CANONICAL_WRITE_LOCK_NAME = ".write.lock";
+
 export { CanonicalStoreError };
 export type { CanonicalStoreErrorCode } from "./canonical-path-validation.js";
 
@@ -800,7 +803,7 @@ export class CanonicalTransactionStore {
   private async withRepoLock<T>(callback: () => Promise<T>): Promise<T> {
     await this.ensureLayout();
     return withPosixFileLock(
-      join(this.repositoryRoot, ".write.lock"),
+      join(this.repositoryRoot, CANONICAL_WRITE_LOCK_NAME),
       this.lockTimeoutMs,
       callback,
     );

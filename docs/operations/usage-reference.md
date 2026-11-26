@@ -27,7 +27,7 @@ repository を位置引数と `--repo` の両方で指定しないでくださ�
 | `review [repo]` | 候補と変更提案を一つの TTY session で確認 |
 | `stats [repo]` | JSON 集計。`--bucket total` または `--bucket day --since <iso> --until <iso>` |
 | `export [repo] --bootstrap` | 明示した repository または workspace を含む `get_rules` の呼び出し指示を出力 |
-| `export --format claude-md\|agents-md` | 承認済みの active rule を CLAUDE.md / AGENTS.md に貼り付ける Markdown ブロックとして stdout に出力。`--store repository\|global\|all`（既定 `repository`）、`--repo <owner/name>`、`--origin conversation\|all`（既定 `all`）。ファイルには書き込まない |
+| `export [repo] --format claude-md\|agents-md` | 承認済みの active rule を CLAUDE.md / AGENTS.md に貼り付ける Markdown ブロックとして stdout に出力。`--store repository\|global\|all`（既定 `repository`）、`--repo <owner/name>`、`--origin conversation\|all`（既定 `all`）。scope 付きの rule には適用範囲を添える。HTML コメントや管理マーカーの文字列は `&lt;!--` などに置き換え、その件数を stderr に出す。ファイルには書き込まない |
 | `serve` | stdio MCP server を起動。repository は `--repo` または `--workspace` で指定 |
 | `reindex [repo]` | canonical data から `index.sqlite` を再構築 |
 | `redistill [repo] <selector>` | `--all`、`--author <login>`、`--prompt-version <version>`、`--failed`、`--outdated` の一つで再処理対象を選択 |

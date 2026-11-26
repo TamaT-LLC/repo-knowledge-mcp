@@ -1,13 +1,16 @@
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { z } from "zod";
 
 import { compareCodeUnits } from "./canonical.js";
 import { readTransactionJournal } from "./canonical-files.js";
+import { CANONICAL_WRITE_LOCK_NAME } from "./canonical-transaction-store.js";
 import {
   DEFAULT_CONFIG_FILE_NAME,
   loadRepoKnowledgeConfigIfPresent,
+  resolveStorageRoot,
 } from "./config.js";
 import {
   isConversationKnowledge,
@@ -16,6 +19,7 @@ import {
 import { buildDomainProjectionSnapshot } from "./domain-projection.js";
 import { GLOBAL_STORE_ID } from "./global-always-return.js";
 import { GlobalStore } from "./global-store.js";
+import { isPosixFileLockHeld } from "./posix-file-lock.js";
 import { RepositoryRegistry } from "./repository-registry.js";
 import { selectConfiguredRepository } from "./repository-resolver.js";
 import {
@@ -43,6 +47,8 @@ export interface ExportedRule {
   readonly hook: boolean;
   readonly id: string;
   readonly rule: string;
+  /** Path globs the rule is limited to; empty applies to the whole store. */
+  readonly scope: readonly string[];
 }
 
 export interface RuleExporter {
@@ -71,11 +77,17 @@ export class RuleExportError extends Error {
 
 export interface RuleExportServiceOptions {
   readonly cwd?: string;
+  readonly retry?: RuleExportRetry;
   readonly storageRoot: string;
 }
 
-/** Consecutive captures compared before a store that keeps changing is refused. */
-const CONSISTENT_CAPTURE_ATTEMPTS = 3;
+/** How long export waits for a concurrent writer before reporting a busy store. */
+export interface RuleExportRetry {
+  readonly attempts: number;
+  readonly delayMs: number;
+}
+
+const DEFAULT_RETRY: RuleExportRetry = { attempts: 40, delayMs: 50 };
 
 /**
  * Collects active rules for `export --format` strictly read-only: no lock
@@ -85,14 +97,18 @@ const CONSISTENT_CAPTURE_ATTEMPTS = 3;
  */
 export class RuleExportService implements RuleExporter {
   private readonly cwd: string;
+  private readonly retry: RuleExportRetry;
   private readonly storageRoot: string;
 
   constructor(options: RuleExportServiceOptions) {
     this.cwd = options.cwd ?? process.cwd();
+    this.retry = options.retry ?? DEFAULT_RETRY;
     this.storageRoot = options.storageRoot;
   }
 
   async collect(request: RuleExportRequest): Promise<readonly ExportedRule[]> {
+    // Same guard as every other storage command; it reads nothing.
+    resolveStorageRoot(this.storageRoot);
     const conversationOnly = request.origin === "conversation";
     const repository =
       request.store === "global"
@@ -138,6 +154,7 @@ export class RuleExportService implements RuleExporter {
       registered.repoId,
       conversationOnly,
       `repo-knowledge reindex ${registered.currentName}`,
+      this.retry,
     );
   }
 
@@ -151,6 +168,7 @@ export class RuleExportService implements RuleExporter {
       GLOBAL_STORE_ID,
       conversationOnly,
       "repo-knowledge reindex --global",
+      this.retry,
     );
   }
 
@@ -185,8 +203,9 @@ async function readActiveRules(
   storeId: string,
   conversationOnly: boolean,
   remedy: string,
+  retry: RuleExportRetry,
 ): Promise<ExportedRule[]> {
-  const capture = await captureConsistently(storeRoot, remedy);
+  const capture = await captureConsistently(storeRoot, remedy, retry);
   // Fails closed on any invalid record or frontmatter, as doctor does.
   const domain = buildDomainProjectionSnapshot(
     capture.records.map((entry) => entry.record),
@@ -205,52 +224,73 @@ async function readActiveRules(
           hook: readEnforcementHint(fields)?.kind === "hook",
           id: entry.id,
           rule: entry.rule,
+          scope: entry.scope,
         },
       ];
     })
     .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
+type WriterState = "abandoned" | "idle" | "writing";
+
 /**
- * Captures until two consecutive journal-guarded captures agree. A writer
- * leaves a journal entry while it applies a commit, so a guarded capture can
- * only be torn by a commit that started and finished inside it; the next
- * capture then sees the committed state and the digests differ.
+ * A commit keeps a journal entry under `transactions/` while it holds the
+ * writer lock, so a journal with a live lock is a writer to wait for, and a
+ * journal whose lock is free or owned by a dead process was interrupted.
+ */
+async function writerState(storeRoot: string): Promise<WriterState> {
+  if ((await readTransactionJournal(storeRoot)).length === 0) return "idle";
+  return (await isPosixFileLockHeld(join(storeRoot, CANONICAL_WRITE_LOCK_NAME)))
+    ? "writing"
+    : "abandoned";
+}
+
+/**
+ * Captures until two consecutive captures taken while no writer was active
+ * agree. A capture can only be torn by a commit that started and finished
+ * inside it; the next capture then sees the committed state and the digests
+ * differ. Capture errors from a concurrent commit (a half-appended line, a
+ * file renamed away) are retried; an error on a quiet store is real.
  */
 async function captureConsistently(
   storeRoot: string,
   remedy: string,
+  retry: RuleExportRetry,
 ): Promise<ReadOnlyCanonicalStateCapture> {
-  let previous = await guardedCapture(storeRoot, remedy);
-  for (let attempt = 1; attempt < CONSISTENT_CAPTURE_ATTEMPTS; attempt += 1) {
-    const current = await guardedCapture(storeRoot, remedy);
-    if (current.canonicalDigest === previous.canonicalDigest) return current;
-    previous = current;
+  let previous: ReadOnlyCanonicalStateCapture | undefined;
+  let abandoned = 0;
+  let failed = 0;
+  let waiting = false;
+  for (let attempt = 0; attempt < retry.attempts; attempt += 1) {
+    if (waiting) await delay(retry.delayMs);
+    waiting = true;
+    const before = await writerState(storeRoot);
+    // Confirm an interrupted journal on a second look, so a commit that
+    // starts between the journal read and the lock probe is not misread.
+    abandoned = before === "abandoned" ? abandoned + 1 : 0;
+    if (abandoned >= 2) {
+      throw new RuleExportError(
+        "RULE_EXPORT_RECOVERY_REQUIRED",
+        `the store has an interrupted transaction; run ${remedy} and export again`,
+      );
+    }
+    if (before !== "idle") continue;
+    let capture: ReadOnlyCanonicalStateCapture;
+    try {
+      capture = await captureCanonicalStateReadOnly(storeRoot);
+    } catch (error) {
+      failed += 1;
+      if (failed >= 2 && (await writerState(storeRoot)) === "idle") throw error;
+      continue;
+    }
+    failed = 0;
+    if ((await writerState(storeRoot)) !== "idle") continue;
+    if (previous?.canonicalDigest === capture.canonicalDigest) return capture;
+    previous = capture;
+    waiting = false;
   }
   throw new RuleExportError(
     "RULE_EXPORT_STORE_BUSY",
-    "the store kept changing while it was read; export again",
+    "another repo-knowledge command kept writing to the store; export again",
   );
-}
-
-async function guardedCapture(
-  storeRoot: string,
-  remedy: string,
-): Promise<ReadOnlyCanonicalStateCapture> {
-  await assertNoUnrecoveredTransaction(storeRoot, remedy);
-  const capture = await captureCanonicalStateReadOnly(storeRoot);
-  await assertNoUnrecoveredTransaction(storeRoot, remedy);
-  return capture;
-}
-
-async function assertNoUnrecoveredTransaction(
-  storeRoot: string,
-  remedy: string,
-): Promise<void> {
-  if ((await readTransactionJournal(storeRoot)).length > 0) {
-    throw new RuleExportError(
-      "RULE_EXPORT_RECOVERY_REQUIRED",
-      `the store has an unrecovered transaction; run ${remedy} and export again`,
-    );
-  }
 }
