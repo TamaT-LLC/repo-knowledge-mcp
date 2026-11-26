@@ -77,13 +77,17 @@ const SHARED_RULES: readonly Rule[] = SENSITIVE_PATTERNS.map(
 );
 const isSecretAssignment = (rule: Rule) =>
   rule.kind === "generic_secret_assignment";
+const isAuthorizationHeader = (rule: Rule) =>
+  rule.kind === "authorization_header";
 
 /**
  * Order matters: wider rules run before the ones that would cut them short.
- * A secret assignment runs first so that a key or token inside its value
- * cannot leave the rest of the value behind (`secret=AKIA...+tail`); a
- * connection string's `pass@host` looks like an email, and a JWT outside an
- * assignment would otherwise stop at its first dot.
+ * A secret assignment, an Authorization header and a bearer token run before
+ * the other shared patterns so that a key inside them cannot leave the rest
+ * of the value behind (`secret=AKIA...+tail`, `Bearer sk-...tail`); a
+ * connection string's
+ * `pass@host` looks like an email, and a JWT outside an assignment would
+ * otherwise stop at its first dot.
  */
 const RULES: readonly Rule[] = [
   {
@@ -98,14 +102,11 @@ const RULES: readonly Rule[] = [
     pattern: /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/]*@/giu,
     replace: (_match, scheme) => `${scheme}${REDACTED}@`,
   },
+  // The header keeps its whole value replaced, before the bare bearer rule.
+  ...SHARED_RULES.filter(isAuthorizationHeader),
   {
-    // The payload and signature may be empty (`e30`, unsigned tokens).
-    kind: "jwt",
-    pattern: /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*/gu,
-    replace: whole,
-  },
-  ...SHARED_RULES.filter((rule) => !isSecretAssignment(rule)),
-  {
+    // Before the shared patterns: a key inside the token (`sk-...`) would
+    // otherwise be replaced alone and leave the rest of the token behind.
     // A short token counts when it has a digit; prose such as "bearer of"
     // does not.
     kind: "bearer_token",
@@ -113,6 +114,15 @@ const RULES: readonly Rule[] = [
       /\bbearer\s+(?:(?=[A-Za-z0-9._~+/=-]*[0-9])[A-Za-z0-9._~+/=-]+|[A-Za-z0-9._~+/=-]{16,})/giu,
     replace: whole,
   },
+  {
+    // The payload and signature may be empty (`e30`, unsigned tokens).
+    kind: "jwt",
+    pattern: /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*/gu,
+    replace: whole,
+  },
+  ...SHARED_RULES.filter(
+    (rule) => !isSecretAssignment(rule) && !isAuthorizationHeader(rule),
+  ),
   {
     kind: "long_token",
     pattern: /\S+/gu,

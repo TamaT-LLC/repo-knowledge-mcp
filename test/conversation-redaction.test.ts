@@ -172,6 +172,32 @@ describe("conversation redaction", () => {
   });
 });
 
+describe("bearer tokens that overlap shared patterns", () => {
+  const SECRETS = [
+    "sk-abcdefghijklmn",
+    "ghp_abcdefghijklmnopqrstuvwx",
+    "AKIAIOSFODNN7EXAMPLE",
+    "xoxb-1234567890-abcdef",
+    "AIzaSyA1234567890abcdefghijklmnopqrstuv",
+  ];
+
+  it.each(SECRETS)("leaves no part of a bearer token holding %s", (secret) => {
+    for (const input of [
+      `Bearer ${secret}.tail+x/y==`,
+      `use bearer ${secret}.tail now`,
+    ]) {
+      const result = redactConversationText(input).text;
+      expect(result).not.toMatch(/tail|x\/y/u);
+      expect(result).not.toContain(secret.slice(0, 6));
+      expect(findSensitiveContent({ text: result })).toEqual([]);
+      expect(redactConversationText(result).text).toBe(result);
+    }
+    expect(
+      redactConversationText(`Authorization: Bearer ${secret}.tail`).text,
+    ).toBe("Authorization: [REDACTED]");
+  });
+});
+
 describe("truncation of masked text", () => {
   const TEXTS = [
     "token=abcdefghijklmnopqrstuv で Ted に聞いた",
