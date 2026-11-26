@@ -39,6 +39,16 @@ function advisory(overrides) {
   return { ...PICOMATCH_ADVISORY, ...overrides };
 }
 
+/** Allowlist fixture; the gate's real allowlist can be empty. */
+const PICOMATCH_ALLOWLIST = Object.freeze([
+  Object.freeze({
+    id: "GHSA-fc5q-39xc-vjpf",
+    package: "picomatch",
+    reason: "test fixture",
+    removeWhen: "test fixture",
+  }),
+]);
+
 const PICOMATCH_ONLY_REPORT = auditReport({
   fdir: vulnerability("fdir", "high", ["picomatch"]),
   picomatch: vulnerability("picomatch", "high", [PICOMATCH_ADVISORY]),
@@ -47,8 +57,7 @@ const PICOMATCH_ONLY_REPORT = auditReport({
 });
 
 test("allowlist entries document a reason and a removal condition", () => {
-  assert.ok(AUDIT_ALLOWLIST.length > 0);
-  for (const entry of AUDIT_ALLOWLIST) {
+  for (const entry of [...AUDIT_ALLOWLIST, ...PICOMATCH_ALLOWLIST]) {
     assert.match(entry.id, /^GHSA(?:-[0-9a-z]{4}){3}$/u);
     assert.ok(entry.reason.length > 0, `${entry.id} needs a reason`);
     assert.ok(entry.removeWhen.length > 0, `${entry.id} needs removeWhen`);
@@ -68,12 +77,18 @@ test("collects only advisory objects and ignores package references", () => {
 });
 
 test("passes when the only high advisory is allowlisted", () => {
-  assert.deepEqual(evaluateAuditReport(PICOMATCH_ONLY_REPORT), {
-    allowed: collectBlockingAdvisories(PICOMATCH_ONLY_REPORT),
-    blocking: [],
-    staleAllowlistIds: [],
-  });
-  const result = auditGateResult(JSON.stringify(PICOMATCH_ONLY_REPORT));
+  assert.deepEqual(
+    evaluateAuditReport(PICOMATCH_ONLY_REPORT, PICOMATCH_ALLOWLIST),
+    {
+      allowed: collectBlockingAdvisories(PICOMATCH_ONLY_REPORT),
+      blocking: [],
+      staleAllowlistIds: [],
+    },
+  );
+  const result = auditGateResult(
+    JSON.stringify(PICOMATCH_ONLY_REPORT),
+    PICOMATCH_ALLOWLIST,
+  );
   assert.equal(result.exitCode, 0);
   assert.ok(result.messages.every((message) => message.level === "info"));
 });
@@ -93,12 +108,12 @@ test("fails on a high or critical advisory missing from the allowlist", () => {
       ]),
     });
 
-    const evaluation = evaluateAuditReport(report);
+    const evaluation = evaluateAuditReport(report, PICOMATCH_ALLOWLIST);
     assert.deepEqual(
       evaluation.blocking.map((entry) => [entry.id, entry.severity]),
       [["GHSA-2222-3333-4444", severity]],
     );
-    const result = auditGateResult(JSON.stringify(report));
+    const result = auditGateResult(JSON.stringify(report), PICOMATCH_ALLOWLIST);
     assert.equal(result.exitCode, 1);
     assert.ok(
       result.messages.some(
@@ -189,7 +204,10 @@ test("falls back to the npm source ID when the URL has no GHSA ID", () => {
 });
 
 test("warns without failing when an allowlisted advisory disappears", () => {
-  const result = auditGateResult(JSON.stringify(auditReport({})));
+  const result = auditGateResult(
+    JSON.stringify(auditReport({})),
+    PICOMATCH_ALLOWLIST,
+  );
 
   assert.equal(result.exitCode, 0);
   assert.deepEqual(
@@ -198,9 +216,10 @@ test("warns without failing when an allowlisted advisory disappears", () => {
       .map((message) => message.text.split(" ")[2]),
     ["GHSA-fc5q-39xc-vjpf"],
   );
-  assert.deepEqual(evaluateAuditReport(auditReport({})).staleAllowlistIds, [
-    "GHSA-fc5q-39xc-vjpf",
-  ]);
+  assert.deepEqual(
+    evaluateAuditReport(auditReport({}), PICOMATCH_ALLOWLIST).staleAllowlistIds,
+    ["GHSA-fc5q-39xc-vjpf"],
+  );
 });
 
 test("fails when npm audit itself reports an error", () => {
