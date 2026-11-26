@@ -123,7 +123,7 @@ const PilotSyncActivitySchema = z
     unchanged: z.number().int().nonnegative(),
   })
   .refine((value) => value.runs_failed <= value.runs_total, {
-    message: "runs_failed must not exceed runs_total",
+    error: "runs_failed must not exceed runs_total",
   });
 
 const PilotBacklogSchema = z.strictObject({

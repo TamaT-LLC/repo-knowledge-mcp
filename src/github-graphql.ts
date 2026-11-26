@@ -13,12 +13,10 @@ export const GraphqlPageInfoSchema = z.strictObject({
 
 export type GraphqlPageInfo = z.infer<typeof GraphqlPageInfoSchema>;
 
-const GraphqlEnvelopeSchema = z
-  .object({
-    data: z.unknown().nullable().optional(),
-    errors: z.array(z.unknown()).optional(),
-  })
-  .loose();
+const GraphqlEnvelopeSchema = z.looseObject({
+  data: z.unknown().nullable().optional(),
+  errors: z.array(z.unknown()).optional(),
+});
 
 export type GitHubSnapshotErrorCode =
   | "DUPLICATE_GRAPHQL_NODE"

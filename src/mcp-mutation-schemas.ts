@@ -450,7 +450,7 @@ const ModelPlanePatchMcpSchema = z
     severity: SeveritySchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
-    message: "patch must not be empty",
+    error: "patch must not be empty",
   });
 
 export const UpdateKnowledgeInputSchema = z.strictObject({

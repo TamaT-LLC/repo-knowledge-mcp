@@ -7,11 +7,17 @@ import { type z } from "zod";
 import {
   AnonymizedThreadCorpusSchema,
   DistillJobSchema,
+  GeneratedCodeExampleSchema,
   GoldenFixtureSchema,
   IngestPrOutputSchema,
+  KnowledgeRevisionPatchSchema,
+  ObservedPilotDailyRecordSchema,
   OutcomeRankingFixtureSchema,
   PilotHumanRubricSchema,
+  RecordOutcomeRequestSchema,
+  RepositoryNameSchema,
   SubmitDistillationInputSchema,
+  UpdateKnowledgeInputSchema,
   createDomainId,
 } from "../src/experimental.js";
 import { repositoryRoot } from "./support/quality-gate-fixtures.js";
@@ -164,7 +170,6 @@ describe("AnonymizedThreadCorpusSchema rules", () => {
     const corpus = await load();
     // Keep every relevance id resolvable: the duplicate reuses an id that
     // already exists, and the renamed thread was not referenced.
-    const last = corpus.threads.length - 1;
     const referenced = new Set(
       corpus.searches.flatMap((search) => Object.keys(search.relevance)),
     );
@@ -172,7 +177,6 @@ describe("AnonymizedThreadCorpusSchema rules", () => {
       (thread, position) => position > 0 && !referenced.has(thread.id),
     );
     expect(index).toBeGreaterThan(0);
-    expect(index).toBeLessThanOrEqual(last);
     at(corpus.threads, index).id = at(corpus.threads, 0).id;
     expect(customIssues(AnonymizedThreadCorpusSchema, corpus)).toEqual([
       {
@@ -545,5 +549,73 @@ describe("SubmitDistillationInputSchema rules", () => {
         path: ["decisions", 0, "target_id"],
       },
     ]);
+  });
+});
+
+describe("refine error messages", () => {
+  const sync = {
+    discovered: 0,
+    failed_pull_requests: [],
+    ingested: 0,
+    jobs_created: 0,
+    retry_attempts: 0,
+    runs_failed: 0,
+    runs_total: 0,
+    unchanged: 0,
+  };
+
+  it.each([
+    {
+      input: "owner/..",
+      message: "repository name must not be '.' or '..'",
+      schema: RepositoryNameSchema,
+    },
+    {
+      input: {
+        content: "   ",
+        evidence_comment_ids: ["PRRC_example"],
+        generated_example: true,
+        language: "typescript",
+      },
+      message: "code example content must not be blank",
+      path: ["content"],
+      schema: GeneratedCodeExampleSchema,
+    },
+    {
+      input: {},
+      message: "revision proposal patch must not be empty",
+      schema: KnowledgeRevisionPatchSchema,
+    },
+    {
+      input: {},
+      message: "patch must not be empty",
+      schema: UpdateKnowledgeInputSchema.shape.patch,
+    },
+    {
+      input: {},
+      message: "context must contain at least one field",
+      schema: RecordOutcomeRequestSchema.shape.context,
+    },
+    {
+      input: { ...sync, runs_failed: 1 },
+      message: "runs_failed must not exceed runs_total",
+      schema: ObservedPilotDailyRecordSchema.shape.sync,
+    },
+  ])("keeps the message: $message", ({ input, message, path = [], schema }) => {
+    expect(customIssues(schema, input)).toEqual([{ message, path }]);
+  });
+
+  it("accepts the values next to each rejected one", () => {
+    expect(customIssues(RepositoryNameSchema, "owner/.name")).toEqual([]);
+    expect(customIssues(KnowledgeRevisionPatchSchema, { rule: "x" })).toEqual(
+      [],
+    );
+    expect(
+      customIssues(ObservedPilotDailyRecordSchema.shape.sync, {
+        ...sync,
+        runs_failed: 1,
+        runs_total: 1,
+      }),
+    ).toEqual([]);
   });
 });

@@ -58,7 +58,7 @@ const RecordOutcomeContextSchema = z
     task_id: NonEmptyStringSchema.max(MAX_OUTCOME_TASK_ID_LENGTH).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
-    message: "context must contain at least one field",
+    error: "context must contain at least one field",
   });
 
 export const RecordOutcomeRequestSchema = z

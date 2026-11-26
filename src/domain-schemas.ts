@@ -48,7 +48,7 @@ export const RepositoryNameSchema = z
     "must use owner/name form",
   )
   .refine((value) => !value.endsWith("/.") && !value.endsWith("/.."), {
-    message: "repository name must not be '.' or '..'",
+    error: "repository name must not be '.' or '..'",
   });
 export const GitHubNodeIdSchema = NonEmptyStringSchema;
 
@@ -340,7 +340,7 @@ export const GeneratedCodeExampleSchema = z.strictObject({
   content: NonEmptyStringSchema.max(
     GENERATED_CODE_EXAMPLE_MAX_CONTENT_CHARACTERS,
   ).refine((value) => value.trim().length > 0, {
-    message: "code example content must not be blank",
+    error: "code example content must not be blank",
   }),
   evidence_comment_ids: z
     .array(GitHubNodeIdSchema)
@@ -546,7 +546,7 @@ export const KnowledgeRevisionPatchSchema = z
     severity: SeveritySchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
-    message: "revision proposal patch must not be empty",
+    error: "revision proposal patch must not be empty",
   });
 export const KnowledgeRevisionProposalSchema = z.strictObject({
   created_at: IsoDateTimeSchema,

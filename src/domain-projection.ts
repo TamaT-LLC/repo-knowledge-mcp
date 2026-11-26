@@ -52,20 +52,18 @@ const PROPOSAL_RECORD_TYPES = new Set([
   "KnowledgeRevisionProposalRejected",
 ]);
 
-const KnowledgeProjectionFrontmatterSchema = z
-  .object({
-    category: KnowledgeCategorySchema,
-    created_at: z.iso.datetime({ offset: true }),
-    id: KnowledgeIdSchema,
-    repo_id: RepositoryIdSchema,
-    revision: z.number().int().positive(),
-    rule: z.string().min(1),
-    scope: z.array(ScopePatternSchema),
-    severity: SeveritySchema,
-    status: KnowledgeStatusSchema,
-    updated_at: z.iso.datetime({ offset: true }),
-  })
-  .loose();
+const KnowledgeProjectionFrontmatterSchema = z.looseObject({
+  category: KnowledgeCategorySchema,
+  created_at: z.iso.datetime({ offset: true }),
+  id: KnowledgeIdSchema,
+  repo_id: RepositoryIdSchema,
+  revision: z.number().int().positive(),
+  rule: z.string().min(1),
+  scope: z.array(ScopePatternSchema),
+  severity: SeveritySchema,
+  status: KnowledgeStatusSchema,
+  updated_at: z.iso.datetime({ offset: true }),
+});
 
 export type DomainProjectionErrorCode = "INVALID_DOMAIN_RECORD";
 
