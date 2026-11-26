@@ -459,6 +459,8 @@ canonical は生のセッション ID を持たないため、削除条件の照
 
 削除条件の `project_path_prefix` は、取り込み時はソースから読んだマスク前のパスに直接照合する。前方一致は文字列ではなくパス区切り（`/`）の単位で判定し、`/Users/alice/re` は `/Users/alice/repo` に一致しない。取り込み時の照合と保存後の HMAC による照合は、この同じ規則で判定する。
 保存済みの発言と tombstone に対しては、`project_path_prefix` を正規化して現在の鍵で HMAC を取り、その値が `path_prefix_hmacs` に含まれるかで照合する。
+正規化は、`.` と `..` と末尾の `/` を整えたうえで、存在する最も長い前方部分を realpath で実体のパスにし、存在しない残りはそのまま付ける。シンボリックリンク経由のパスや macOS の `/var` と `/private/var` のように、実体が同じ別のパスを同じ値にするためである。`path_prefix_hmacs` を作る側と削除条件の HMAC を取る側で同じ関数を使う。
+鍵がないときは、保存済みの発言にパスの削除条件を照合できない。保存済みの発言があるのに `local.key` がない状態でパスを含む削除条件の purge を求められたら、0 件の成功として終えず、何も書かずに拒否して `conversations reset-key` を案内する。セッション、期間、ソース、`owner/name` の条件は鍵を使わないので、そのまま削除できる。
 `path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/`、`/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ。階層の数に上限は設けず、ルート `/` を含むすべての階層を持つ。そのため削除条件や `excludeProjects` に `/` を指定した場合も、取り込み時と保存後の照合が同じ結果（すべてに一致）になる。上限を設けると、それより深いパスを削除条件や `excludeProjects` に指定したときに照合が漏れるためである。
 前方一致を HMAC の集合の包含で表すため、生のパスを保存せずに、`/Users/alice/repo` と `/Users/bob/repo` を区別できる。
 マスク後のパスは区別できないため、照合には使わない。
@@ -518,6 +520,10 @@ HMAC(local.key, JCS({ source, session_id, source_message_id | null, timestamp, m
 古い evidence を根拠としていたナレッジは、再取り込みと再蒸留の後に `same` の merge で新しい evidence を得る。
 
 `doctor` と `conversations status` は、canonical に active な会話 evidence があるのに鍵がない場合と、active な会話 evidence の `key_id` が現在の鍵と異なる場合に警告し、`conversations reset-key` を案内する。
+会話データ領域があるとき、`doctor` は会話データ領域の中だけでも次を診断する（PR2）。鍵ファイルの権限が広いか壊れている場合は失敗、マーカーがあり再開できる場合と、どちらの鍵も一致しない場合と、マーカーが壊れている場合と、保存済みの発言があるのに鍵がない場合は警告とし、それぞれ `conversations reset-key` または `--restart` を案内する。会話データ領域がなければ何も出さない。
+
+`--restart` がマーカーを消すのは、マーカーが壊れているか、どちらの鍵もマーカーの `key_id` と一致しない場合だけとする。再開できる状態で `--restart` を付けても、鍵を作り直さず、通常の再実行と同じく続きから進める。
+保存済みの発言があるのに `local.key` がない場合は、取り込みで新しい鍵を作らない。新しい鍵では古い発言の HMAC と一致しないためで、`conversations reset-key` で破棄してから取り込み直す。
 
 鍵はバックアップの対象に含めてよいが、バックアップ先にも `0600` 相当の保護を求める。
 鍵だけを別の環境へ持ち出すと、その環境で発言 ID からの照合ができてしまうためである。
@@ -893,8 +899,8 @@ history にだけある情報（プロジェクトのパス）は会話ファイ
 | --- | --- | --- |
 | 既存の検出種別（API key、GitHub token、Slack token、AWS key、Google API key、秘密鍵ブロック、汎用の秘密代入、メールアドレス） | 共有 | 該当部分を `[REDACTED]` |
 | Authorization header | 共有 | header の値全体を `[REDACTED]` にし、`Authorization: [REDACTED]` とする |
-| Bearer token | 会話だけ | `bearer <token>` 全体を `[REDACTED]` |
-| JWT | 会話だけ | 該当部分を `[REDACTED]` |
+| Bearer token | 会話だけ | `bearer <token>` 全体を `[REDACTED]`。token が数字を含むか 16 文字以上のとき（「bearer of」のような文は置換しない） |
+| JWT | 会話だけ | 該当部分を `[REDACTED]`。ペイロードと署名が空のもの（`e30` や未署名）も含む |
 | 英字と数字を両方含む 32 文字以上の連続 | 会話だけ | 該当部分を `[REDACTED]`。パスの一部は除く |
 | ホームディレクトリの絶対パス | 会話だけ | `/Users/<name>/`、`/home/<name>/` を `~/` |
 | 接続文字列の資格情報 | 会話だけ | `scheme://user:pass@host` 形式の `user:pass` を置換し、`scheme://[REDACTED]@host` とする |
@@ -910,6 +916,7 @@ JWT、Bearer、32 文字の規則を会話だけに適用するのは、PR レ�
 途中で切れた `[REDACTED` は利用者辞書の語（`ted` など）に一致し、`AKIA` と 17 文字の並びは 16 文字に切ると AWS のキーの形になる。どちらも保存時の再マスクで本文が変わり、未マスクとして拒否されるためである。
 
 秘密代入は、キー名を残して値だけを置換する。
+秘密代入はほかの規則より先に当て、値は記号を含めて末尾まで置換する。値の中の AWS キーや GitHub トークンを先に置換すると、値の残り（`secret=[REDACTED]+tail`）が残るためである。
 
 利用者辞書は、第三者の氏名や社名など、利用者が消したい語を並べたものとする。
 辞書は会話用の設定ファイル（`0600`）にだけ置き、送信しない。
@@ -1675,6 +1682,7 @@ rule 本文に含まれる `<!--`、`-->`、`repo-knowledge:begin`、`repo-knowl
 既存の `config.json` は strict な schema（`RepoKnowledgeConfigSchema`）で検証され、未知の key があると古いバージョンが起動できない。
 そのため会話用の設定は別ファイル `conversation-distillation.json` に置き、独自の strict な schema で検証する。
 ファイルがない場合は、すべて無効として扱う。
+利用者辞書に第三者の氏名を書くため、このファイルがグループや他人から読める権限（`0600` より広い）の場合は読み込まずに `CONFIG_PATH_UNSAFE` で止め、`chmod 600` を案内する。利用者が書くファイルなので、権限を自動では変えない。
 古いバージョンはこのファイルを読まない。
 
 ```jsonc
