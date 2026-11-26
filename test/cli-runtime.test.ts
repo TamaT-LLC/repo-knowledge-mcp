@@ -8,6 +8,8 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -55,6 +57,32 @@ describe("default CLI runtime", () => {
     expect(result.stdout).toBe(REPO_KNOWLEDGE_CLI_HELP.trimEnd());
     expect(result.stderr).toBe("");
     await expect(access(storageRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("exits quietly with 0 when the stdout reader closes early", async () => {
+    const storageRoot = join(await temporaryDirectory(), "not-created");
+    const child = spawn(process.execPath, ["dist/bin.js", "--help"], {
+      env: { ...process.env, REPO_KNOWLEDGE_HOME: storageRoot },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    // Close the read end before the CLI writes, like `repo-knowledge ... | head`
+    // after head has exited, so the first stdout write fails with EPIPE.
+    child.stdout.destroy();
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    const [code, signal] = (await once(child, "close")) as [
+      number | null,
+      NodeJS.Signals | null,
+    ];
+
+    expect({ code, signal, stderr }).toEqual({
+      code: 0,
+      signal: null,
+      stderr: "",
+    });
   });
 
   it("shows help on platforms without canonical storage support", async () => {

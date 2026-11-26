@@ -55,6 +55,9 @@ active rule がなく失敗した job だけが残る場合、MCP の `readiness
 `record_outcome` は MCP tool であり、同名の CLI command は提供しません。
 `--json` は `setup` 専用です。`sync` と `stats` は既定で JSON を出力します。
 
+`repo-knowledge list owner/repository | head` のように読み手が stdout を先に閉じた場合（EPIPE）、CLI は以降の stdout 出力を捨てて command を最後まで実行し、stack trace を出さずに command 本来の exit code で終了します。成功した command は exit 0 です（shell 慣習の 141 は使いません）。
+それ以外の stdout 書き込みエラー（`ENOSPC` など）は従来どおり失敗として exit 1 になります。
+
 ## repository の解決と設定
 
 既定の config は `~/.repo-knowledge/config.json` です。

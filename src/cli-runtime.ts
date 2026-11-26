@@ -60,6 +60,7 @@ import {
   createProcessSyncScheduleSystem,
   SyncScheduler,
 } from "./sync-schedule.js";
+import { guardBrokenPipe } from "./stdout-pipe.js";
 import { createTerminalProgressRenderer } from "./terminal-progress.js";
 
 export interface DefaultCliRuntime {
@@ -215,6 +216,8 @@ function defaultStorageRoot(explicit: string | undefined): string {
 
 /** Real terminal adapter with explicit EOF and interrupt completion. */
 export function createProcessCliIo(): RepoKnowledgeCliIo {
+  // A reader that exits early (`| head`) closes stdout; stop writing quietly.
+  const stdout = guardBrokenPipe(process.stdout);
   const terminal = createTerminalQuestionQueue();
   const progress = createTerminalProgressRenderer({
     interactive: process.stderr.isTTY === true,
@@ -251,7 +254,7 @@ export function createProcessCliIo(): RepoKnowledgeCliIo {
       process.stderr.write(value);
     },
     writeStdout(value) {
-      process.stdout.write(value);
+      stdout.write(value);
     },
   };
 }
