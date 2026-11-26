@@ -23,6 +23,7 @@ import {
   ConversationStore,
   keyId,
   matchesProjectSelector,
+  normalizeProjectPath,
   projectPathFields,
   rawProjectSubject,
   sessionKey,
@@ -782,5 +783,120 @@ describe("paths that name the same directory", () => {
     expect(matchesProjectSelector(join(root, "work", "other"), viaReal)).toBe(
       false,
     );
+  });
+});
+
+describe("key consistency with stored records", () => {
+  async function swapKey(root: string): Promise<void> {
+    const path = join(root, "conversations", "local.key");
+    await rm(path);
+    await writeFile(path, Buffer.alloc(32, 0x5a), { mode: 0o600 });
+  }
+
+  it("refuses a path purge after local.key was replaced by another key", async () => {
+    const root = await home();
+    await seed(root);
+    await swapKey(root);
+    await expect(
+      store(root).purge({ project_path_prefix: "/Users/alice" }),
+    ).rejects.toThrow("CONVERSATION_KEY_MISMATCH");
+    await expect(
+      store(root).previewPurge({ project_path_prefix: "/Users" }),
+    ).rejects.toThrow("CONVERSATION_KEY_MISMATCH");
+    expect(await store(root).readPurgeFilters()).toEqual([]);
+    expect((await store(root).status()).purge_in_progress).toBeNull();
+    expect(await store(root).readRecords()).toHaveLength(4);
+    // Conditions that need no key still work.
+    await expect(
+      store(root).purge({ session_id: "s-alice" }),
+    ).resolves.toMatchObject({ purged_records: 1 });
+  });
+
+  it("does not hand out a key that did not hash the stored records", async () => {
+    const root = await home();
+    await seed(root);
+    await swapKey(root);
+    await expect(store(root).ensureKey()).rejects.toThrow(
+      "CONVERSATION_KEY_MISMATCH",
+    );
+    // reset-key discards the old generation; path purges work again.
+    await store(root).resetKey();
+    const key = await store(root).ensureKey();
+    await store(root).appendRecords([utterance(key, { session: "s-new" })]);
+    await expect(
+      store(root).purge({ project_path_prefix: "/Users/alice" }),
+    ).resolves.toEqual({ filter_added: true, purged_records: 1 });
+  });
+});
+
+describe("path normalization at registration", () => {
+  it("resolves a symlink before a following ..", async () => {
+    const root = await home();
+    await mkdir(join(root, "real", "sub"), { recursive: true });
+    await mkdir(join(root, "real", "x"), { recursive: true });
+    await symlink(join(root, "real", "sub"), join(root, "link"));
+    const real = normalizeProjectPath(join(root, "real"));
+    // path.join would collapse `..` lexically, so build the raw string.
+    expect(normalizeProjectPath(`${root}/link/../x`)).toBe(`${real}/x`);
+    expect(normalizeProjectPath(`${root}/link/../missing/../x`)).toBe(
+      `${real}/x`,
+    );
+    expect(normalizeProjectPath(`${root}/link/./../x/`)).toBe(`${real}/x`);
+    const key = Buffer.alloc(32, 6);
+    const stored = storedProjectMatcher(key)({
+      ...projectPathFields(key, `${real}/x/app`),
+      name_with_owner: null,
+    });
+    expect(matchesProjectSelector(`${root}/link/../x`, stored)).toBe(true);
+    expect(matchesProjectSelector(`${root}/x`, stored)).toBe(false);
+  });
+
+  it("keeps a stored filter's target when a symlink changes later", async () => {
+    const root = await home();
+    const a = join(root, "w", "a");
+    const b = join(root, "w", "b");
+    await mkdir(a, { recursive: true });
+    await mkdir(b, { recursive: true });
+    const current = store(root);
+    const key = await current.ensureKey();
+    await current.purge({ project_path_prefix: a });
+    const [saved] = await current.readPurgeFilters();
+    // w/a becomes a symlink to w/b after the filter was registered.
+    await rm(a, { recursive: true });
+    await symlink(b, a);
+    expect(await current.readPurgeFilters()).toEqual([saved]);
+    expect(
+      await current.appendRecords([
+        utterance(key, { path: b, session: "s-b" }),
+      ]),
+    ).toEqual({ appended: 1, skipped_by_purge_filter: 0 });
+  });
+
+  it("resumes an interrupted purge with the path it registered", async () => {
+    const root = await home();
+    const a = join(root, "w", "a");
+    const b = join(root, "w", "b");
+    await mkdir(a, { recursive: true });
+    await mkdir(b, { recursive: true });
+    const key = await store(root).ensureKey();
+    await store(root).appendRecords([
+      utterance(key, { path: b, session: "s-b" }),
+    ]);
+    await expect(
+      store(root, { faultInjector: crashingAt("purge:ids_recorded") }).purge({
+        project_path_prefix: a,
+      }),
+    ).rejects.toThrow(Crash);
+    await rm(a, { recursive: true });
+    await symlink(b, a);
+    await store(root).compact(null);
+    expect(
+      (await store(root).readPurgeFilters()).map((f) => f.project_path_prefix),
+    ).toEqual([normalizeProjectPath(join(root, "w")) + "/a"]);
+    expect(
+      (await store(root).readRecords()).flatMap((r) =>
+        r.type === "utterance" ? [r.session_id] : [],
+      ),
+    ).toEqual(["s-b"]);
   });
 });

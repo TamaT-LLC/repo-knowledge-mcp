@@ -153,6 +153,103 @@ describe("RepoKnowledgeDoctor", () => {
     });
   });
 
+  it("checks the reset marker before a damaged key when both exist", async () => {
+    const crashAt = (target: string) => ({
+      faultInjector: (point: string) => {
+        if (point === target) throw new Error("crash");
+      },
+    });
+    const finish = "run `repo-knowledge conversations reset-key` to finish it";
+
+    // Marker and local.key.next match; the old local.key is corrupt.
+    const pending = await createFixture();
+    const pendingDir = join(pending.storageRoot, "conversations");
+    await new ConversationStore(pending.storageRoot).ensureKey();
+    await expect(
+      new ConversationStore(
+        pending.storageRoot,
+        crashAt("reset:marker_written"),
+      ).resetKey(),
+    ).rejects.toThrow("crash");
+    await writeFile(join(pendingDir, "local.key"), "short", { mode: 0o600 });
+    expect(
+      check(await pending.doctor().run(), "conversations.key"),
+    ).toMatchObject({ status: "warn", remedy: finish });
+    await expect(
+      new ConversationStore(pending.storageRoot).resetKey(),
+    ).resolves.toMatchObject({ resumed: true });
+
+    // The rename happened; local.key matches the marker but is 0644.
+    const renamed = await createFixture();
+    const renamedDir = join(renamed.storageRoot, "conversations");
+    await new ConversationStore(renamed.storageRoot).ensureKey();
+    await expect(
+      new ConversationStore(
+        renamed.storageRoot,
+        crashAt("reset:key_renamed"),
+      ).resetKey(),
+    ).rejects.toThrow("crash");
+    await chmod(join(renamedDir, "local.key"), 0o644);
+    expect(
+      check(await renamed.doctor().run(), "conversations.key"),
+    ).toMatchObject({
+      status: "fail",
+      remedy: `chmod 600 the key file, then ${finish}`,
+    });
+    await chmod(join(renamedDir, "local.key"), 0o600);
+    await expect(
+      new ConversationStore(renamed.storageRoot).resetKey(),
+    ).resolves.toMatchObject({ resumed: true });
+
+    // Neither key matches and local.key is corrupt: only --restart helps.
+    const lost = await createFixture();
+    const lostDir = join(lost.storageRoot, "conversations");
+    await new ConversationStore(lost.storageRoot).ensureKey();
+    await expect(
+      new ConversationStore(
+        lost.storageRoot,
+        crashAt("reset:marker_written"),
+      ).resetKey(),
+    ).rejects.toThrow("crash");
+    await rm(join(lostDir, "local.key.next"));
+    await writeFile(join(lostDir, "local.key"), "short", { mode: 0o600 });
+    expect(check(await lost.doctor().run(), "conversations.key")).toMatchObject(
+      {
+        status: "warn",
+        remedy: "run `repo-knowledge conversations reset-key --restart`",
+      },
+    );
+    await expect(
+      new ConversationStore(lost.storageRoot).resetKey({ restart: true }),
+    ).resolves.toMatchObject({ resumed: false });
+  });
+
+  it("warns when stored conversations were hashed with another key", async () => {
+    const fixture = await createFixture();
+    const directory = join(fixture.storageRoot, "conversations");
+    const conversations = new ConversationStore(fixture.storageRoot);
+    await conversations.ensureKey();
+    const id = (n: string) => `utt_${n.repeat(32)}`;
+    await writeFile(
+      join(directory, "utterances.jsonl"),
+      `${JSON.stringify({
+        type: "expired",
+        utterance_id: id("c"),
+        source: "codex",
+        session_id: "s",
+        timestamp: "2026-01-01T00:00:00Z",
+        project: { path_prefix_hmacs: ["0".repeat(64)], name_with_owner: null },
+      })}\n`,
+      { mode: 0o600 },
+    );
+    expect(
+      check(await fixture.doctor().run(), "conversations.key"),
+    ).toMatchObject({
+      status: "warn",
+      message: "Stored conversations were hashed with a different local.key",
+    });
+  });
+
   it("preserves diagnostics when the projection file is missing", async () => {
     const fixture = await createFixture();
     await rm(join(fixture.repositoryRoot, "index.sqlite"), { force: true });

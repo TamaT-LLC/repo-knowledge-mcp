@@ -128,23 +128,34 @@ const PurgeFilterShape = z
     session_id: z.string().min(1).optional(),
     before: IsoDateTimeSchema.optional(),
     after: IsoDateTimeSchema.optional(),
-    // Normalized at parse time so equivalent filters dedupe and match alike.
-    project_path_prefix: z
-      .string()
-      .startsWith("/")
-      .transform((path) => normalizeProjectPath(path))
-      .optional(),
-    name_with_owner: RepositoryNameSchema.transform((name) =>
-      name.toLowerCase(),
-    ).optional(),
+    project_path_prefix: z.string().startsWith("/").optional(),
+    name_with_owner: RepositoryNameSchema.optional(),
   })
   .strict();
-/** Persisted with key-independent values so it survives `reset-key`. */
-export const PurgeFilterSchema = PurgeFilterShape.refine(
-  (filter) => Object.keys(filter).length > 0,
+const atLeastOneCondition = (filter: object) => Object.keys(filter).length > 0;
+/**
+ * A persisted filter, read back exactly as it was stored: re-resolving its
+ * path later would let a changed symlink move what the filter deletes.
+ */
+const PurgeFilterSchema = PurgeFilterShape.refine(
+  atLeastOneCondition,
   "a purge filter needs at least one condition",
 );
 export type PurgeFilter = z.infer<typeof PurgeFilterSchema>;
+/**
+ * A filter as a user registers it. The path is resolved once, here, so
+ * equivalent spellings dedupe and the stored value never changes meaning.
+ */
+const PurgeFilterInputSchema = PurgeFilterShape.extend({
+  project_path_prefix: z
+    .string()
+    .startsWith("/")
+    .transform((path) => normalizeProjectPath(path))
+    .optional(),
+  name_with_owner: RepositoryNameSchema.transform((name) =>
+    name.toLowerCase(),
+  ).optional(),
+}).refine(atLeastOneCondition, "a purge filter needs at least one condition");
 
 const PurgeFiltersFileSchema = z
   .object({
@@ -222,10 +233,12 @@ function pathPrefixHmac(key: Uint8Array, normalizedPrefix: string): string {
 }
 
 /**
- * One shared normalization for both the HMAC side and the filter side.
- * The longest existing prefix is resolved with realpath, so a symlinked or
- * aliased path (macOS `/var` and `/private/var`) names the same directory;
- * the part that no longer exists is kept as written.
+ * One shared normalization for both the HMAC side and the filter side,
+ * applied when a record is ingested or a filter is registered. Components are
+ * resolved left to right the way the OS does: an existing component through
+ * realpath (so a symlink or an alias such as macOS `/var` names its real
+ * directory) before a later `..` steps up from it; once a component does not
+ * exist, the rest is kept as written.
  */
 export function normalizeProjectPath(path: string): string {
   if (!path.startsWith("/")) {
@@ -234,16 +247,26 @@ export function normalizeProjectPath(path: string): string {
       "project paths must be absolute",
     );
   }
-  const normalized = posix.normalize(path).replace(/(?<=.)\/+$/u, "");
-  const missing: string[] = [];
-  for (let existing = normalized; ; existing = posix.dirname(existing)) {
-    try {
-      return posix.join(realpathSync.native(existing), ...missing.reverse());
-    } catch {
-      if (existing === "/") return normalized;
-      missing.push(posix.basename(existing));
+  let resolved = "/";
+  let exists = true;
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      resolved = posix.dirname(resolved);
+      continue;
     }
+    const next = posix.join(resolved, part);
+    if (exists) {
+      try {
+        resolved = realpathSync.native(next);
+        continue;
+      } catch {
+        exists = false;
+      }
+    }
+    resolved = next;
   }
+  return resolved;
 }
 
 function pathPrefixes(normalized: string): string[] {
@@ -277,7 +300,10 @@ export function projectPathFields(
 
 export interface ProjectSubject {
   readonly nameWithOwner: string | null;
-  /** True when the subject path is at or below `prefix` (segment-wise). */
+  /**
+   * True when the subject path is at or below `prefix` (segment-wise).
+   * `prefix` must already be normalized; it is not resolved again here.
+   */
   hasPathPrefix(prefix: string): boolean;
 }
 
@@ -289,7 +315,7 @@ export function rawProjectSubject(
   const prefixes = new Set(pathPrefixes(normalizeProjectPath(rawPath)));
   return {
     nameWithOwner,
-    hasPathPrefix: (prefix) => prefixes.has(normalizeProjectPath(prefix)),
+    hasPathPrefix: (prefix) => prefixes.has(prefix),
   };
 }
 
@@ -314,11 +340,10 @@ export function storedProjectMatcher(
   return (project) => ({
     nameWithOwner: project.name_with_owner,
     hasPathPrefix: (prefix) => {
-      const normalized = normalizeProjectPath(prefix);
-      let hmac = hmacs.get(normalized);
+      let hmac = hmacs.get(prefix);
       if (hmac === undefined) {
-        hmac = pathPrefixHmac(key, normalized);
-        hmacs.set(normalized, hmac);
+        hmac = pathPrefixHmac(key, prefix);
+        hmacs.set(prefix, hmac);
       }
       return project.path_prefix_hmacs.includes(hmac);
     },
@@ -331,7 +356,7 @@ export function matchesProjectSelector(
   subject: ProjectSubject,
 ): boolean {
   return selector.startsWith("/")
-    ? subject.hasPathPrefix(selector)
+    ? subject.hasPathPrefix(normalizeProjectPath(selector))
     : sameRepository(subject.nameWithOwner, selector);
 }
 
@@ -506,9 +531,14 @@ export class ConversationStore {
   async ensureKey(): Promise<Buffer> {
     return this.writeLocked(async () => {
       const existing = await this.readKey();
-      if (existing !== null) return existing;
+      const records = await this.readRecords();
+      if (existing !== null) {
+        // Records hashed by another key would never match this one.
+        if (!recordsMatchKey(existing, records)) throw keyMismatch();
+        return existing;
+      }
       // A new key could never match what the lost one hashed.
-      if ((await this.readRecords()).length > 0) throw keyLost();
+      if (records.length > 0) throw keyLost();
       const key = randomBytes(KEY_BYTES);
       await writeDurable(this.path("key"), key, "wx");
       await fsyncDirectory(this.directory);
@@ -630,20 +660,22 @@ export class ConversationStore {
   // --- purge (stages 1-3, with hooks for 4-5) -------------------------------
 
   /** Read-only count used to confirm a purge before taking the lock. */
-  async previewPurge(filter: PurgeFilter): Promise<number> {
-    return (await this.matchingIds(filter)).length;
+  async previewPurge(input: PurgeFilter): Promise<number> {
+    return (await this.matchingIds(PurgeFilterInputSchema.parse(input))).length;
   }
 
   private async matchingIds(filter: PurgeFilter): Promise<string[]> {
     const key = await this.readKey();
     const records = await this.readRecords();
-    // Without the key a path filter matches nothing; never report success.
+    // A path filter is compared through the key: without it, or with a key
+    // that did not hash the stored records, it would match nothing and
+    // report a purge that removed nothing as a success.
     if (
-      key === null &&
       filter.project_path_prefix !== undefined &&
       records.some((record) => record.type !== "superseded")
     ) {
-      throw keyLost();
+      if (key === null) throw keyLost();
+      if (!recordsMatchKey(key, records)) throw keyMismatch();
     }
     const matches = purgeMatcher(key, [filter]);
     return records.flatMap((record) =>
@@ -656,7 +688,7 @@ export class ConversationStore {
   async purge(
     input: PurgeFilter,
   ): Promise<{ filter_added: boolean; purged_records: number }> {
-    const filter = PurgeFilterSchema.parse(input);
+    const filter = PurgeFilterInputSchema.parse(input);
     assertPurgeBeforeNotInFuture(filter, this.now());
     return this.writeLocked(async () => {
       const progress: PurgeProgress = {
@@ -820,7 +852,9 @@ export class ConversationStore {
 
   /**
    * Read-only health of the key and the reset marker for `doctor`; null
-   * when the conversation data area has never been created.
+   * when the conversation data area has never been created. The marker is
+   * checked first: finishing or restarting a reset also replaces a damaged
+   * local.key, so the key alone would point at the wrong recovery.
    */
   async diagnose(): Promise<{
     readonly status: "pass" | "warn" | "fail";
@@ -828,20 +862,10 @@ export class ConversationStore {
     readonly remedy?: string;
   } | null> {
     if (!(await pathExists(this.directory))) return null;
-    let key: Buffer | null;
-    try {
-      key = await this.readKey();
-    } catch (error) {
-      if (!(error instanceof ConversationStoreError)) throw error;
-      return {
-        status: "fail",
-        message: error.message,
-        remedy:
-          error.code === "CONVERSATION_KEY_PERMISSIONS"
-            ? "chmod 600 the key file"
-            : "run `repo-knowledge conversations reset-key`",
-      };
-    }
+    const finish = "run `repo-knowledge conversations reset-key` to finish it";
+    const restart = "run `repo-knowledge conversations reset-key --restart`";
+    const inProgress =
+      "A conversation key reset is in progress; ingest is refused";
     let marker: ResetPendingMarker | null;
     try {
       marker = await this.resetPending();
@@ -849,28 +873,57 @@ export class ConversationStore {
       return {
         status: "warn",
         message: "reset-pending.json is not valid",
-        remedy: "run `repo-knowledge conversations reset-key --restart`",
+        remedy: restart,
       };
     }
+    const key = await inspectKeyFile(this.path("key"));
     if (marker !== null) {
-      return (await this.canResume(marker))
-        ? {
-            status: "warn",
-            message:
-              "A conversation key reset is in progress; ingest is refused",
-            remedy: "run `repo-knowledge conversations reset-key` to finish it",
-          }
-        : {
-            status: "warn",
-            message:
-              "Neither local.key nor local.key.next matches the reset marker",
-            remedy: "run `repo-knowledge conversations reset-key --restart`",
-          };
+      if (key.keyId === marker.key_id) {
+        return key.error === undefined
+          ? { status: "warn", message: inProgress, remedy: finish }
+          : {
+              status: "fail",
+              message: key.error.message,
+              remedy: `chmod 600 the key file, then ${finish}`,
+            };
+      }
+      if (
+        marker.completed_stage < 1 &&
+        (await keyIdOf(this.path("nextKey"))) === marker.key_id
+      ) {
+        // The pending rename replaces local.key, damaged or not.
+        return { status: "warn", message: inProgress, remedy: finish };
+      }
+      return {
+        status: "warn",
+        message:
+          "Neither local.key nor local.key.next matches the reset marker",
+        remedy: restart,
+      };
     }
-    if (key === null && (await this.readRecords()).length > 0) {
+    if (key.error !== undefined) {
+      return {
+        status: "fail",
+        message: key.error.message,
+        remedy:
+          key.error.code === "CONVERSATION_KEY_PERMISSIONS"
+            ? "chmod 600 the key file"
+            : "run `repo-knowledge conversations reset-key`",
+      };
+    }
+    const records = await this.readRecords();
+    if (key.keyId === null && records.length > 0) {
       return {
         status: "warn",
         message: "Stored conversations exist but local.key is missing",
+        remedy: "run `repo-knowledge conversations reset-key`",
+      };
+    }
+    const current = await this.readKey();
+    if (current !== null && !recordsMatchKey(current, records)) {
+      return {
+        status: "warn",
+        message: "Stored conversations were hashed with a different local.key",
         remedy: "run `repo-knowledge conversations reset-key`",
       };
     }
@@ -913,6 +966,26 @@ export class ConversationStore {
   private now(): Date {
     return this.options.now?.() ?? new Date();
   }
+}
+
+function keyMismatch(): ConversationStoreError {
+  return new ConversationStoreError(
+    "CONVERSATION_KEY_MISMATCH",
+    "stored conversations were hashed with a different local.key; run `repo-knowledge conversations reset-key` to start over with a new key",
+  );
+}
+
+/** Every stored utterance and tombstone hashes the `/` prefix. */
+function recordsMatchKey(
+  key: Uint8Array,
+  records: readonly ConversationRecord[],
+): boolean {
+  const root = pathPrefixHmac(key, "/");
+  return records.every(
+    (record) =>
+      record.type === "superseded" ||
+      record.project.path_prefix_hmacs.includes(root),
+  );
 }
 
 function keyLost(): ConversationStoreError {
@@ -1008,6 +1081,30 @@ async function readKeyFile(path: string): Promise<Buffer | null> {
     );
   }
   return key;
+}
+
+/**
+ * The key's generation even when its mode is too wide, so doctor can tell a
+ * key that only needs chmod from a key that no longer matches.
+ */
+async function inspectKeyFile(path: string): Promise<{
+  readonly keyId: string | null;
+  readonly error?: ConversationStoreError;
+}> {
+  try {
+    const key = await readKeyFile(path);
+    return { keyId: key === null ? null : keyId(key) };
+  } catch (error) {
+    if (!(error instanceof ConversationStoreError)) throw error;
+    const bytes =
+      error.code === "CONVERSATION_KEY_PERMISSIONS"
+        ? await readFile(path)
+        : null;
+    return {
+      keyId: bytes?.length === KEY_BYTES ? keyId(bytes) : null,
+      error,
+    };
+  }
 }
 
 async function keyIdOf(path: string): Promise<string | null> {
