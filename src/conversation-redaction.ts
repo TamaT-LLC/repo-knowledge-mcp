@@ -122,7 +122,7 @@ const RULES: readonly Rule[] = [
  * Masks one utterance or context before it is persisted. The text is NFKC
  * normalized first so dictionary terms match regardless of full/half width.
  * Callers must redact before truncating so a cut token cannot slip below a
- * length threshold.
+ * length threshold, and must truncate with `truncateRedactedText`.
  */
 export function redactConversationText(
   text: string,
@@ -159,6 +159,34 @@ export function redactConversationText(
       .map(([kind, count]) => ({ kind, count }))
       .sort((a, b) => compareCodeUnits(a.kind, b.kind)),
   };
+}
+
+/**
+ * Truncates already-masked text to `maxCharacters` code points so that the
+ * result stays masked: it never cuts inside `[REDACTED]` (a fragment such as
+ * `[REDACTED` can match a dictionary term like "ted"), and it masks the cut
+ * text again because a cut can complete a pattern that a word boundary had
+ * blocked (`AKIA` + 17 characters cut to 16). The result fits and masking
+ * it again changes nothing.
+ */
+export function truncateRedactedText(
+  text: string,
+  maxCharacters: number,
+  options: { readonly redactTerms?: readonly string[] } = {},
+): string {
+  let result = text;
+  // Masking keeps or shortens a cut; the bound only guards NFKC expansions.
+  for (let pass = 0; pass < 3; pass += 1) {
+    const codePoints = Array.from(result);
+    if (codePoints.length <= maxCharacters) return result;
+    let cut = codePoints.slice(0, maxCharacters).join("");
+    const marker = result.lastIndexOf(REDACTED, cut.length - 1);
+    if (marker >= 0 && marker + REDACTED.length > cut.length) {
+      cut = cut.slice(0, marker);
+    }
+    result = redactConversationText(cut, options).text;
+  }
+  return Array.from(result).slice(0, maxCharacters).join("");
 }
 
 /** Versions the rules and the dictionary without revealing its terms. */

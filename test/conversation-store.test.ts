@@ -14,6 +14,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  redactConversationText,
+  truncateRedactedText,
+} from "../src/conversation-redaction.js";
+import {
   ConversationStore,
   keyId,
   matchesProjectSelector,
@@ -537,6 +541,30 @@ describe("interruption and resume (M4-AC-049)", () => {
 });
 
 describe("recovery and normalization", () => {
+  it("accepts text truncated after masking even with a splitting term", async () => {
+    const root = await home();
+    const key = await store(root).ensureKey();
+    const redactTerms = ["ted"];
+    const masked = redactConversationText("token=abcdefghijklmnopqrstuv", {
+      redactTerms,
+    }).text;
+    // A naive cut ends in `[REDACTED`, which the term "ted" would change.
+    await expect(
+      store(root).appendRecords(
+        [utterance(key, { text: masked.slice(0, 15) })],
+        {
+          redactTerms,
+        },
+      ),
+    ).rejects.toThrow("CONVERSATION_RECORD_UNMASKED");
+    const text = truncateRedactedText(masked, 15, { redactTerms });
+    expect(
+      await store(root).appendRecords([utterance(key, { text })], {
+        redactTerms,
+      }),
+    ).toEqual({ appended: 1, skipped_by_purge_filter: 0 });
+  });
+
   it("rejects records built with another key", async () => {
     const root = await home();
     await store(root).ensureKey();

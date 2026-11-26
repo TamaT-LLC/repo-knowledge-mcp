@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   conversationMaskingVersion,
   redactConversationText,
+  truncateRedactedText,
 } from "../src/conversation-redaction.js";
 import {
   SensitiveContentBoundarySchema,
@@ -143,6 +144,63 @@ describe("conversation redaction", () => {
     expect(conversationMaskingVersion(Buffer.alloc(32, 8), [])).not.toBe(
       conversationMaskingVersion(key, []),
     );
+  });
+});
+
+describe("truncation of masked text", () => {
+  const TEXTS = [
+    "token=abcdefghijklmnopqrstuv で Ted に聞いた",
+    "Authorization: Bearer abcdefghijklmnop1234 end",
+    `commit ${SHA} と /tmp/${SHA}/x`,
+    "postgres://u:p@db.example.com/x を使う",
+    "連絡は a@b.co まで、Acme の Ted",
+    "鍵 AKIAIOSFODNN7EXAMPLEX と AKIAIOSFODNN7EXAMPLE",
+    `/home/alice/repo で ${JWT} を貼った`,
+    "絵文字 😀😀 と sk-abcdefghijX12 と ghp_abcdefghijklmnopqrstu",
+  ];
+  const TERM_SETS = [[], ["ted"], ["red", "act"], ["acme", "ted"]];
+
+  it("stays masked, within the limit, at every cut position", () => {
+    for (const redactTerms of TERM_SETS) {
+      for (const input of TEXTS) {
+        const masked = redactConversationText(input, { redactTerms }).text;
+        for (let max = 0; max <= Array.from(masked).length; max += 1) {
+          const cut = truncateRedactedText(masked, max, { redactTerms });
+          expect(Array.from(cut).length).toBeLessThanOrEqual(max);
+          expect(redactConversationText(cut, { redactTerms }).text).toBe(cut);
+          expect(cut.replaceAll("[REDACTED]", "")).not.toMatch(
+            /\[R?E?D?A?C?T?E?D?$/u,
+          );
+        }
+      }
+    }
+  });
+
+  it("does not cut inside a marker that a dictionary term would split", () => {
+    // A plain cut leaves `token=[REDACTED`, where the term "ted" matches.
+    const masked = redactConversationText("token=abcdefghijklmnopqrstuv", {
+      redactTerms: ["ted"],
+    }).text;
+    expect(masked).toBe("token=[REDACTED]");
+    const plain = masked.slice(0, 15);
+    expect(
+      redactConversationText(plain, { redactTerms: ["ted"] }).text,
+    ).not.toBe(plain);
+    expect(truncateRedactedText(masked, 15, { redactTerms: ["ted"] })).toBe(
+      "token=",
+    );
+  });
+
+  it("masks a pattern that the cut itself completes", () => {
+    // 17 characters after AKIA are not a key; a cut to 16 makes one.
+    const masked = redactConversationText("鍵 AKIAIOSFODNN7EXAMPLEX").text;
+    expect(masked).toBe("鍵 AKIAIOSFODNN7EXAMPLEX");
+    expect(truncateRedactedText(masked, 22)).toBe("鍵 [REDACTED]");
+  });
+
+  it("counts code points and keeps short text unchanged", () => {
+    expect(truncateRedactedText("😀😀😀", 2)).toBe("😀😀");
+    expect(truncateRedactedText("short", 10)).toBe("short");
   });
 });
 
