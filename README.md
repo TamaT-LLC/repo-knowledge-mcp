@@ -485,6 +485,7 @@ npm run package:smoke
 ```
 
 CI は Node 22 と Node 24 で同じ gate を実行します。
+開発には Node.js 25 を使えません。テストに使う Vitest 5 が Node.js 25 に対応していないためです。package の実行要件は[対応環境](#supported-environments)のとおりです。
 npm 公開時は tag と commit を検証し、provenance 付き package を公開した後、registry の exact version を再度 smoke します。
 
 - [npm release runbook](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/npm-release-runbook.md)
