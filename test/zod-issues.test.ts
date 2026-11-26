@@ -71,6 +71,23 @@ describe("addCustomIssue", () => {
     );
   });
 
+  it("keeps its own code, input and continue when given extra fields", () => {
+    const issue = {
+      code: "too_big",
+      continue: false,
+      input: "other",
+      message: "extra fields",
+    };
+    const Chained = z
+      .string()
+      .check((context) => addCustomIssue(context, issue))
+      .check((context) => addCustomIssue(context, { message: "later" }));
+    expect(issuesOf(Chained, "x")).toEqual([
+      { code: "custom", message: "extra fields", path: [] },
+      { code: "custom", message: "later", path: [] },
+    ]);
+  });
+
   it("keeps running the parent's checks after a child issue", () => {
     const parentCheck = (
       report: (issue: CustomIssue) => void,

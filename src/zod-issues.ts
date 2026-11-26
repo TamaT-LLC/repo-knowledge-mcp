@@ -22,7 +22,8 @@ export function addCustomIssue(
     code: "custom",
     continue: true,
     input: context.value,
-    ...issue,
+    message: issue.message,
+    ...(issue.path === undefined ? {} : { path: issue.path }),
   });
 }
 
