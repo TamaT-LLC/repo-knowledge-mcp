@@ -50,7 +50,32 @@ const RULES = [
     name: "jwt inside an assignment is removed entirely",
     input: `token=${JWT}`,
     output: "token=[REDACTED]",
-    kinds: { jwt: 1 },
+    kinds: { generic_secret_assignment: 1 },
+  },
+  {
+    name: "jwt with an empty payload or signature",
+    input: "a eyJhbGciOiJIUzI1NiJ9..c2ln b eyJhbGciOiJub25lIn0.e30. c",
+    output: "a [REDACTED] b [REDACTED] c",
+    kinds: { jwt: 2 },
+  },
+  {
+    name: "short bearer token with a digit",
+    input: "send Bearer abc123 now",
+    output: "send [REDACTED] now",
+    kinds: { bearer_token: 1 },
+  },
+  {
+    name: "prose bearer without a token stays",
+    input: "a bearer of bad news",
+    output: "a bearer of bad news",
+    kinds: {},
+  },
+  {
+    name: "secret assignment wins over a key inside its value",
+    input:
+      "secret=AKIAIOSFODNN7EXAMPLE+tail/x== and token=ghp_abcdefghijklmnopqrstu.more",
+    output: "secret=[REDACTED] and token=[REDACTED]",
+    kinds: { generic_secret_assignment: 2 },
   },
   {
     name: "bearer token outside a header",

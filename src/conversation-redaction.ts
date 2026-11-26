@@ -50,29 +50,8 @@ const whole: Replacer = () => REDACTED;
 const LONG_TOKEN =
   /(?<![A-Za-z0-9])(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{32,}(?![A-Za-z0-9])/gu;
 
-/**
- * Order matters: wider conversation rules run before the shared patterns that
- * would otherwise cut them short (a connection string's `pass@host` looks
- * like an email, `token=<jwt>` stops at the first dot).
- */
-const RULES: readonly Rule[] = [
-  {
-    kind: "private_key_block",
-    pattern:
-      /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/gu,
-    replace: whole,
-  },
-  {
-    kind: "connection_credentials",
-    pattern: /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/]*@/giu,
-    replace: (_match, scheme) => `${scheme}${REDACTED}@`,
-  },
-  {
-    kind: "jwt",
-    pattern: /\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/gu,
-    replace: whole,
-  },
-  ...SENSITIVE_PATTERNS.map(({ kind, pattern }): Rule => {
+const SHARED_RULES: readonly Rule[] = SENSITIVE_PATTERNS.map(
+  ({ kind, pattern }): Rule => {
     if (kind === "authorization_header") {
       // Keeping `Bearer [REDACTED]` would be re-detected before sending.
       return {
@@ -94,10 +73,44 @@ const RULES: readonly Rule[] = [
       };
     }
     return { kind, pattern: global(pattern), replace: whole };
-  }),
+  },
+);
+const isSecretAssignment = (rule: Rule) =>
+  rule.kind === "generic_secret_assignment";
+
+/**
+ * Order matters: wider rules run before the ones that would cut them short.
+ * A secret assignment runs first so that a key or token inside its value
+ * cannot leave the rest of the value behind (`secret=AKIA...+tail`); a
+ * connection string's `pass@host` looks like an email, and a JWT outside an
+ * assignment would otherwise stop at its first dot.
+ */
+const RULES: readonly Rule[] = [
   {
+    kind: "private_key_block",
+    pattern:
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/gu,
+    replace: whole,
+  },
+  ...SHARED_RULES.filter(isSecretAssignment),
+  {
+    kind: "connection_credentials",
+    pattern: /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/]*@/giu,
+    replace: (_match, scheme) => `${scheme}${REDACTED}@`,
+  },
+  {
+    // The payload and signature may be empty (`e30`, unsigned tokens).
+    kind: "jwt",
+    pattern: /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*/gu,
+    replace: whole,
+  },
+  ...SHARED_RULES.filter((rule) => !isSecretAssignment(rule)),
+  {
+    // A short token counts when it has a digit; prose such as "bearer of"
+    // does not.
     kind: "bearer_token",
-    pattern: /\bbearer\s+[A-Za-z0-9._~+/=-]{16,}/giu,
+    pattern:
+      /\bbearer\s+(?:(?=[A-Za-z0-9._~+/=-]*[0-9])[A-Za-z0-9._~+/=-]+|[A-Za-z0-9._~+/=-]{16,})/giu,
     replace: whole,
   },
   {
