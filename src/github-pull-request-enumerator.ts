@@ -110,31 +110,24 @@ query ListUpdatedPullRequestsPage(
   }
 }`;
 
-const PullRequestListNodeSchema = z
-  .object({
-    id: GitHubNodeIdSchema,
-    number: z.number().int().positive(),
-    updatedAt: IsoDateTimeSchema,
-  })
-  .strict();
+const PullRequestListNodeSchema = z.strictObject({
+  id: GitHubNodeIdSchema,
+  number: z.number().int().positive(),
+  updatedAt: IsoDateTimeSchema,
+});
 
-const PullRequestListPageDataSchema = z
-  .object({
-    repository: z
-      .object({
-        id: GitHubNodeIdSchema,
-        nameWithOwner: RepositoryNameSchema,
-        pullRequests: z
-          .object({
-            nodes: z.array(PullRequestListNodeSchema),
-            pageInfo: GraphqlPageInfoSchema,
-          })
-          .strict(),
-      })
-      .strict()
-      .nullable(),
-  })
-  .strict();
+const PullRequestListPageDataSchema = z.strictObject({
+  repository: z
+    .strictObject({
+      id: GitHubNodeIdSchema,
+      nameWithOwner: RepositoryNameSchema,
+      pullRequests: z.strictObject({
+        nodes: z.array(PullRequestListNodeSchema),
+        pageInfo: GraphqlPageInfoSchema,
+      }),
+    })
+    .nullable(),
+});
 
 type PullRequestListNode = z.infer<typeof PullRequestListNodeSchema>;
 type PullRequestListPageData = z.infer<typeof PullRequestListPageDataSchema>;

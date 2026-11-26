@@ -6,12 +6,10 @@ export const MAX_GRAPHQL_PAGE_SIZE = 100;
 export const MAX_GRAPHQL_CONNECTION_PAGES = 10_000;
 export const PAGE_INFO_FIELDS = "hasNextPage endCursor";
 
-export const GraphqlPageInfoSchema = z
-  .object({
-    endCursor: z.string().min(1).nullable(),
-    hasNextPage: z.boolean(),
-  })
-  .strict();
+export const GraphqlPageInfoSchema = z.strictObject({
+  endCursor: z.string().min(1).nullable(),
+  hasNextPage: z.boolean(),
+});
 
 export type GraphqlPageInfo = z.infer<typeof GraphqlPageInfoSchema>;
 

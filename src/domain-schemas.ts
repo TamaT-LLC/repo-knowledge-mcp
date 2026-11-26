@@ -3,6 +3,7 @@ import { z } from "zod";
 import { LLM_PROVIDER_MODES } from "./llm-provider-config.js";
 
 import { sortAndDedupeStrings } from "./canonical.js";
+import { addCustomIssue } from "./zod-issues.js";
 
 const NON_EMPTY_MESSAGE = "must be a non-empty string";
 
@@ -58,12 +59,10 @@ export const RepositoryReadinessStateSchema = z.enum([
   "ready",
   "empty",
 ]);
-export const RepositoryReadinessSchema = z
-  .object({
-    next_action: NonEmptyStringSchema,
-    state: RepositoryReadinessStateSchema,
-  })
-  .strict();
+export const RepositoryReadinessSchema = z.strictObject({
+  next_action: NonEmptyStringSchema,
+  state: RepositoryReadinessStateSchema,
+});
 
 export const ActorKindSchema = z.enum(["user", "bot", "unknown"]);
 export const SourceProviderSchema = z.enum([
@@ -81,217 +80,185 @@ export const AiProviderSchema = z.enum([
 ]);
 export const TrustLevelSchema = z.enum(["trusted", "untrusted", "unknown"]);
 
-export const LlmConfigSchema = z
-  .object({
-    allowCloudTransmission: z.boolean().default(false),
-    mode: z.enum(LLM_PROVIDER_MODES).default("disabled"),
-    model: NonEmptyStringSchema.nullable().default(null),
-  })
-  .strict();
+export const LlmConfigSchema = z.strictObject({
+  allowCloudTransmission: z.boolean().default(false),
+  mode: z.enum(LLM_PROVIDER_MODES).default("disabled"),
+  model: NonEmptyStringSchema.nullable().default(null),
+});
 
-export const MergeClassifierConfigSchema = z
-  .object({
-    allowCloudTransmission: z.boolean().default(false),
-    minimumSameConfidence: z.number().min(0).max(1).default(0.9),
-    mode: z.enum(["provider", "jev"]).default("provider"),
-    model: NonEmptyStringSchema.default("jev-latest"),
-  })
-  .strict();
+export const MergeClassifierConfigSchema = z.strictObject({
+  allowCloudTransmission: z.boolean().default(false),
+  minimumSameConfidence: z.number().min(0).max(1).default(0.9),
+  mode: z.enum(["provider", "jev"]).default("provider"),
+  model: NonEmptyStringSchema.default("jev-latest"),
+});
 
-export const RepositoryPolicySchema = z
-  .object({
-    allowCloudTransmission: z.boolean().optional(),
-    allowCloudMergeClassification: z.boolean().optional(),
-  })
-  .strict();
+export const RepositoryPolicySchema = z.strictObject({
+  allowCloudTransmission: z.boolean().optional(),
+  allowCloudMergeClassification: z.boolean().optional(),
+});
 
-export const TrustConfigSchema = z
-  .object({
-    aiReviewers: z.record(NonEmptyStringSchema, AiProviderSchema).default({}),
-    autoActivateTrustedHuman: z.boolean().default(false),
-    externalContributors: z.enum(["proposed", "raw-only"]).default("raw-only"),
-    sourceAliases: z
-      .record(NonEmptyStringSchema, SourceProviderSchema)
-      .default({}),
-    trustedActorIds: stringSetSchema(NonEmptyStringSchema).default([]),
-    trustedLogins: stringSetSchema(NonEmptyStringSchema).default([]),
-  })
-  .strict();
+export const TrustConfigSchema = z.strictObject({
+  aiReviewers: z.record(NonEmptyStringSchema, AiProviderSchema).default({}),
+  autoActivateTrustedHuman: z.boolean().default(false),
+  externalContributors: z.enum(["proposed", "raw-only"]).default("raw-only"),
+  sourceAliases: z
+    .record(NonEmptyStringSchema, SourceProviderSchema)
+    .default({}),
+  trustedActorIds: stringSetSchema(NonEmptyStringSchema).default([]),
+  trustedLogins: stringSetSchema(NonEmptyStringSchema).default([]),
+});
 
-export const TrustedHumanAutoActivationEligibilitySchema = z
-  .object({
-    m2Pilot: z
-      .object({
-        completedAt: IsoDateTimeSchema,
-        decision: z.enum(["go", "no-go"]),
-        reportDigest: Sha256DigestSchema,
-      })
-      .strict(),
-    qualityGate: z
-      .object({
-        baselineArtifactDigest: Sha256DigestSchema,
-        reportDigest: Sha256DigestSchema,
-        source: z.enum(["fixture_replay", "live_measurement"]),
-        status: z.enum(["pass", "metric_failure", "integrity_failure"]),
-        thresholdsVersion: NonEmptyStringSchema,
-        trustPolicyDigest: Sha256DigestSchema,
-      })
-      .strict(),
-    schemaVersion: z.literal(1),
-  })
-  .strict();
+export const TrustedHumanAutoActivationEligibilitySchema = z.strictObject({
+  m2Pilot: z.strictObject({
+    completedAt: IsoDateTimeSchema,
+    decision: z.enum(["go", "no-go"]),
+    reportDigest: Sha256DigestSchema,
+  }),
+  qualityGate: z.strictObject({
+    baselineArtifactDigest: Sha256DigestSchema,
+    reportDigest: Sha256DigestSchema,
+    source: z.enum(["fixture_replay", "live_measurement"]),
+    status: z.enum(["pass", "metric_failure", "integrity_failure"]),
+    thresholdsVersion: NonEmptyStringSchema,
+    trustPolicyDigest: Sha256DigestSchema,
+  }),
+  schemaVersion: z.literal(1),
+});
 
-export const IngestConfigSchema = z
-  .object({
-    excludeAuthors: stringSetSchema(NonEmptyStringSchema).default([]),
-    includeOutdated: z.boolean().default(true),
-  })
-  .strict();
+export const IngestConfigSchema = z.strictObject({
+  excludeAuthors: stringSetSchema(NonEmptyStringSchema).default([]),
+  includeOutdated: z.boolean().default(true),
+});
 
-export const HostAssistedDistillationConfigSchema = z
-  .object({
-    allowReviewContentTransmission: z.boolean().default(false),
-    enabled: z.boolean().default(false),
-    includeDiffHunk: z.boolean().default(false),
-    maxCharactersPerJob: z
-      .number()
-      .int()
-      .positive()
-      .max(1_000_000)
-      .default(30_000),
-  })
-  .strict();
+export const HostAssistedDistillationConfigSchema = z.strictObject({
+  allowReviewContentTransmission: z.boolean().default(false),
+  enabled: z.boolean().default(false),
+  includeDiffHunk: z.boolean().default(false),
+  maxCharactersPerJob: z
+    .number()
+    .int()
+    .positive()
+    .max(1_000_000)
+    .default(30_000),
+});
 
-export const RepoKnowledgeConfigSchema = z
-  .object({
-    defaultRepo: RepositoryNameSchema.optional(),
-    hostAssistedDistillation: HostAssistedDistillationConfigSchema.default({
-      allowReviewContentTransmission: false,
-      enabled: false,
-      includeDiffHunk: false,
-      maxCharactersPerJob: 30_000,
-    }),
-    ingest: IngestConfigSchema.default({
-      excludeAuthors: [],
-      includeOutdated: true,
-    }),
-    llm: LlmConfigSchema.default({
-      allowCloudTransmission: false,
-      mode: "disabled",
-      model: null,
-    }),
-    mergeClassifier: MergeClassifierConfigSchema.default({
-      allowCloudTransmission: false,
-      minimumSameConfidence: 0.9,
-      mode: "provider",
-      model: "jev-latest",
-    }),
-    repoPolicies: z
-      .record(RepositoryNameSchema, RepositoryPolicySchema)
-      .default({}),
-    repos: stringSetSchema(RepositoryNameSchema).default([]),
-    trust: TrustConfigSchema.default({
-      aiReviewers: {},
-      autoActivateTrustedHuman: false,
-      externalContributors: "raw-only",
-      sourceAliases: {},
-      trustedActorIds: [],
-      trustedLogins: [],
-    }),
-    trustedHumanAutoActivationEligibility:
-      TrustedHumanAutoActivationEligibilitySchema.optional(),
-    workspaceMappings: z
-      .record(NonEmptyStringSchema, RepositoryNameSchema)
-      .default({}),
-  })
-  .strict();
+export const RepoKnowledgeConfigSchema = z.strictObject({
+  defaultRepo: RepositoryNameSchema.optional(),
+  hostAssistedDistillation: HostAssistedDistillationConfigSchema.default({
+    allowReviewContentTransmission: false,
+    enabled: false,
+    includeDiffHunk: false,
+    maxCharactersPerJob: 30_000,
+  }),
+  ingest: IngestConfigSchema.default({
+    excludeAuthors: [],
+    includeOutdated: true,
+  }),
+  llm: LlmConfigSchema.default({
+    allowCloudTransmission: false,
+    mode: "disabled",
+    model: null,
+  }),
+  mergeClassifier: MergeClassifierConfigSchema.default({
+    allowCloudTransmission: false,
+    minimumSameConfidence: 0.9,
+    mode: "provider",
+    model: "jev-latest",
+  }),
+  repoPolicies: z
+    .record(RepositoryNameSchema, RepositoryPolicySchema)
+    .default({}),
+  repos: stringSetSchema(RepositoryNameSchema).default([]),
+  trust: TrustConfigSchema.default({
+    aiReviewers: {},
+    autoActivateTrustedHuman: false,
+    externalContributors: "raw-only",
+    sourceAliases: {},
+    trustedActorIds: [],
+    trustedLogins: [],
+  }),
+  trustedHumanAutoActivationEligibility:
+    TrustedHumanAutoActivationEligibilitySchema.optional(),
+  workspaceMappings: z
+    .record(NonEmptyStringSchema, RepositoryNameSchema)
+    .default({}),
+});
 
-export const ReviewerIdentitySchema = z
-  .object({
-    actor_id: GitHubNodeIdSchema.optional(),
-    actor_kind: ActorKindSchema,
-    author_association: NonEmptyStringSchema.optional(),
-    login: NonEmptyStringSchema.nullable(),
-    provider: SourceProviderSchema,
-    trust: TrustLevelSchema,
-  })
-  .strict();
+export const ReviewerIdentitySchema = z.strictObject({
+  actor_id: GitHubNodeIdSchema.optional(),
+  actor_kind: ActorKindSchema,
+  author_association: NonEmptyStringSchema.optional(),
+  login: NonEmptyStringSchema.nullable(),
+  provider: SourceProviderSchema,
+  trust: TrustLevelSchema,
+});
 
-export const EvidenceActorSchema = z
-  .object({
-    actor_id: GitHubNodeIdSchema.optional(),
-    actor_kind: ActorKindSchema,
-    comment_id: GitHubNodeIdSchema,
-    login: NonEmptyStringSchema.optional(),
-    provider: SourceProviderSchema,
-    trust: TrustLevelSchema,
-  })
-  .strict();
+export const EvidenceActorSchema = z.strictObject({
+  actor_id: GitHubNodeIdSchema.optional(),
+  actor_kind: ActorKindSchema,
+  comment_id: GitHubNodeIdSchema,
+  login: NonEmptyStringSchema.optional(),
+  provider: SourceProviderSchema,
+  trust: TrustLevelSchema,
+});
 
-export const PullRequestObservationSchema = z
-  .object({
-    base_ref_oid: NonEmptyStringSchema,
-    head_ref_oid: NonEmptyStringSchema,
-    merged_at: IsoDateTimeSchema.nullable(),
-    name_with_owner: RepositoryNameSchema,
-    observation_id: ObservationIdSchema,
-    observation_type: z.literal("pull_request"),
-    observed_at: IsoDateTimeSchema,
-    pr_number: z.number().int().positive(),
-    pull_request_id: GitHubNodeIdSchema,
-    repo_id: RepositoryIdSchema,
-    snapshot_id: SnapshotIdSchema,
-    title: NonEmptyStringSchema,
-  })
-  .strict();
+export const PullRequestObservationSchema = z.strictObject({
+  base_ref_oid: NonEmptyStringSchema,
+  head_ref_oid: NonEmptyStringSchema,
+  merged_at: IsoDateTimeSchema.nullable(),
+  name_with_owner: RepositoryNameSchema,
+  observation_id: ObservationIdSchema,
+  observation_type: z.literal("pull_request"),
+  observed_at: IsoDateTimeSchema,
+  pr_number: z.number().int().positive(),
+  pull_request_id: GitHubNodeIdSchema,
+  repo_id: RepositoryIdSchema,
+  snapshot_id: SnapshotIdSchema,
+  title: NonEmptyStringSchema,
+});
 
-export const ThreadObservationSchema = z
-  .object({
-    comment_ids: stringSetSchema(GitHubNodeIdSchema),
-    content_fingerprint: Sha256DigestSchema,
-    is_outdated: z.boolean(),
-    is_resolved: z.boolean(),
-    observation_id: ObservationIdSchema,
-    observation_type: z.literal("thread"),
-    observed_at: IsoDateTimeSchema,
-    path: NonEmptyStringSchema.optional(),
-    pr_number: z.number().int().positive(),
-    repo_id: RepositoryIdSchema,
-    snapshot_id: SnapshotIdSchema,
-    state_fingerprint: Sha256DigestSchema,
-    thread_id: NonEmptyStringSchema,
-  })
-  .strict();
+export const ThreadObservationSchema = z.strictObject({
+  comment_ids: stringSetSchema(GitHubNodeIdSchema),
+  content_fingerprint: Sha256DigestSchema,
+  is_outdated: z.boolean(),
+  is_resolved: z.boolean(),
+  observation_id: ObservationIdSchema,
+  observation_type: z.literal("thread"),
+  observed_at: IsoDateTimeSchema,
+  path: NonEmptyStringSchema.optional(),
+  pr_number: z.number().int().positive(),
+  repo_id: RepositoryIdSchema,
+  snapshot_id: SnapshotIdSchema,
+  state_fingerprint: Sha256DigestSchema,
+  thread_id: NonEmptyStringSchema,
+});
 
-export const ThreadRemovedObservationSchema = z
-  .object({
-    observation_id: ObservationIdSchema,
-    observation_type: z.literal("thread_removed"),
-    observed_at: IsoDateTimeSchema,
-    pr_number: z.number().int().positive(),
-    previous_snapshot_id: SnapshotIdSchema,
-    repo_id: RepositoryIdSchema,
-    snapshot_id: SnapshotIdSchema,
-    thread_id: NonEmptyStringSchema,
-  })
-  .strict();
+export const ThreadRemovedObservationSchema = z.strictObject({
+  observation_id: ObservationIdSchema,
+  observation_type: z.literal("thread_removed"),
+  observed_at: IsoDateTimeSchema,
+  pr_number: z.number().int().positive(),
+  previous_snapshot_id: SnapshotIdSchema,
+  repo_id: RepositoryIdSchema,
+  snapshot_id: SnapshotIdSchema,
+  thread_id: NonEmptyStringSchema,
+});
 
-export const CommentObservationSchema = z
-  .object({
-    actor: ReviewerIdentitySchema,
-    body: z.string(),
-    comment_id: GitHubNodeIdSchema,
-    created_at: IsoDateTimeSchema,
-    diff_hunk: z.string().optional(),
-    observation_id: ObservationIdSchema,
-    observation_type: z.literal("comment"),
-    observed_at: IsoDateTimeSchema,
-    snapshot_id: SnapshotIdSchema,
-    thread_id: NonEmptyStringSchema,
-    updated_at: IsoDateTimeSchema,
-    url: z.url(),
-  })
-  .strict();
+export const CommentObservationSchema = z.strictObject({
+  actor: ReviewerIdentitySchema,
+  body: z.string(),
+  comment_id: GitHubNodeIdSchema,
+  created_at: IsoDateTimeSchema,
+  diff_hunk: z.string().optional(),
+  observation_id: ObservationIdSchema,
+  observation_type: z.literal("comment"),
+  observed_at: IsoDateTimeSchema,
+  snapshot_id: SnapshotIdSchema,
+  thread_id: NonEmptyStringSchema,
+  updated_at: IsoDateTimeSchema,
+  url: z.url(),
+});
 
 export const RawObservationSchema = z.discriminatedUnion("observation_type", [
   PullRequestObservationSchema,
@@ -300,17 +267,15 @@ export const RawObservationSchema = z.discriminatedUnion("observation_type", [
   CommentObservationSchema,
 ]);
 
-export const PullRequestSnapshotSchema = z
-  .object({
-    complete: z.literal(true),
-    observed_at: IsoDateTimeSchema,
-    pr_number: z.number().int().positive(),
-    repo_id: RepositoryIdSchema,
-    review_summary_ids: stringSetSchema(NonEmptyStringSchema),
-    snapshot_id: SnapshotIdSchema,
-    thread_ids: stringSetSchema(NonEmptyStringSchema),
-  })
-  .strict();
+export const PullRequestSnapshotSchema = z.strictObject({
+  complete: z.literal(true),
+  observed_at: IsoDateTimeSchema,
+  pr_number: z.number().int().positive(),
+  repo_id: RepositoryIdSchema,
+  review_summary_ids: stringSetSchema(NonEmptyStringSchema),
+  snapshot_id: SnapshotIdSchema,
+  thread_ids: stringSetSchema(NonEmptyStringSchema),
+});
 
 export const KnowledgeCategorySchema = z.enum([
   "style",
@@ -371,55 +336,49 @@ export const CodeExampleLanguageSchema = z
  * evidence comment ID, and every ID is bound to the current snapshot by the
  * extract and finalize validators.
  */
-export const GeneratedCodeExampleSchema = z
-  .object({
-    content: NonEmptyStringSchema.max(
-      GENERATED_CODE_EXAMPLE_MAX_CONTENT_CHARACTERS,
-    ).refine((value) => value.trim().length > 0, {
-      message: "code example content must not be blank",
-    }),
-    evidence_comment_ids: z
-      .array(GitHubNodeIdSchema)
-      .min(1)
-      .transform((values) => sortAndDedupeStrings(values)),
-    generated_example: z.literal(true),
-    language: CodeExampleLanguageSchema,
-  })
-  .strict();
+export const GeneratedCodeExampleSchema = z.strictObject({
+  content: NonEmptyStringSchema.max(
+    GENERATED_CODE_EXAMPLE_MAX_CONTENT_CHARACTERS,
+  ).refine((value) => value.trim().length > 0, {
+    message: "code example content must not be blank",
+  }),
+  evidence_comment_ids: z
+    .array(GitHubNodeIdSchema)
+    .min(1)
+    .transform((values) => sortAndDedupeStrings(values)),
+  generated_example: z.literal(true),
+  language: CodeExampleLanguageSchema,
+});
 
-export const DistilledCandidateSchema = z
-  .object({
-    category: KnowledgeCategorySchema,
-    code_example: GeneratedCodeExampleSchema.optional(),
-    confidence: z.number().min(0).max(1),
-    detail: NonEmptyStringSchema,
-    evidence_comment_ids: z
-      .array(GitHubNodeIdSchema)
-      .min(1)
-      .transform((values) => sortAndDedupeStrings(values)),
-    rule: NonEmptyStringSchema,
-    scope: stringSetSchema(ScopePatternSchema),
-    severity: SeveritySchema,
-  })
-  .strict();
+export const DistilledCandidateSchema = z.strictObject({
+  category: KnowledgeCategorySchema,
+  code_example: GeneratedCodeExampleSchema.optional(),
+  confidence: z.number().min(0).max(1),
+  detail: NonEmptyStringSchema,
+  evidence_comment_ids: z
+    .array(GitHubNodeIdSchema)
+    .min(1)
+    .transform((values) => sortAndDedupeStrings(values)),
+  rule: NonEmptyStringSchema,
+  scope: stringSetSchema(ScopePatternSchema),
+  severity: SeveritySchema,
+});
 
 export const DistillationOutputSchema = z
-  .object({
+  .strictObject({
     candidates: z.array(DistilledCandidateSchema),
     skip_reason: SkipReasonSchema.nullable(),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     if (value.candidates.length === 0 && value.skip_reason === null) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "zero candidates require skip_reason",
         path: ["skip_reason"],
       });
     }
     if (value.candidates.length > 0 && value.skip_reason !== null) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "candidate output must not include skip_reason",
         path: ["skip_reason"],
       });
@@ -428,23 +387,21 @@ export const DistillationOutputSchema = z
 
 export const MergeRelationSchema = z.enum(["same", "overlaps", "different"]);
 export const MergeDecisionSchema = z
-  .object({
+  .strictObject({
     candidate_id: CandidateIdSchema,
     relation: MergeRelationSchema,
     target_id: KnowledgeIdSchema.optional(),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     if (value.relation === "different" && value.target_id !== undefined) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "different decisions must not include target_id",
         path: ["target_id"],
       });
     }
     if (value.relation !== "different" && value.target_id === undefined) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: `${value.relation} decisions require target_id`,
         path: ["target_id"],
       });
@@ -461,7 +418,7 @@ export const DistillJobStateSchema = z.enum([
 ]);
 
 export const DistillJobSchema = z
-  .object({
+  .strictObject({
     attempts: z.number().int().nonnegative(),
     distillation_key: Sha256DigestSchema,
     job_id: JobIdSchema,
@@ -477,8 +434,8 @@ export const DistillJobSchema = z
     updated_at: IsoDateTimeSchema,
     validation_failures: z.number().int().nonnegative().default(0),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     const hasCompleteLease =
       value.lease_expires_at !== undefined &&
       value.lease_token_hash !== undefined;
@@ -489,8 +446,7 @@ export const DistillJobSchema = z
       (value.state === "processing" || value.state === "awaiting_finalize") &&
       !hasCompleteLease
     ) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: `${value.state} jobs require an active lease`,
         path: ["lease_expires_at"],
       });
@@ -500,29 +456,25 @@ export const DistillJobSchema = z
       value.state !== "awaiting_finalize" &&
       hasAnyLease
     ) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: `${value.state} jobs must not retain a lease`,
         path: ["lease_expires_at"],
       });
     }
     if (value.state === "skipped" && value.skip_reason == null) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "skipped jobs require skip_reason",
         path: ["skip_reason"],
       });
     }
     if (value.state !== "skipped" && value.skip_reason != null) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: `${value.state} jobs must not have skip_reason`,
         path: ["skip_reason"],
       });
     }
     if (value.state === "failed" && value.last_error == null) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "failed jobs require last_error",
         path: ["last_error"],
       });
@@ -535,60 +487,50 @@ export const EvidenceStatusSchema = z.enum([
   "withdrawn",
 ]);
 
-export const KnowledgeEvidenceSchema = z
-  .object({
-    actors: z.array(EvidenceActorSchema).min(1),
-    author_association: NonEmptyStringSchema.optional(),
-    comment_ids: z
-      .array(GitHubNodeIdSchema)
-      .min(1)
-      .transform((values) => sortAndDedupeStrings(values)),
-    content_fingerprint: Sha256DigestSchema,
-    eligible_for_count: z.boolean(),
-    evidence_id: EvidenceIdSchema,
-    knowledge_id: KnowledgeIdSchema,
-    observed_at: IsoDateTimeSchema,
-    occurrence_key: NonEmptyStringSchema,
-    originator: EvidenceActorSchema,
-    path: NonEmptyStringSchema.optional(),
-    pr_number: z.number().int().positive(),
-    repo_id: RepositoryIdSchema,
-    sources: z
-      .array(SourceProviderSchema)
-      .min(1)
-      .transform((values) => sortAndDedupeStrings(values)),
-    state_fingerprint: Sha256DigestSchema,
-    status: EvidenceStatusSchema,
-    superseded_by: EvidenceIdSchema.optional(),
-    supersedes: EvidenceIdSchema.optional(),
-    thread_id: NonEmptyStringSchema,
-    url: z.url().optional(),
-  })
-  .strict();
+export const KnowledgeEvidenceSchema = z.strictObject({
+  actors: z.array(EvidenceActorSchema).min(1),
+  author_association: NonEmptyStringSchema.optional(),
+  comment_ids: z
+    .array(GitHubNodeIdSchema)
+    .min(1)
+    .transform((values) => sortAndDedupeStrings(values)),
+  content_fingerprint: Sha256DigestSchema,
+  eligible_for_count: z.boolean(),
+  evidence_id: EvidenceIdSchema,
+  knowledge_id: KnowledgeIdSchema,
+  observed_at: IsoDateTimeSchema,
+  occurrence_key: NonEmptyStringSchema,
+  originator: EvidenceActorSchema,
+  path: NonEmptyStringSchema.optional(),
+  pr_number: z.number().int().positive(),
+  repo_id: RepositoryIdSchema,
+  sources: z
+    .array(SourceProviderSchema)
+    .min(1)
+    .transform((values) => sortAndDedupeStrings(values)),
+  state_fingerprint: Sha256DigestSchema,
+  status: EvidenceStatusSchema,
+  superseded_by: EvidenceIdSchema.optional(),
+  supersedes: EvidenceIdSchema.optional(),
+  thread_id: NonEmptyStringSchema,
+  url: z.url().optional(),
+});
 
-export const KnowledgeOutcomeSchema = z
-  .object({
-    at: IsoDateTimeSchema,
-    context: z
-      .object({
-        caller_repo_id: RepositoryIdSchema.optional(),
-        file_paths: stringSetSchema(NonEmptyStringSchema).optional(),
-        pr_number: z.number().int().positive().optional(),
-        task_id: NonEmptyStringSchema.optional(),
-      })
-      .strict()
-      .optional(),
-    knowledge_id: KnowledgeIdSchema,
-    note: NonEmptyStringSchema.optional(),
-    outcome: z.enum([
-      "applied",
-      "violated",
-      "not_applicable",
-      "false_positive",
-    ]),
-    repo_id: RepositoryIdSchema,
-  })
-  .strict();
+export const KnowledgeOutcomeSchema = z.strictObject({
+  at: IsoDateTimeSchema,
+  context: z
+    .strictObject({
+      caller_repo_id: RepositoryIdSchema.optional(),
+      file_paths: stringSetSchema(NonEmptyStringSchema).optional(),
+      pr_number: z.number().int().positive().optional(),
+      task_id: NonEmptyStringSchema.optional(),
+    })
+    .optional(),
+  knowledge_id: KnowledgeIdSchema,
+  note: NonEmptyStringSchema.optional(),
+  outcome: z.enum(["applied", "violated", "not_applicable", "false_positive"]),
+  repo_id: RepositoryIdSchema,
+});
 
 export const KnowledgeRevisionProposalStatusSchema = z.enum([
   "pending",
@@ -596,68 +538,57 @@ export const KnowledgeRevisionProposalStatusSchema = z.enum([
   "rejected",
 ]);
 export const KnowledgeRevisionPatchSchema = z
-  .object({
+  .strictObject({
     category: KnowledgeCategorySchema.optional(),
     detail: NonEmptyStringSchema.optional(),
     rule: NonEmptyStringSchema.optional(),
     scope: stringSetSchema(ScopePatternSchema).optional(),
     severity: SeveritySchema.optional(),
   })
-  .strict()
   .refine((value) => Object.keys(value).length > 0, {
     message: "revision proposal patch must not be empty",
   });
-export const KnowledgeRevisionProposalSchema = z
-  .object({
-    created_at: IsoDateTimeSchema,
-    evidence_ids: stringSetSchema(EvidenceIdSchema).default([]),
-    knowledge_id: KnowledgeIdSchema,
-    patch: KnowledgeRevisionPatchSchema,
-    proposal_id: NonEmptyStringSchema,
-    repo_id: RepositoryIdSchema,
-    status: KnowledgeRevisionProposalStatusSchema.default("pending"),
-    updated_at: IsoDateTimeSchema,
-  })
-  .strict();
+export const KnowledgeRevisionProposalSchema = z.strictObject({
+  created_at: IsoDateTimeSchema,
+  evidence_ids: stringSetSchema(EvidenceIdSchema).default([]),
+  knowledge_id: KnowledgeIdSchema,
+  patch: KnowledgeRevisionPatchSchema,
+  proposal_id: NonEmptyStringSchema,
+  repo_id: RepositoryIdSchema,
+  status: KnowledgeRevisionProposalStatusSchema.default("pending"),
+  updated_at: IsoDateTimeSchema,
+});
 
-export const ExtractCandidateSchema = z
-  .object({
-    candidate: DistilledCandidateSchema,
-    candidate_id: CandidateIdSchema,
-  })
-  .strict();
+export const ExtractCandidateSchema = z.strictObject({
+  candidate: DistilledCandidateSchema,
+  candidate_id: CandidateIdSchema,
+});
 
-export const MergeDecisionRequiredStableResponseSchema = z
-  .object({
-    candidates: z.array(ExtractCandidateSchema).min(1),
-    state: z.literal("merge_decision_required"),
-  })
-  .strict();
+export const MergeDecisionRequiredStableResponseSchema = z.strictObject({
+  candidates: z.array(ExtractCandidateSchema).min(1),
+  state: z.literal("merge_decision_required"),
+});
 
-export const SkippedStableResponseSchema = z
-  .object({
-    skip_reason: SkipReasonSchema,
-    staled_knowledge_ids: stringSetSchema(KnowledgeIdSchema),
-    state: z.literal("skipped"),
-    withdrawn_evidence_ids: stringSetSchema(EvidenceIdSchema),
-  })
-  .strict();
+export const SkippedStableResponseSchema = z.strictObject({
+  skip_reason: SkipReasonSchema,
+  staled_knowledge_ids: stringSetSchema(KnowledgeIdSchema),
+  state: z.literal("skipped"),
+  withdrawn_evidence_ids: stringSetSchema(EvidenceIdSchema),
+});
 
 export const ExtractStableResponseSchema = z.discriminatedUnion("state", [
   MergeDecisionRequiredStableResponseSchema,
   SkippedStableResponseSchema,
 ]);
 
-export const FinalizeStableResponseSchema = z
-  .object({
-    accepted: z.boolean(),
-    created_active: stringSetSchema(KnowledgeIdSchema).default([]),
-    created_proposed: stringSetSchema(KnowledgeIdSchema),
-    merged_evidence: stringSetSchema(EvidenceIdSchema),
-    rejected_reason: NonEmptyStringSchema.optional(),
-    revision_proposals: stringSetSchema(NonEmptyStringSchema),
-  })
-  .strict();
+export const FinalizeStableResponseSchema = z.strictObject({
+  accepted: z.boolean(),
+  created_active: stringSetSchema(KnowledgeIdSchema).default([]),
+  created_proposed: stringSetSchema(KnowledgeIdSchema),
+  merged_evidence: stringSetSchema(EvidenceIdSchema),
+  rejected_reason: NonEmptyStringSchema.optional(),
+  revision_proposals: stringSetSchema(NonEmptyStringSchema),
+});
 
 const SubmissionReceiptBaseShape = {
   committed_at: IsoDateTimeSchema,
@@ -667,21 +598,17 @@ const SubmissionReceiptBaseShape = {
   submission_id: NonEmptyStringSchema,
 };
 
-export const ExtractSubmissionReceiptSchema = z
-  .object({
-    ...SubmissionReceiptBaseShape,
-    phase: z.literal("extract"),
-    stable_response: ExtractStableResponseSchema,
-  })
-  .strict();
+export const ExtractSubmissionReceiptSchema = z.strictObject({
+  ...SubmissionReceiptBaseShape,
+  phase: z.literal("extract"),
+  stable_response: ExtractStableResponseSchema,
+});
 
-export const FinalizeSubmissionReceiptSchema = z
-  .object({
-    ...SubmissionReceiptBaseShape,
-    phase: z.literal("finalize"),
-    stable_response: FinalizeStableResponseSchema,
-  })
-  .strict();
+export const FinalizeSubmissionReceiptSchema = z.strictObject({
+  ...SubmissionReceiptBaseShape,
+  phase: z.literal("finalize"),
+  stable_response: FinalizeStableResponseSchema,
+});
 
 export const SubmissionReceiptSchema = z.discriminatedUnion("phase", [
   ExtractSubmissionReceiptSchema,

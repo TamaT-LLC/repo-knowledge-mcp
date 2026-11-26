@@ -32,16 +32,14 @@ export const RESOLVE_REPOSITORY_GRAPHQL = `query ResolveRepository($owner: Strin
 const GitHubRepositoryResponseSchema = z
   .object({
     data: z
-      .object({
+      .strictObject({
         repository: z
-          .object({
+          .strictObject({
             id: GitHubNodeIdSchema,
             nameWithOwner: RepositoryNameSchema,
           })
-          .strict()
           .nullable(),
       })
-      .strict()
       .nullable()
       .optional(),
     errors: z.array(z.unknown()).optional(),

@@ -9,14 +9,12 @@ export const SYNC_CURSOR_VERSION = 1;
  * (last_updated_at, last_pr_number); resuming enumerates strictly after it,
  * so several PRs sharing one timestamp are never dropped at the boundary.
  */
-export const SyncCursorSchema = z
-  .object({
-    last_pr_number: z.number().int().positive(),
-    last_updated_at: IsoDateTimeSchema,
-    repo_id: GitHubNodeIdSchema,
-    version: z.literal(SYNC_CURSOR_VERSION),
-  })
-  .strict();
+export const SyncCursorSchema = z.strictObject({
+  last_pr_number: z.number().int().positive(),
+  last_updated_at: IsoDateTimeSchema,
+  repo_id: GitHubNodeIdSchema,
+  version: z.literal(SYNC_CURSOR_VERSION),
+});
 
 export type SyncCursor = z.infer<typeof SyncCursorSchema>;
 

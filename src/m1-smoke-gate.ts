@@ -2,18 +2,18 @@ import { z } from "zod";
 
 import { IngestPrResultSchema } from "./mcp-mutation-tools.js";
 import { RepositoryNameSchema } from "./domain-schemas.js";
+import { addCustomIssue } from "./zod-issues.js";
 
 export const M1SmokeManifestSchema = z
-  .object({
+  .strictObject({
     pull_requests: z.array(z.number().int().positive()).length(10),
     repository: RepositoryNameSchema,
     schema_version: z.literal(1),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     if (new Set(value.pull_requests).size !== value.pull_requests.length) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "pull_requests must contain 10 unique PR numbers",
         path: ["pull_requests"],
       });

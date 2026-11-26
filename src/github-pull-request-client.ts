@@ -209,190 +209,156 @@ query ValidatePullRequestSnapshot(
   }
 }`;
 
-const ActorSchema = z
-  .object({
-    __typename: z.string().min(1),
-    id: GitHubNodeIdSchema,
-    login: z.string().min(1),
-  })
-  .strict();
+const ActorSchema = z.strictObject({
+  __typename: z.string().min(1),
+  id: GitHubNodeIdSchema,
+  login: z.string().min(1),
+});
 
-const ReviewCommentSchema = z
-  .object({
-    author: ActorSchema.nullable(),
-    authorAssociation: z.string().min(1),
-    body: z.string(),
-    createdAt: IsoDateTimeSchema,
-    diffHunk: z.string(),
-    id: GitHubNodeIdSchema,
-    updatedAt: IsoDateTimeSchema,
-    url: z.url(),
-  })
-  .strict();
+const ReviewCommentSchema = z.strictObject({
+  author: ActorSchema.nullable(),
+  authorAssociation: z.string().min(1),
+  body: z.string(),
+  createdAt: IsoDateTimeSchema,
+  diffHunk: z.string(),
+  id: GitHubNodeIdSchema,
+  updatedAt: IsoDateTimeSchema,
+  url: z.url(),
+});
 
-const ReviewCommentsConnectionSchema = z
-  .object({
-    nodes: z.array(ReviewCommentSchema),
-    pageInfo: GraphqlPageInfoSchema,
-  })
-  .strict();
+const ReviewCommentsConnectionSchema = z.strictObject({
+  nodes: z.array(ReviewCommentSchema),
+  pageInfo: GraphqlPageInfoSchema,
+});
 
-const ReviewThreadNodeSchema = z
-  .object({
-    comments: ReviewCommentsConnectionSchema,
-    id: GitHubNodeIdSchema,
-    isOutdated: z.boolean(),
-    isResolved: z.boolean(),
-    path: z.string(),
-  })
-  .strict();
+const ReviewThreadNodeSchema = z.strictObject({
+  comments: ReviewCommentsConnectionSchema,
+  id: GitHubNodeIdSchema,
+  isOutdated: z.boolean(),
+  isResolved: z.boolean(),
+  path: z.string(),
+});
 
-const ReviewThreadsConnectionSchema = z
-  .object({
-    nodes: z.array(ReviewThreadNodeSchema),
-    pageInfo: GraphqlPageInfoSchema,
-  })
-  .strict();
+const ReviewThreadsConnectionSchema = z.strictObject({
+  nodes: z.array(ReviewThreadNodeSchema),
+  pageInfo: GraphqlPageInfoSchema,
+});
 
-const ReviewSummarySchema = z
-  .object({
-    author: ActorSchema.nullable(),
-    authorAssociation: z.string().min(1),
-    body: z.string(),
-    createdAt: IsoDateTimeSchema,
-    id: GitHubNodeIdSchema,
-    state: z.string().min(1),
-    submittedAt: IsoDateTimeSchema.nullable(),
-    updatedAt: IsoDateTimeSchema,
-    url: z.url(),
-  })
-  .strict();
+const ReviewSummarySchema = z.strictObject({
+  author: ActorSchema.nullable(),
+  authorAssociation: z.string().min(1),
+  body: z.string(),
+  createdAt: IsoDateTimeSchema,
+  id: GitHubNodeIdSchema,
+  state: z.string().min(1),
+  submittedAt: IsoDateTimeSchema.nullable(),
+  updatedAt: IsoDateTimeSchema,
+  url: z.url(),
+});
 
-const ReviewsConnectionSchema = z
-  .object({
-    nodes: z.array(ReviewSummarySchema),
-    pageInfo: GraphqlPageInfoSchema,
-  })
-  .strict();
+const ReviewsConnectionSchema = z.strictObject({
+  nodes: z.array(ReviewSummarySchema),
+  pageInfo: GraphqlPageInfoSchema,
+});
 
-const InitialResponseDataSchema = z
-  .object({
-    repository: z
-      .object({
-        id: GitHubNodeIdSchema,
-        nameWithOwner: RepositoryNameSchema,
-        pullRequest: z
-          .object({
-            baseRefOid: z.string().min(1),
-            headRefOid: z.string().min(1),
-            id: GitHubNodeIdSchema,
-            mergedAt: IsoDateTimeSchema.nullable(),
-            number: z.number().int().positive(),
-            reviewThreads: ReviewThreadsConnectionSchema,
-            reviews: ReviewsConnectionSchema.nullable(),
-            title: z.string().min(1),
-            updatedAt: IsoDateTimeSchema,
-          })
-          .strict()
-          .nullable(),
-      })
-      .strict()
-      .nullable(),
-  })
-  .strict();
-
-const ThreadPageResponseDataSchema = z
-  .object({
-    repository: z
-      .object({
-        id: GitHubNodeIdSchema,
-        pullRequest: z
-          .object({
-            id: GitHubNodeIdSchema,
-            number: z.number().int().positive(),
-            reviewThreads: ReviewThreadsConnectionSchema,
-          })
-          .strict()
-          .nullable(),
-      })
-      .strict()
-      .nullable(),
-  })
-  .strict();
-
-const CommentPageResponseDataSchema = z
-  .object({
-    node: z
-      .object({
-        __typename: z.literal("PullRequestReviewThread"),
-        comments: ReviewCommentsConnectionSchema,
-        id: GitHubNodeIdSchema,
-      })
-      .strict()
-      .nullable(),
-  })
-  .strict();
-
-const ReviewPageResponseDataSchema = z
-  .object({
-    repository: z
-      .object({
-        id: GitHubNodeIdSchema,
-        pullRequest: z
-          .object({
-            id: GitHubNodeIdSchema,
-            number: z.number().int().positive(),
-            reviews: ReviewsConnectionSchema.nullable(),
-          })
-          .strict()
-          .nullable(),
-      })
-      .strict()
-      .nullable(),
-  })
-  .strict();
-
-const ConnectionCountSchema = z
-  .object({ totalCount: z.number().int().min(0) })
-  .strict();
-
-const SnapshotValidationResponseDataSchema = z
-  .object({
-    nodes: z.array(
-      z
-        .object({
-          __typename: z.literal("PullRequestReviewThread"),
-          comments: ConnectionCountSchema,
+const InitialResponseDataSchema = z.strictObject({
+  repository: z
+    .strictObject({
+      id: GitHubNodeIdSchema,
+      nameWithOwner: RepositoryNameSchema,
+      pullRequest: z
+        .strictObject({
+          baseRefOid: z.string().min(1),
+          headRefOid: z.string().min(1),
           id: GitHubNodeIdSchema,
-          isOutdated: z.boolean(),
-          isResolved: z.boolean(),
-          path: z.string(),
+          mergedAt: IsoDateTimeSchema.nullable(),
+          number: z.number().int().positive(),
+          reviewThreads: ReviewThreadsConnectionSchema,
+          reviews: ReviewsConnectionSchema.nullable(),
+          title: z.string().min(1),
+          updatedAt: IsoDateTimeSchema,
         })
-        .strict()
         .nullable(),
-    ),
-    repository: z
-      .object({
+    })
+    .nullable(),
+});
+
+const ThreadPageResponseDataSchema = z.strictObject({
+  repository: z
+    .strictObject({
+      id: GitHubNodeIdSchema,
+      pullRequest: z
+        .strictObject({
+          id: GitHubNodeIdSchema,
+          number: z.number().int().positive(),
+          reviewThreads: ReviewThreadsConnectionSchema,
+        })
+        .nullable(),
+    })
+    .nullable(),
+});
+
+const CommentPageResponseDataSchema = z.strictObject({
+  node: z
+    .strictObject({
+      __typename: z.literal("PullRequestReviewThread"),
+      comments: ReviewCommentsConnectionSchema,
+      id: GitHubNodeIdSchema,
+    })
+    .nullable(),
+});
+
+const ReviewPageResponseDataSchema = z.strictObject({
+  repository: z
+    .strictObject({
+      id: GitHubNodeIdSchema,
+      pullRequest: z
+        .strictObject({
+          id: GitHubNodeIdSchema,
+          number: z.number().int().positive(),
+          reviews: ReviewsConnectionSchema.nullable(),
+        })
+        .nullable(),
+    })
+    .nullable(),
+});
+
+const ConnectionCountSchema = z.strictObject({
+  totalCount: z.number().int().min(0),
+});
+
+const SnapshotValidationResponseDataSchema = z.strictObject({
+  nodes: z.array(
+    z
+      .strictObject({
+        __typename: z.literal("PullRequestReviewThread"),
+        comments: ConnectionCountSchema,
         id: GitHubNodeIdSchema,
-        pullRequest: z
-          .object({
-            baseRefOid: z.string().min(1),
-            headRefOid: z.string().min(1),
-            id: GitHubNodeIdSchema,
-            mergedAt: IsoDateTimeSchema.nullable(),
-            number: z.number().int().positive(),
-            reviewThreads: ConnectionCountSchema,
-            reviews: ConnectionCountSchema.nullable(),
-            title: z.string().min(1),
-            updatedAt: IsoDateTimeSchema,
-          })
-          .strict()
-          .nullable(),
+        isOutdated: z.boolean(),
+        isResolved: z.boolean(),
+        path: z.string(),
       })
-      .strict()
       .nullable(),
-  })
-  .strict();
+  ),
+  repository: z
+    .strictObject({
+      id: GitHubNodeIdSchema,
+      pullRequest: z
+        .strictObject({
+          baseRefOid: z.string().min(1),
+          headRefOid: z.string().min(1),
+          id: GitHubNodeIdSchema,
+          mergedAt: IsoDateTimeSchema.nullable(),
+          number: z.number().int().positive(),
+          reviewThreads: ConnectionCountSchema,
+          reviews: ConnectionCountSchema.nullable(),
+          title: z.string().min(1),
+          updatedAt: IsoDateTimeSchema,
+        })
+        .nullable(),
+    })
+    .nullable(),
+});
 
 export type GitHubReviewActor = z.infer<typeof ActorSchema>;
 export type GitHubReviewComment = z.infer<typeof ReviewCommentSchema>;

@@ -98,24 +98,20 @@ export class GoldenBaselineCaptureError extends Error {
   }
 }
 
-export const RecordedPredictionsSchema = z
-  .object({
-    corpus_id: NonEmptyStringSchema,
-    model: NonEmptyStringSchema,
-    provider: NonEmptyStringSchema,
-    recorded_at: IsoDateTimeSchema,
-    responses: z.record(
-      NonEmptyStringSchema,
-      z
-        .object({
-          output: z.record(z.string(), z.unknown()),
-          response_id: NonEmptyStringSchema.optional(),
-        })
-        .strict(),
-    ),
-    schema_version: z.literal(1),
-  })
-  .strict();
+export const RecordedPredictionsSchema = z.strictObject({
+  corpus_id: NonEmptyStringSchema,
+  model: NonEmptyStringSchema,
+  provider: NonEmptyStringSchema,
+  recorded_at: IsoDateTimeSchema,
+  responses: z.record(
+    NonEmptyStringSchema,
+    z.strictObject({
+      output: z.record(z.string(), z.unknown()),
+      response_id: NonEmptyStringSchema.optional(),
+    }),
+  ),
+  schema_version: z.literal(1),
+});
 
 export type RecordedPredictions = z.infer<typeof RecordedPredictionsSchema>;
 
@@ -163,38 +159,32 @@ export function createRecordedPredictionProvider(
   };
 }
 
-const BaselineProvenanceSchema = z
-  .object({
-    model: NonEmptyStringSchema,
-    output_schema_digest: Sha256DigestSchema,
-    output_schema_version: NonEmptyStringSchema,
-    prompt_digest: Sha256DigestSchema,
-    prompt_version: NonEmptyStringSchema,
-    provider: NonEmptyStringSchema,
-    ranking_policy_digest: Sha256DigestSchema,
-    ranking_policy_version: NonEmptyStringSchema,
-    search_derivation_version: NonEmptyStringSchema,
-    trust_policy_digest: Sha256DigestSchema,
-  })
-  .strict();
+const BaselineProvenanceSchema = z.strictObject({
+  model: NonEmptyStringSchema,
+  output_schema_digest: Sha256DigestSchema,
+  output_schema_version: NonEmptyStringSchema,
+  prompt_digest: Sha256DigestSchema,
+  prompt_version: NonEmptyStringSchema,
+  provider: NonEmptyStringSchema,
+  ranking_policy_digest: Sha256DigestSchema,
+  ranking_policy_version: NonEmptyStringSchema,
+  search_derivation_version: NonEmptyStringSchema,
+  trust_policy_digest: Sha256DigestSchema,
+});
 
-export const ProviderGoldenBaselineArtifactSchema = z
-  .object({
-    artifact_kind: z.literal(PROVIDER_GOLDEN_BASELINE_ARTIFACT_KIND),
-    corpus_digest: Sha256DigestSchema,
-    corpus_id: NonEmptyStringSchema,
-    fixture: GoldenFixtureSchema,
-    measured_at: IsoDateTimeSchema,
-    provenance: BaselineProvenanceSchema,
-    schema_version: z.literal(1),
-    transmission: z
-      .object({
-        cloud_consent: z.boolean(),
-        mode: z.enum(["live", "replay"]),
-      })
-      .strict(),
-  })
-  .strict();
+export const ProviderGoldenBaselineArtifactSchema = z.strictObject({
+  artifact_kind: z.literal(PROVIDER_GOLDEN_BASELINE_ARTIFACT_KIND),
+  corpus_digest: Sha256DigestSchema,
+  corpus_id: NonEmptyStringSchema,
+  fixture: GoldenFixtureSchema,
+  measured_at: IsoDateTimeSchema,
+  provenance: BaselineProvenanceSchema,
+  schema_version: z.literal(1),
+  transmission: z.strictObject({
+    cloud_consent: z.boolean(),
+    mode: z.enum(["live", "replay"]),
+  }),
+});
 
 export type ProviderGoldenBaselineArtifact = z.infer<
   typeof ProviderGoldenBaselineArtifactSchema

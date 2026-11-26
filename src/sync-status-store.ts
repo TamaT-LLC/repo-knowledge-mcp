@@ -33,19 +33,17 @@ export type SyncRunOutcome = z.infer<typeof SyncRunOutcomeSchema>;
  * it cannot answer "did the scheduled sync run, and did it succeed?" on a
  * quiet repository; this record can.
  */
-export const SyncStatusSchema = z
-  .object({
-    consecutive_failures: z.number().int().nonnegative(),
-    last_attempt_finished_at: IsoDateTimeSchema,
-    last_attempt_started_at: IsoDateTimeSchema,
-    last_error_code: z.string().min(1).nullable(),
-    last_has_more: z.boolean().nullable(),
-    last_outcome: SyncRunOutcomeSchema,
-    last_success_at: IsoDateTimeSchema.nullable(),
-    repo_id: RepositoryIdSchema,
-    schema_version: z.literal(SYNC_STATUS_SCHEMA_VERSION),
-  })
-  .strict();
+export const SyncStatusSchema = z.strictObject({
+  consecutive_failures: z.number().int().nonnegative(),
+  last_attempt_finished_at: IsoDateTimeSchema,
+  last_attempt_started_at: IsoDateTimeSchema,
+  last_error_code: z.string().min(1).nullable(),
+  last_has_more: z.boolean().nullable(),
+  last_outcome: SyncRunOutcomeSchema,
+  last_success_at: IsoDateTimeSchema.nullable(),
+  repo_id: RepositoryIdSchema,
+  schema_version: z.literal(SYNC_STATUS_SCHEMA_VERSION),
+});
 
 export type SyncStatus = z.infer<typeof SyncStatusSchema>;
 
