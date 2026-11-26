@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -678,5 +680,107 @@ describe("recovery and normalization", () => {
       },
     }).resetKey();
     expect(withdrawn).toEqual([ids[0]]);
+  });
+});
+
+describe("key loss and --restart", () => {
+  it("refuses a path purge after the key is lost instead of reporting success", async () => {
+    const root = await home();
+    await seed(root);
+    await rm(join(root, "conversations", "local.key"));
+    await expect(
+      store(root).purge({ project_path_prefix: "/Users/alice" }),
+    ).rejects.toThrow("CONVERSATION_KEY_MISSING");
+    await expect(
+      store(root).previewPurge({ project_path_prefix: "/Users/alice" }),
+    ).rejects.toThrow("CONVERSATION_KEY_MISSING");
+    // Nothing was recorded or removed by the refused purge.
+    expect(await store(root).readPurgeFilters()).toEqual([]);
+    expect((await store(root).status()).purge_in_progress).toBeNull();
+    expect(await store(root).readRecords()).toHaveLength(4);
+    // Conditions that need no key still work.
+    await expect(store(root).purge({ session_id: "s-alice" })).resolves.toEqual(
+      { filter_added: true, purged_records: 1 },
+    );
+  });
+
+  it("does not create a new key while stored conversations exist", async () => {
+    const root = await home();
+    await seed(root);
+    await rm(join(root, "conversations", "local.key"));
+    await expect(store(root).ensureKey()).rejects.toThrow(
+      "CONVERSATION_KEY_MISSING",
+    );
+    await expect(readdir(join(root, "conversations"))).resolves.not.toContain(
+      "local.key",
+    );
+    // reset-key discards the old data, after which a key can be created.
+    const { key_id } = await store(root).resetKey();
+    expect(keyId(await store(root).ensureKey())).toBe(key_id);
+  });
+
+  it.each(["reset:marker_written", "reset:key_renamed", "reset:discarded"])(
+    "--restart keeps the pending key when the reset can resume (%s)",
+    async (point) => {
+      const root = await home();
+      await seed(root);
+      await expect(
+        store(root, { faultInjector: crashingAt(point) }).resetKey(),
+      ).rejects.toThrow(Crash);
+      const marker = await store(root).resetPending();
+      const result = await store(root).resetKey({ restart: true });
+      expect(result).toEqual({ key_id: marker!.key_id, resumed: true });
+      expect(keyId((await store(root).readKey())!)).toBe(marker!.key_id);
+    },
+  );
+
+  it("--restart starts over from a corrupt marker", async () => {
+    const root = await home();
+    await seed(root);
+    await writeFile(join(root, "conversations", "reset-pending.json"), "{");
+    await expect(store(root).resetKey()).rejects.toThrow(
+      "CONVERSATION_RECORD_INVALID",
+    );
+    const result = await store(root).resetKey({ restart: true });
+    expect(result.resumed).toBe(false);
+    expect(await store(root).resetPending()).toBeNull();
+  });
+});
+
+describe("paths that name the same directory", () => {
+  it("match through a symlink in either direction", async () => {
+    const root = await home();
+    const real = join(root, "work", "real");
+    const link = join(root, "work", "link");
+    await mkdir(join(real, "app"), { recursive: true });
+    await symlink(real, link);
+    const key = Buffer.alloc(32, 4);
+    const viaLink = storedProjectMatcher(key)({
+      ...projectPathFields(key, join(link, "app")),
+      name_with_owner: null,
+    });
+    const viaReal = storedProjectMatcher(key)({
+      ...projectPathFields(key, join(real, "app")),
+      name_with_owner: null,
+    });
+    expect(matchesProjectSelector(real, viaLink)).toBe(true);
+    expect(matchesProjectSelector(link, viaReal)).toBe(true);
+    expect(matchesProjectSelector(`${link}/./app/../app/`, viaReal)).toBe(true);
+    expect(
+      matchesProjectSelector(link, rawProjectSubject(join(real, "app"), null)),
+    ).toBe(true);
+    // A deleted child under an existing symlink still resolves its parent.
+    expect(
+      matchesProjectSelector(
+        join(link, "gone"),
+        storedProjectMatcher(key)({
+          ...projectPathFields(key, join(real, "gone", "x")),
+          name_with_owner: null,
+        }),
+      ),
+    ).toBe(true);
+    expect(matchesProjectSelector(join(root, "work", "other"), viaReal)).toBe(
+      false,
+    );
   });
 });

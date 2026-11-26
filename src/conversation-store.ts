@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { lstat, open, readFile, rename, rm } from "node:fs/promises";
 import { join, posix, resolve } from "node:path";
 
@@ -220,7 +221,12 @@ function pathPrefixHmac(key: Uint8Array, normalizedPrefix: string): string {
   return hmacHex(key, canonicalizeJson(["path-prefix", normalizedPrefix]));
 }
 
-/** One shared normalization for both the HMAC side and the filter side. */
+/**
+ * One shared normalization for both the HMAC side and the filter side.
+ * The longest existing prefix is resolved with realpath, so a symlinked or
+ * aliased path (macOS `/var` and `/private/var`) names the same directory;
+ * the part that no longer exists is kept as written.
+ */
 export function normalizeProjectPath(path: string): string {
   if (!path.startsWith("/")) {
     throw new ConversationStoreError(
@@ -228,8 +234,16 @@ export function normalizeProjectPath(path: string): string {
       "project paths must be absolute",
     );
   }
-  const normalized = posix.normalize(path);
-  return normalized.length > 1 ? normalized.replace(/\/+$/u, "") : normalized;
+  const normalized = posix.normalize(path).replace(/(?<=.)\/+$/u, "");
+  const missing: string[] = [];
+  for (let existing = normalized; ; existing = posix.dirname(existing)) {
+    try {
+      return posix.join(realpathSync.native(existing), ...missing.reverse());
+    } catch {
+      if (existing === "/") return normalized;
+      missing.push(posix.basename(existing));
+    }
+  }
 }
 
 function pathPrefixes(normalized: string): string[] {
@@ -354,9 +368,9 @@ function matchesPurgeFilter(
 
 export type ConversationStoreErrorCode =
   | "CONVERSATION_KEY_INVALID"
+  | "CONVERSATION_KEY_MISSING"
   | "CONVERSATION_PURGE_BEFORE_IN_FUTURE"
   | "CONVERSATION_KEY_MISMATCH"
-  | "CONVERSATION_KEY_MISSING"
   | "CONVERSATION_KEY_PERMISSIONS"
   | "CONVERSATION_RECORD_INVALID"
   | "CONVERSATION_RECORD_UNMASKED"
@@ -493,6 +507,8 @@ export class ConversationStore {
     return this.writeLocked(async () => {
       const existing = await this.readKey();
       if (existing !== null) return existing;
+      // A new key could never match what the lost one hashed.
+      if ((await this.readRecords()).length > 0) throw keyLost();
       const key = randomBytes(KEY_BYTES);
       await writeDurable(this.path("key"), key, "wx");
       await fsyncDirectory(this.directory);
@@ -619,8 +635,18 @@ export class ConversationStore {
   }
 
   private async matchingIds(filter: PurgeFilter): Promise<string[]> {
-    const matches = purgeMatcher(await this.readKey(), [filter]);
-    return (await this.readRecords()).flatMap((record) =>
+    const key = await this.readKey();
+    const records = await this.readRecords();
+    // Without the key a path filter matches nothing; never report success.
+    if (
+      key === null &&
+      filter.project_path_prefix !== undefined &&
+      records.some((record) => record.type !== "superseded")
+    ) {
+      throw keyLost();
+    }
+    const matches = purgeMatcher(key, [filter]);
+    return records.flatMap((record) =>
       record.type !== "superseded" && matches(record)
         ? [record.utterance_id]
         : [],
@@ -709,7 +735,18 @@ export class ConversationStore {
     options: { readonly restart?: boolean } = {},
   ): Promise<{ key_id: string; resumed: boolean }> {
     return this.locked(async () => {
-      let marker = options.restart === true ? null : await this.resetPending();
+      let marker: ResetPendingMarker | null;
+      if (options.restart === true) {
+        // --restart only drops a marker that can no longer be resumed;
+        // otherwise the pending key is kept and the reset continues.
+        marker = await this.resetPending().catch((error: unknown) => {
+          if (error instanceof ConversationStoreError) return null;
+          throw error;
+        });
+        if (marker !== null && !(await this.canResume(marker))) marker = null;
+      } else {
+        marker = await this.resetPending();
+      }
       const resumed = marker !== null;
       if (marker === null) {
         // Stage 0: the key is durable before the marker that names it.
@@ -772,6 +809,77 @@ export class ConversationStore {
     });
   }
 
+  /** Whether one of the key files still matches the reset marker. */
+  private async canResume(marker: ResetPendingMarker): Promise<boolean> {
+    return (
+      (await keyIdOf(this.path("key"))) === marker.key_id ||
+      (marker.completed_stage < 1 &&
+        (await keyIdOf(this.path("nextKey"))) === marker.key_id)
+    );
+  }
+
+  /**
+   * Read-only health of the key and the reset marker for `doctor`; null
+   * when the conversation data area has never been created.
+   */
+  async diagnose(): Promise<{
+    readonly status: "pass" | "warn" | "fail";
+    readonly message: string;
+    readonly remedy?: string;
+  } | null> {
+    if (!(await pathExists(this.directory))) return null;
+    let key: Buffer | null;
+    try {
+      key = await this.readKey();
+    } catch (error) {
+      if (!(error instanceof ConversationStoreError)) throw error;
+      return {
+        status: "fail",
+        message: error.message,
+        remedy:
+          error.code === "CONVERSATION_KEY_PERMISSIONS"
+            ? "chmod 600 the key file"
+            : "run `repo-knowledge conversations reset-key`",
+      };
+    }
+    let marker: ResetPendingMarker | null;
+    try {
+      marker = await this.resetPending();
+    } catch {
+      return {
+        status: "warn",
+        message: "reset-pending.json is not valid",
+        remedy: "run `repo-knowledge conversations reset-key --restart`",
+      };
+    }
+    if (marker !== null) {
+      return (await this.canResume(marker))
+        ? {
+            status: "warn",
+            message:
+              "A conversation key reset is in progress; ingest is refused",
+            remedy: "run `repo-knowledge conversations reset-key` to finish it",
+          }
+        : {
+            status: "warn",
+            message:
+              "Neither local.key nor local.key.next matches the reset marker",
+            remedy: "run `repo-knowledge conversations reset-key --restart`",
+          };
+    }
+    if (key === null && (await this.readRecords()).length > 0) {
+      return {
+        status: "warn",
+        message: "Stored conversations exist but local.key is missing",
+        remedy: "run `repo-knowledge conversations reset-key`",
+      };
+    }
+    return {
+      status: "pass",
+      message: "Conversation key and reset state are consistent.",
+    };
+  }
+
   // --- status --------------------------------------------------------------
 
   async status(): Promise<ConversationStatus> {
@@ -805,6 +913,13 @@ export class ConversationStore {
   private now(): Date {
     return this.options.now?.() ?? new Date();
   }
+}
+
+function keyLost(): ConversationStoreError {
+  return new ConversationStoreError(
+    "CONVERSATION_KEY_MISSING",
+    "stored conversations exist but local.key is missing; run `repo-knowledge conversations reset-key` to start over with a new key",
+  );
 }
 
 /** True for records (not supersede links) that match any of `filters`. */

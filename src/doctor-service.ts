@@ -1,3 +1,4 @@
+import { ConversationStore } from "./conversation-store.js";
 import { GlobalStore } from "./global-store.js";
 import { statfs } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -130,6 +131,22 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
     } catch (error) {
       report.add({
         id: "global.store",
+        status: "fail",
+        message: String(error),
+      });
+    }
+    const conversations = new ConversationStore(this.storageRoot);
+    try {
+      const check = await conversations.diagnose();
+      if (check !== null)
+        report.add({
+          id: "conversations.key",
+          path: conversations.directory,
+          ...check,
+        });
+    } catch (error) {
+      report.add({
+        id: "conversations.key",
         status: "fail",
         message: String(error),
       });

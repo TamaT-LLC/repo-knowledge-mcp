@@ -1,4 +1,5 @@
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -37,6 +38,7 @@ import {
   createProjectionConsistencyContext,
 } from "../src/doctor/checks-projection.js";
 import { DoctorReportBuilder } from "../src/doctor/report-builder.js";
+import { ConversationStore } from "../src/conversation-store.js";
 
 const REPOSITORY = "owner/repository";
 const REPOSITORY_ID = "R_repository";
@@ -85,6 +87,70 @@ describe("RepoKnowledgeDoctor", () => {
       },
     ]);
     expect(await canonicalBytes(fixture.storageRoot)).toEqual(before);
+  });
+
+  it("diagnoses the conversation key and reset marker only when the area exists", async () => {
+    const fixture = await createFixture();
+    const absent = await fixture.doctor().run();
+    expect(absent.checks.some((item) => item.id === "conversations.key")).toBe(
+      false,
+    );
+
+    await new ConversationStore(fixture.storageRoot).ensureKey();
+    expect(
+      check(await fixture.doctor().run(), "conversations.key"),
+    ).toMatchObject({ status: "pass" });
+
+    await expect(
+      new ConversationStore(fixture.storageRoot, {
+        faultInjector: (point) => {
+          if (point === "reset:marker_written") throw new Error("crash");
+        },
+      }).resetKey(),
+    ).rejects.toThrow("crash");
+    expect(
+      check(await fixture.doctor().run(), "conversations.key"),
+    ).toMatchObject({
+      status: "warn",
+      remedy: "run `repo-knowledge conversations reset-key` to finish it",
+    });
+
+    const directory = join(fixture.storageRoot, "conversations");
+    await rm(join(directory, "local.key.next"));
+    expect(
+      check(await fixture.doctor().run(), "conversations.key"),
+    ).toMatchObject({
+      status: "warn",
+      message: "Neither local.key nor local.key.next matches the reset marker",
+      remedy: "run `repo-knowledge conversations reset-key --restart`",
+    });
+
+    await writeFile(join(directory, "reset-pending.json"), "{");
+    expect(
+      check(await fixture.doctor().run(), "conversations.key"),
+    ).toMatchObject({
+      status: "warn",
+      message: "reset-pending.json is not valid",
+    });
+
+    await rm(join(directory, "reset-pending.json"));
+    await chmod(join(directory, "local.key"), 0o644);
+    expect(
+      check(await fixture.doctor().run(), "conversations.key"),
+    ).toMatchObject({ status: "fail", remedy: "chmod 600 the key file" });
+
+    await rm(join(directory, "local.key"));
+    const id = (n: string) => `utt_${n.repeat(32)}`;
+    await writeFile(
+      join(directory, "utterances.jsonl"),
+      `${JSON.stringify({ type: "superseded", utterance_id: id("a"), superseded_by: id("b") })}\n`,
+    );
+    expect(
+      check(await fixture.doctor().run(), "conversations.key"),
+    ).toMatchObject({
+      status: "warn",
+      message: "Stored conversations exist but local.key is missing",
+    });
   });
 
   it("preserves diagnostics when the projection file is missing", async () => {
