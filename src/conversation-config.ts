@@ -1,8 +1,10 @@
+import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { z } from "zod";
 
 import {
+  RepoKnowledgeConfigError,
   parseConfigWithSchema,
   readJsonConfigFile,
   resolveStorageRoot,
@@ -112,11 +114,24 @@ export async function loadConversationConfig(
     resolveStorageRoot(storageRoot),
     CONVERSATION_CONFIG_FILE_NAME,
   );
+  if (!(await pathExists(path))) {
+    return parseConfigWithSchema(
+      ConversationDistillationConfigSchema,
+      { schemaVersion: 1 },
+      path,
+    );
+  }
+  // redactTerms can hold third-party names; never read it from a shared file.
+  if (((await lstat(path)).mode & 0o077) !== 0) {
+    throw new RepoKnowledgeConfigError(
+      "CONFIG_PATH_UNSAFE",
+      path,
+      "must not be readable by group or others; run chmod 600",
+    );
+  }
   return parseConfigWithSchema(
     ConversationDistillationConfigSchema,
-    (await pathExists(path))
-      ? await readJsonConfigFile(path)
-      : { schemaVersion: 1 },
+    await readJsonConfigFile(path),
     path,
   );
 }

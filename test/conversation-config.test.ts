@@ -1,4 +1,11 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +21,13 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((r) => rm(r, { recursive: true })));
 });
+
+/** The file holds redactTerms, so it must be private (0600). */
+async function writeConfig(root: string, contents: string): Promise<void> {
+  const path = join(root, CONVERSATION_CONFIG_FILE_NAME);
+  await writeFile(path, contents);
+  await chmod(path, 0o600);
+}
 
 async function home(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "rk-conversation-config-"));
@@ -54,8 +68,8 @@ describe("conversation-distillation.json", () => {
     const root = await home();
     const { configPath } = await initializeStorage(root);
     const before = await readFile(configPath);
-    await writeFile(
-      join(root, CONVERSATION_CONFIG_FILE_NAME),
+    await writeConfig(
+      root,
       JSON.stringify({
         schemaVersion: 1,
         retentionDays: 30,
@@ -85,18 +99,28 @@ describe("conversation-distillation.json", () => {
     ["zero retention", { schemaVersion: 1, retentionDays: 0 }],
   ])("rejects %s", async (_name, value) => {
     const root = await home();
-    await writeFile(
-      join(root, CONVERSATION_CONFIG_FILE_NAME),
-      JSON.stringify(value),
-    );
+    await writeConfig(root, JSON.stringify(value));
     await expect(loadConversationConfig(root)).rejects.toThrow(
       "CONFIG_INVALID",
     );
   });
 
+  it("refuses a config file readable by group or others", async () => {
+    const root = await home();
+    await writeConfig(root, JSON.stringify({ schemaVersion: 1 }));
+    await chmod(join(root, CONVERSATION_CONFIG_FILE_NAME), 0o644);
+    await expect(loadConversationConfig(root)).rejects.toThrow(
+      "CONFIG_PATH_UNSAFE",
+    );
+    await chmod(join(root, CONVERSATION_CONFIG_FILE_NAME), 0o600);
+    await expect(loadConversationConfig(root)).resolves.toMatchObject({
+      enabled: false,
+    });
+  });
+
   it("rejects invalid JSON", async () => {
     const root = await home();
-    await writeFile(join(root, CONVERSATION_CONFIG_FILE_NAME), "{");
+    await writeConfig(root, "{");
     await expect(loadConversationConfig(root)).rejects.toThrow(
       "CONFIG_INVALID",
     );
