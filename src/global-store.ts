@@ -1,10 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
-import {
-  resolveStorageRoot,
-  ensurePrivateDirectory,
-  assertPrivateDirectoryIdentity,
-} from "./config.js";
+import { resolveStorageRoot, ensurePrivateDirectory } from "./config.js";
 import { CanonicalTransactionStore } from "./canonical-transaction-store.js";
 import { AdminPlaneService } from "./admin-plane-service.js";
 import {
@@ -17,7 +13,6 @@ import {
   type AlwaysReturnResult,
 } from "./global-always-return.js";
 import { createDomainId } from "./ids.js";
-import type { CanonicalProjectionSnapshot } from "./sqlite-projection.js";
 import { KnowledgeIdSchema } from "./domain-schemas.js";
 
 export type StoreReference =
@@ -28,20 +23,6 @@ export function openStore(ref: StoreReference) {
   return new CanonicalTransactionStore(ref.absolutePath, {
     global: ref.kind === "global",
   });
-}
-
-function activeSettings(
-  snapshot: CanonicalProjectionSnapshot,
-  configured: ReturnType<typeof latestAlwaysReturn>,
-) {
-  const active = new Set(
-    snapshot.domain.knowledge
-      .filter((k) => k.repoId === GLOBAL_STORE_ID && k.status === "active")
-      .map((k) => k.id),
-  );
-  return [...configured.values()].filter(
-    (e) => e.enabled && active.has(e.knowledge_id),
-  );
 }
 
 export class GlobalStore {
@@ -59,25 +40,14 @@ export class GlobalStore {
     } as const);
   }
 
-  private validatedPath() {
-    const root = resolveStorageRoot(this.storageRoot);
-    // Validate the reference against the configured home before using either
-    // the store path or its parent in a filesystem operation.
-    const path = this.reference.absolutePath;
-    if (!path.startsWith(root + sep) || path !== join(root, "global")) {
-      throw new Error("Global store must be directly inside the storage root");
-    }
-    return path;
-  }
-
+  /** Read-only: is `global` a real directory (no symlinks) inside the root? */
   async exists(): Promise<boolean> {
     try {
-      const path = this.validatedPath();
+      const path = this.reference.absolutePath;
       const directory = dirname(path);
       const status = await lstat(directory);
       if (!status.isDirectory())
         throw new Error("Storage root must be a real directory");
-      await assertPrivateDirectoryIdentity(directory, status);
       const parent = await realpath(directory);
       const expected = join(parent, "global");
       if ((await lstat(path)).isSymbolicLink())
@@ -115,7 +85,9 @@ export class GlobalStore {
   }
 
   async initialize() {
-    const path = this.validatedPath();
+    // The broad-directory guard belongs to writes, which change permissions.
+    resolveStorageRoot(this.storageRoot);
+    const path = this.reference.absolutePath;
     await ensurePrivateDirectory(dirname(path));
     await this.exists();
     await ensurePrivateDirectory(path);
@@ -143,10 +115,17 @@ export class GlobalStore {
   async readRules(task?: string) {
     return (await this.exists()) ? this.store.readGlobalRules(task) : undefined;
   }
+  /** Every reservation, with its rule's status so a stale one can be freed. */
   async listAlwaysReturn() {
     if (!(await this.exists())) return [];
-    const { records } = await this.store.readSnapshot();
-    return [...latestAlwaysReturn(records).values()];
+    const { records, domain } = await this.store.readSnapshot();
+    const statuses = new Map(
+      domain.knowledge.map((knowledge) => [knowledge.id, knowledge.status]),
+    );
+    return [...latestAlwaysReturn(records).values()].map((setting) => ({
+      ...setting,
+      status: statuses.get(setting.knowledge_id) ?? ("missing" as const),
+    }));
   }
   async setAlwaysReturn(
     id: string,
@@ -161,19 +140,26 @@ export class GlobalStore {
         reason: "not_global",
         always_return: false,
         always_return_count: 0,
+        reserved_count: 0,
       };
     return this.store.runLockedMutation<AlwaysReturnResult>((snapshot) => {
       const knowledge = snapshot.domain.knowledge.find(
         (k) => k.id === id && k.repoId === GLOBAL_STORE_ID,
       );
       const configured = latestAlwaysReturn(snapshot.records);
-      const settings = activeSettings(snapshot, configured);
+      const activeCount = snapshot.domain.knowledge.filter(
+        (k) =>
+          k.repoId === GLOBAL_STORE_ID &&
+          k.status === "active" &&
+          configured.has(k.id),
+      ).length;
       const current = configured.get(id);
       const isActive = knowledge?.status === "active";
       const result = {
         knowledge_id: id,
         always_return: !!current && isActive,
-        always_return_count: settings.length,
+        always_return_count: activeCount,
+        reserved_count: configured.size,
         ...(current ? { set_by: current.actor } : {}),
       };
       const reject = (reason: NonNullable<AlwaysReturnResult["reason"]>) => ({
@@ -222,8 +208,8 @@ export class GlobalStore {
           knowledge_id: id,
           state: "changed",
           always_return: enabled,
-          always_return_count:
-            settings.length + (enabled ? 1 : isActive ? -1 : 0),
+          always_return_count: activeCount + (enabled ? 1 : isActive ? -1 : 0),
+          reserved_count: configured.size + (enabled ? 1 : -1),
           ...(enabled ? { set_by: actor.actor } : {}),
         },
       };

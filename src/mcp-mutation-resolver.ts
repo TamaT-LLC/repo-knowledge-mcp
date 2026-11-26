@@ -199,7 +199,8 @@ export class CanonicalKnowledgeMutationServiceResolver
               error instanceof RecordOutcomeError &&
               error.code === "KNOWLEDGE_NOT_FOUND" &&
               this.globalStore &&
-              (await this.globalStore.exists())
+              // A broken global store keeps the original NOT_FOUND.
+              (await this.globalStore.exists().catch(() => false))
             )
           )
             throw error;

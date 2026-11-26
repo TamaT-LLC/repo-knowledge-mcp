@@ -293,7 +293,15 @@ export class KnowledgeReadService {
     const exampleUrls = representativeEvidenceUrls(snapshot, this.repoId);
     const ordered = [...matches.values()].sort(compareRuleMatches);
     const matchedCount = ordered.length;
-    const ranked = rankGlobalRules(global ?? undefined, filePaths);
+    const ranked = rankGlobalRules(
+      global ?? undefined,
+      filePaths,
+      new Set(
+        snapshot.domain.knowledge
+          .filter((knowledge) => knowledge.repoId === this.repoId)
+          .map((knowledge) => knowledge.id),
+      ),
+    );
     const alwaysQuota = Math.min(
       ranked.always.length,
       ALWAYS_RETURN_LIMIT,
@@ -329,20 +337,18 @@ export class KnowledgeReadService {
       ),
       repo: this.repo,
       rules: [
-        ...local.map(({ knowledge, reasons }) => {
-          const exampleUrl = exampleUrls.get(knowledge.id);
+        ...local.map((item) => {
+          const exampleUrl = exampleUrls.get(item.knowledge.id);
           return {
-            evidence_count: knowledge.evidenceCount,
+            ...ruleResult(item),
             ...(exampleUrl === undefined ? {} : { example_url: exampleUrl }),
-            id: knowledge.id,
-            match_reasons: reasons,
-            rule: knowledge.rule,
-            severity: knowledge.severity,
-            violation_count: knowledge.violationCount,
           };
         }),
-        ...always.map((item) => globalRuleResult(item)),
-        ...matched.map((item) => globalRuleResult(item)),
+        ...always.map((item) => ({
+          ...ruleResult(item),
+          ...(item.setByMcp ? { always_return_set_by: "mcp" as const } : {}),
+        })),
+        ...matched.map(ruleResult),
       ],
       truncated: matchedCount > local.length,
     };
@@ -415,7 +421,8 @@ export class KnowledgeReadService {
       !localSnapshot.domain.knowledge.some(
         (k) => k.id === id && k.repoId === this.repoId,
       ) &&
-      (await this.globalStore.exists());
+      // A broken global store must not replace the repository's NOT_FOUND.
+      (await this.globalStore.exists().catch(() => false));
     const { repoId, snapshot } = useGlobal
       ? {
           repoId: GLOBAL_STORE_ID,
@@ -518,6 +525,7 @@ function rankGlobalRules(
     | Awaited<ReturnType<GlobalStore["store"]["readGlobalRules"]>>
     | undefined,
   files: string[],
+  repositoryIds: ReadonlySet<string>,
 ) {
   const always: GlobalMatch[] = [];
   const matches: GlobalMatch[] = [];
@@ -529,6 +537,9 @@ function rankGlobalRules(
     return scopeMatches.get(pattern);
   };
   for (const knowledge of global.active) {
+    // get_knowledge and record_outcome resolve such an ID to the repository,
+    // so a global copy would be listed twice and never be reachable.
+    if (repositoryIds.has(knowledge.id)) continue;
     const setting = global.settings.get(knowledge.id);
     if (setting) {
       always.push({
@@ -540,7 +551,8 @@ function rankGlobalRules(
       continue;
     }
     const reasons: RuleMatchReason[] = [];
-    if (knowledge.scope.length === 0 || knowledge.scope.some(matchesFiles))
+    // A global rule with an empty scope matches only through its task score.
+    if (knowledge.scope.length > 0 && knowledge.scope.some(matchesFiles))
       reasons.push({ type: "global_store", via: "scope" });
     const taskScore = global.scores.get(knowledge.id);
     if (taskScore !== undefined)
@@ -564,11 +576,10 @@ function rankGlobalRules(
   return { always, matches };
 }
 
-function globalRuleResult({
+function ruleResult({
   knowledge,
   reasons,
-  setByMcp,
-}: GlobalMatch): GetRulesRule {
+}: RuleMatchAccumulator): GetRulesRule {
   return {
     id: knowledge.id,
     rule: knowledge.rule,
@@ -576,7 +587,6 @@ function globalRuleResult({
     evidence_count: knowledge.evidenceCount,
     violation_count: knowledge.violationCount,
     match_reasons: reasons,
-    ...(setByMcp ? { always_return_set_by: "mcp" as const } : {}),
   };
 }
 

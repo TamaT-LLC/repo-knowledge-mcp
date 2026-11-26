@@ -16,7 +16,10 @@ import { GlobalStore } from "../src/global-store.js";
 import { createDomainId } from "../src/ids.js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { runJsonRpcOverStdio } from "./helpers/stdio-jsonrpc-client.js";
+import {
+  type JsonRpcFrame as JsonRpcReply,
+  runJsonRpcOverStdio,
+} from "./helpers/stdio-jsonrpc-client.js";
 import {
   CanonicalTransactionStore,
   KnowledgeReadService,
@@ -47,13 +50,8 @@ const CREATED_AT = "2026-08-06T00:00:00.000Z";
 const OUTCOME_AT = "2026-08-07T00:00:00.000Z";
 const E2E_TIMEOUT_MS = 120_000;
 
-interface JsonRpcReply {
-  readonly error?: unknown;
-  readonly id?: number | string;
-  readonly result?: unknown;
-}
-
 interface OutcomeEnvironment {
+  readonly repositoryRoot: string;
   readonly env: NodeJS.ProcessEnv;
   readonly storageRoot: string;
 }
@@ -211,11 +209,6 @@ describe("personal rules over CLI and MCP", () => {
   }, async () => {
     const environment = await createOutcomeEnvironment();
     const global = new GlobalStore(environment.storageRoot);
-    const cli = (...args: string[]) =>
-      execa(process.execPath, ["dist/bin.js", ...args], {
-        env: environment.env,
-        reject: false,
-      });
     const tool = async (name: string, args: Record<string, unknown>) =>
       structuredContent(
         await runServe(
@@ -225,6 +218,8 @@ describe("personal rules over CLI and MCP", () => {
         ),
         2,
       );
+    const setAlwaysReturn = (knowledge_id: string, enabled: boolean) =>
+      tool("set_global_always_return", { knowledge_id, enabled });
     const before = await runServe(environment, [
       request(2, "tools/list", {}),
       callTool(3, "get_rules", { repo: REPOSITORY, file_paths: ["src/x.ts"] }),
@@ -324,7 +319,7 @@ finally:
       (rule) => rule.status === "active",
     )!;
     const id = original.id;
-    expect((await cli("reindex", "--global")).exitCode).toBe(0);
+    expect((await runCli(environment, "reindex", "--global")).exitCode).toBe(0);
     expect(
       (await global.store.readSnapshot()).domain.knowledge.find(
         (rule) => rule.id === id,
@@ -337,34 +332,37 @@ finally:
       (await stat(join(global.reference.absolutePath, "knowledge", `${id}.md`)))
         .mode & 0o777,
     ).toBe(0o600);
-    expect((await cli("always-return", "add", id)).exitCode).toBe(0);
     expect(
-      await tool("set_global_always_return", {
-        knowledge_id: id,
-        enabled: false,
-      }),
-    ).toMatchObject({ state: "rejected", reason: "set_by_cli" });
+      (await runCli(environment, "always-return", "add", id)).exitCode,
+    ).toBe(0);
+    expect(await setAlwaysReturn(id, false)).toMatchObject({
+      state: "rejected",
+      reason: "set_by_cli",
+    });
+    expect(await setAlwaysReturn(ACTIVE_ID, true)).toMatchObject({
+      reason: "not_global",
+    });
     expect(
-      await tool("set_global_always_return", {
-        knowledge_id: ACTIVE_ID,
-        enabled: true,
-      }),
-    ).toMatchObject({ reason: "not_global" });
-    expect((await cli("always-return", "remove", id)).exitCode).toBe(0);
+      (await runCli(environment, "always-return", "remove", id)).exitCode,
+    ).toBe(0);
+    expect(await setAlwaysReturn(id, true)).toMatchObject({
+      state: "changed",
+      set_by: "mcp",
+    });
+    expect(await setAlwaysReturn(id, true)).toMatchObject({
+      state: "unchanged",
+    });
+    // MCP may clear what MCP set, then set it again for the CLI checks below.
+    expect(await setAlwaysReturn(id, false)).toMatchObject({
+      state: "changed",
+      always_return: false,
+    });
+    expect(await setAlwaysReturn(id, true)).toMatchObject({
+      state: "changed",
+      set_by: "mcp",
+    });
     expect(
-      await tool("set_global_always_return", {
-        knowledge_id: id,
-        enabled: true,
-      }),
-    ).toMatchObject({ state: "changed", set_by: "mcp" });
-    expect(
-      await tool("set_global_always_return", {
-        knowledge_id: id,
-        enabled: true,
-      }),
-    ).toMatchObject({ state: "unchanged" });
-    expect(
-      JSON.parse((await cli("always-return", "list")).stdout),
+      JSON.parse((await runCli(environment, "always-return", "list")).stdout),
     ).toMatchObject([
       {
         actor: "mcp",
@@ -452,7 +450,22 @@ finally:
       ok: true,
       result: { replayed: false, applied_count: 2 },
     });
-    expect((await cli("always-return", "remove", id)).exitCode).toBe(0);
+    // The CLI clears an MCP-set rule: exit 0 alone would also hide "unchanged".
+    const removed = await runCli(environment, "always-return", "remove", id);
+    expect(removed.exitCode).toBe(0);
+    expect(JSON.parse(removed.stdout)).toMatchObject({
+      state: "changed",
+      always_return: false,
+      reserved_count: 0,
+    });
+    expect(
+      JSON.parse((await runCli(environment, "always-return", "list")).stdout),
+    ).toEqual([]);
+    expect(
+      GetRulesOutputSchema.parse(await tool("get_rules", {})).rules.map(
+        (rule) => rule.id,
+      ),
+    ).not.toContain(id);
     expect(
       (
         await stat(
@@ -523,13 +536,8 @@ finally:
         },
       })),
     });
-    const cli = (...args: string[]) =>
-      execa(process.execPath, ["dist/bin.js", ...args], {
-        env: env.env,
-        reject: false,
-      });
     const simultaneous = await Promise.all(
-      ids.slice(0, 4).map((id) => cli("always-return", "add", id)),
+      ids.slice(0, 4).map((id) => runCli(env, "always-return", "add", id)),
     );
     expect(simultaneous.map((r) => r.exitCode).sort()).toEqual([0, 0, 0, 1]);
     expect(simultaneous.find((r) => r.exitCode === 1)?.stdout).toContain(
@@ -564,6 +572,20 @@ finally:
           task: "schema",
           limit: 5,
         }),
+        callTool(8, "set_global_always_return", {
+          knowledge_id: ids[4],
+          enabled: true,
+        }),
+        callTool(9, "get_rules", {
+          repo: REPOSITORY,
+          file_paths: ["src/main.ts"],
+          limit: 1,
+        }),
+        callTool(10, "get_rules", {
+          repo: REPOSITORY,
+          file_paths: ["src/main.ts"],
+          limit: 2,
+        }),
       ],
       ["--repo", REPOSITORY, "--allow-always-return-changes"],
     );
@@ -592,6 +614,7 @@ finally:
     expect(rules(4).rules).toHaveLength(9);
     expect(rules(4).rules.map((r) => r.id)).not.toContain(conversationId);
     expect(rules(7).rules).toHaveLength(5);
+    expect(rules(7).rules.slice(3)).toHaveLength(2);
     expect(
       rules(7)
         .rules.slice(3)
@@ -602,6 +625,22 @@ finally:
         ),
     ).toBe(true);
     expect(structuredContent(base, 6)).toMatchObject({ reason: "not_active" });
+    // The limit holds over MCP too, and a limit below the reserved slots
+    // returns only always-return rules.
+    expect(structuredContent(base, 8)).toMatchObject({
+      state: "rejected",
+      reason: "limit_reached",
+      reserved_count: 3,
+    });
+    for (const [n, limit] of [
+      [9, 1],
+      [10, 2],
+    ] as const) {
+      expect(rules(n).rules).toHaveLength(limit);
+      expect(rules(n).rules.map((r) => r.match_reasons)).toEqual(
+        Array(limit).fill([{ type: "global_store", via: "always" }]),
+      );
+    }
     const detail = GetKnowledgeOutputSchema.parse(structuredContent(base, 5));
     expect(detail).toMatchObject({
       evidence: [],
@@ -662,27 +701,42 @@ describe("global matches across repeated reads", () => {
 
   it("requires a real global directory and private entries under its configured root", async () => {
     const environment = await createOutcomeEnvironment();
-    const { storageRoot } = environment;
-    const global = new GlobalStore(storageRoot);
-    const other = join(storageRoot, "elsewhere");
+    const global = new GlobalStore(environment.storageRoot);
+    const other = join(environment.storageRoot, "elsewhere");
     await symlink(other, global.reference.absolutePath, "dir");
     await expect(global.exists()).rejects.toThrow("symbolic link");
     const replies = await runServe(environment, [
       callTool(2, "get_rules", { repo: REPOSITORY, file_paths: ["src/x.ts"] }),
+      callTool(3, "record_outcome", {
+        repo: REPOSITORY,
+        knowledge_id: UNKNOWN_ID,
+        event_key: "work-1",
+        result_observed: true,
+        at: OUTCOME_AT,
+        outcome: "applied",
+        note: "Validated the schema",
+        context: { task_id: "task" },
+      }),
     ]);
-    const output = GetRulesOutputSchema.parse(structuredContent(replies, 2));
-    expect(output).toMatchObject({
-      global_read_failed: true,
-      matched_count: 1,
-      truncated: false,
-    });
-    expect(output.rules.map((rule) => rule.id)).toEqual([ACTIVE_ID]);
+    // A broken global store must not replace the repository's NOT_FOUND.
+    expect(errorCode(replies, 3)).toBe("KNOWLEDGE_NOT_FOUND");
+    await expect(
+      new KnowledgeReadService({
+        repo: REPOSITORY,
+        repoId: REPO_ID,
+        repository: new CanonicalTransactionStore(environment.repositoryRoot),
+        globalStore: global,
+      }).getKnowledge({ id: UNKNOWN_ID }),
+    ).rejects.toMatchObject({ code: "KNOWLEDGE_NOT_FOUND" });
     expect(replyById(replies, 2).result).toMatchObject({
+      structuredContent: {
+        global_read_failed: true,
+        matched_count: 1,
+        truncated: false,
+        rules: [{ id: ACTIVE_ID }],
+      },
       content: [
-        {
-          type: "text",
-          text: expect.stringContaining("Global rules could not be read."),
-        },
+        { text: expect.stringContaining("Global rules could not be read.") },
       ],
     });
     await rm(global.reference.absolutePath);
@@ -698,18 +752,28 @@ describe("global matches across repeated reads", () => {
       "dir",
     );
     await expect(global.reindex()).rejects.toThrow("symbolic links");
-    await expect(new GlobalStore("/").exists()).rejects.toThrow(
+    // The broad-directory guard runs where permissions change, not on reads.
+    await expect(new GlobalStore("/").exists()).resolves.toBe(false);
+    await expect(new GlobalStore("/").initialize()).rejects.toThrow(
       "broad directory",
     );
   });
   it("reserves matched slots even with a full repository, and sees manual changes", async () => {
-    const { storageRoot } = await createOutcomeEnvironment();
-    const registered = await new RepositoryRegistry(storageRoot).register({
-      currentName: REPOSITORY,
-      repoId: REPO_ID,
-    });
+    const { storageRoot, repositoryRoot } = await createOutcomeEnvironment();
     const globalStore = new GlobalStore(storageRoot);
-    const localStore = new CanonicalTransactionStore(registered.absolutePath);
+    const writeGlobalRule = (
+      id: string,
+      status: KnowledgeStatus,
+      fields?: Record<string, unknown>,
+    ) =>
+      writeKnowledge(
+        globalStore.reference.absolutePath,
+        id,
+        status,
+        globalStore.reference.repoId,
+        fields,
+      );
+    const localStore = new CanonicalTransactionStore(repositoryRoot);
     const service = new KnowledgeReadService({
       repo: REPOSITORY,
       repoId: REPO_ID,
@@ -720,7 +784,7 @@ describe("global matches across repeated reads", () => {
       createDomainId("knowledge"),
     );
     for (const id of localIds)
-      await writeKnowledge(registered.absolutePath, id, "active", REPO_ID);
+      await writeKnowledge(repositoryRoot, id, "active", REPO_ID);
     const input = { filePaths: ["src/a.ts"], limit: 5 };
     const baseline = await service.getRules(input);
     await globalStore.initialize();
@@ -732,43 +796,46 @@ describe("global matches across repeated reads", () => {
       [low, "consider"],
       [high, "should"],
     ] as const)
-      await writeKnowledge(
-        globalStore.reference.absolutePath,
-        id,
-        "active",
-        "rk:global",
-        { severity, scope: ["docs/**"] },
-      );
+      await writeGlobalRule(id, "active", { severity, scope: ["docs/**"] });
     const noMatch = await service.getRules(input);
     expect(noMatch).toEqual({
       ...baseline,
       global_matched_count: 0,
       global_truncated: false,
     });
-    await writeKnowledge(
-      globalStore.reference.absolutePath,
-      high,
-      "active",
-      "rk:global",
-      { scope: [] },
-    );
-    const allFiles = await service.getRules(input);
-    expect(allFiles.global_matched_count).toBe(1);
+    // An empty-scope global rule never matches files, only a task.
+    await writeGlobalRule(high, "active", { scope: [] });
+    expect(await service.getRules(input)).toEqual({
+      ...baseline,
+      global_matched_count: 0,
+      global_truncated: false,
+    });
+    const byTask = await service.getRules({ ...input, task: "stdio outcome" });
     expect(
-      allFiles.rules.find((rule) => rule.id === high)?.match_reasons,
-    ).toEqual([{ type: "global_store", via: "scope" }]);
+      byTask.rules.find((rule) => rule.id === high)?.match_reasons,
+    ).toEqual([
+      { type: "global_store", via: "task", score: expect.any(Number) },
+    ]);
+    // An ID the repository already owns is not listed again from global.
+    await writeGlobalRule(localIds[0]!, "active");
+    expect(
+      (await service.getRules({ ...input, limit: 20 })).rules.filter(
+        (rule) => rule.id === localIds[0],
+      ),
+    ).toHaveLength(1);
+    await rm(
+      join(
+        globalStore.reference.absolutePath,
+        "knowledge",
+        `${localIds[0]}.md`,
+      ),
+    );
     await globalStore.setAlwaysReturn(always, true, { actor: "cli" });
     for (const [id, severity] of [
       [low, "consider"],
       [high, "should"],
     ] as const)
-      await writeKnowledge(
-        globalStore.reference.absolutePath,
-        id,
-        "active",
-        "rk:global",
-        { severity },
-      );
+      await writeGlobalRule(id, "active", { severity });
     const result = await service.getRules(input);
     expect(result.rules.map((rule) => rule.id)).toEqual([
       ...baseline.rules.slice(0, 2).map((rule) => rule.id),
@@ -783,18 +850,207 @@ describe("global matches across repeated reads", () => {
       global_truncated: false,
       readiness: baseline.readiness,
     });
-    await writeKnowledge(
-      globalStore.reference.absolutePath,
-      always,
-      "deprecated",
-      "rk:global",
-    );
+    await writeGlobalRule(always, "deprecated");
     expect(
       (await service.getRules(input)).rules.map((rule) => rule.id),
     ).not.toContain(always);
     expect(await globalStore.listAlwaysReturn()).toMatchObject([
       { knowledge_id: always, actor: "cli" },
     ]);
+  });
+});
+
+describe("global store review follow-ups", () => {
+  it("serializes simultaneous always-return changes and lists every reservation", async () => {
+    const { storageRoot } = await createOutcomeEnvironment();
+    const global = new GlobalStore(storageRoot);
+    await global.initialize();
+    const ids = Array.from({ length: 4 }, () => createDomainId("knowledge"));
+    for (const id of ids)
+      await writeKnowledge(
+        global.reference.absolutePath,
+        id,
+        "active",
+        "rk:global",
+      );
+    // All four start before any finishes, so the lock decides the winner.
+    const results = await Promise.all(
+      ids.map((id) => global.setAlwaysReturn(id, true, { actor: "cli" })),
+    );
+    expect(results.map((r) => r.state).sort()).toEqual([
+      "changed",
+      "changed",
+      "changed",
+      "rejected",
+    ]);
+    const rejected = results.find((r) => r.state === "rejected")!;
+    expect(rejected).toMatchObject({
+      reason: "limit_reached",
+      always_return_count: 3,
+      reserved_count: 3,
+    });
+    const reserved = results
+      .filter((r) => r.state === "changed")
+      .map((r) => r.knowledge_id);
+    await writeKnowledge(
+      global.reference.absolutePath,
+      reserved[0]!,
+      "stale",
+      "rk:global",
+    );
+    // An inactive rule keeps its slot; the counts and the list say so.
+    expect(
+      await global.setAlwaysReturn(rejected.knowledge_id, true, {
+        actor: "cli",
+      }),
+    ).toMatchObject({
+      reason: "limit_reached",
+      always_return_count: 2,
+      reserved_count: 3,
+    });
+    // Lock order, not Promise.all order, decides the list order.
+    expect(
+      new Map(
+        (await global.listAlwaysReturn()).map((e) => [
+          e.knowledge_id,
+          e.status,
+        ]),
+      ),
+    ).toEqual(
+      new Map([
+        [reserved[0], "stale"],
+        [reserved[1], "active"],
+        [reserved[2], "active"],
+      ]),
+    );
+  });
+
+  it("orders always-return rules by severity, then recency, then ID", async () => {
+    const { storageRoot, repositoryRoot } = await createOutcomeEnvironment();
+    const global = new GlobalStore(storageRoot);
+    await global.initialize();
+    const [newestShould, ...musts] = Array.from({ length: 3 }, () =>
+      createDomainId("knowledge"),
+    ) as [string, string, string];
+    await writeKnowledge(
+      global.reference.absolutePath,
+      newestShould,
+      "active",
+      "rk:global",
+      { severity: "should", updated_at: "2026-04-01T00:00:00.000Z" },
+    );
+    for (const id of musts)
+      await writeKnowledge(
+        global.reference.absolutePath,
+        id,
+        "active",
+        "rk:global",
+        {
+          severity: "must",
+          updated_at: "2026-02-01T00:00:00.000Z",
+        },
+      );
+    for (const id of [newestShould, ...musts])
+      await global.setAlwaysReturn(id, true, { actor: "cli" });
+    const result = await new KnowledgeReadService({
+      repo: REPOSITORY,
+      repoId: REPO_ID,
+      repository: new CanonicalTransactionStore(repositoryRoot),
+      globalStore: global,
+    }).getRules({ filePaths: ["docs/none.md"], limit: 10 });
+    expect(result.rules.map((rule) => rule.id)).toEqual([
+      ...[...musts].sort(),
+      newestShould,
+    ]);
+  });
+
+  it("keeps repository rules when global events are corrupt", async () => {
+    const { storageRoot, repositoryRoot } = await createOutcomeEnvironment();
+    const global = new GlobalStore(storageRoot);
+    await global.initialize();
+    const globalId = createDomainId("knowledge");
+    await writeKnowledge(
+      global.reference.absolutePath,
+      globalId,
+      "active",
+      "rk:global",
+    );
+    const service = new KnowledgeReadService({
+      repo: REPOSITORY,
+      repoId: REPO_ID,
+      repository: new CanonicalTransactionStore(repositoryRoot),
+      globalStore: global,
+    });
+    const input = { filePaths: ["src/x.ts"], limit: 10 };
+    expect(
+      (await service.getRules(input)).rules.map((rule) => rule.id),
+    ).toEqual([ACTIVE_ID, globalId]);
+    await writeFile(
+      join(global.reference.absolutePath, "events", "always_return.jsonl"),
+      "{not json\n",
+      { mode: 0o600 },
+    );
+    const failed = await service.getRules(input);
+    expect(failed).toMatchObject({
+      global_read_failed: true,
+      matched_count: 1,
+      rules: [{ id: ACTIVE_ID }],
+    });
+    expect(failed.rules).toHaveLength(1);
+  });
+
+  it("runs doctor from inside the storage root without failing the global store", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const environment = await createOutcomeEnvironment();
+    const doctor = async () =>
+      JSON.parse(
+        (
+          await execa(
+            process.execPath,
+            [join(process.cwd(), "dist/bin.js"), "doctor"],
+            {
+              cwd: environment.storageRoot,
+              env: environment.env,
+              reject: false,
+            },
+          )
+        ).stdout,
+      ) as { checks: { id: string; status: string; message: string }[] };
+    const check = async () =>
+      (await doctor()).checks.find((item) => item.id === "global.store");
+    expect(await check()).toMatchObject({
+      status: "pass",
+      message: expect.stringContaining("not been created"),
+    });
+    await new GlobalStore(environment.storageRoot).initialize();
+    expect(await check()).toMatchObject({
+      status: "pass",
+      message: expect.stringContaining("is present"),
+    });
+  });
+
+  it("refuses add --global without a terminal before creating the store", {
+    timeout: E2E_TIMEOUT_MS,
+  }, async () => {
+    const environment = await createOutcomeEnvironment();
+    const result = await runCli(
+      environment,
+      "add",
+      "--global",
+      "--category",
+      "test",
+      "--detail",
+      "Validate fields",
+      "--rule",
+      "Validate schema",
+      "--severity",
+      "must",
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("CLI_TTY_REQUIRED");
+    expect(result.stderr).not.toContain("TTY_REQUIRED: TTY_REQUIRED");
+    expect(await new GlobalStore(environment.storageRoot).exists()).toBe(false);
   });
 });
 
@@ -812,6 +1068,13 @@ function callTool(
   toolArguments: Record<string, unknown>,
 ): Record<string, unknown> {
   return request(id, "tools/call", { arguments: toolArguments, name });
+}
+
+function runCli(environment: OutcomeEnvironment, ...args: string[]) {
+  return execa(process.execPath, ["dist/bin.js", ...args], {
+    env: environment.env,
+    reject: false,
+  });
 }
 
 /** Drives the packaged stdio server with a newline-delimited JSON-RPC client. */
@@ -916,6 +1179,7 @@ async function createOutcomeEnvironment(): Promise<OutcomeEnvironment> {
       REPO_KNOWLEDGE_HOME: storageRoot,
     },
     storageRoot,
+    repositoryRoot: registered.absolutePath,
   };
 }
 

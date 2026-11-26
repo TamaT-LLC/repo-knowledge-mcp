@@ -62,6 +62,7 @@ describe("repo-knowledge CLI", () => {
       knowledge_id: KNOWLEDGE_ID,
       always_return: true,
       always_return_count: 1,
+      reserved_count: 1,
     } as const;
     const globalStore = {
       addActive: vi.fn(async () => ({ confirmed: false as const })),
@@ -86,8 +87,20 @@ describe("repo-knowledge CLI", () => {
       "--severity",
       "must",
     ];
+    const piped = fixture(["add", "--global", ...fields]);
+    expect(await runRepoKnowledgeCli({ ...piped.options, globalStore })).toBe(
+      1,
+    );
+    expect(piped.stderr()).toContain("CLI_TTY_REQUIRED");
+    expect(globalStore.addActive).not.toHaveBeenCalled();
+    const tty = { stdinIsTTY: true, stdoutIsTTY: true };
+    expect(
+      await runRepoKnowledgeCli({
+        ...fixture(["add", "--global", ...fields], tty).options,
+        globalStore,
+      }),
+    ).toBe(0);
     for (const argv of [
-      ["add", "--global", ...fields],
       ["reindex", "--global"],
       ["always-return", "list"],
       ["always-return", "add", KNOWLEDGE_ID],
