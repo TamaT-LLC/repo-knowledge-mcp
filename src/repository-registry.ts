@@ -158,9 +158,8 @@ export class RepositoryRegistry {
   /**
    * Looks a name up without creating the layout, taking the lock, or writing.
    * Registry writes are atomic renames, so an unlocked read sees one whole
-   * document; a missing registry means nothing is registered yet. Without
-   * GitHub to canonicalize the name, owner/name is compared ignoring case,
-   * as GitHub does.
+   * document; a missing registry means nothing is registered yet. See
+   * matchRepositoryName for how a name is matched without GitHub.
    */
   async findByNameReadOnly(name: string): Promise<ResolvedRepository | null> {
     assertRepositoryName(name);
@@ -357,33 +356,45 @@ function assertRepositoryName(name: string): void {
   }
 }
 
+/**
+ * Matches a name against current names and aliases. With `offline`, there
+ * is no GitHub lookup to canonicalize the name, so the lookup mirrors what
+ * GitHub would answer: a repository's current name wins over an alias (an
+ * old name another repository may since have taken), and within each, an
+ * exact match wins over one that differs only in case.
+ */
 function matchRepositoryName(
   registryRoot: string,
   repositories: Readonly<Record<string, RepositoryRegistryEntry>>,
   name: string,
-  ignoreCase = false,
+  offline = false,
 ): ResolvedRepository | null {
-  const matching = (key: (value: string) => string) =>
-    Object.entries(repositories).filter(([, entry]) =>
-      [entry.currentName, ...entry.aliases].some(
-        (candidate) => key(candidate) === key(name),
-      ),
-    );
-  const exact = matching((value) => value);
-  // An exact match wins, so names differing only in case stay distinct.
-  const matches = (
-    exact.length > 0 || !ignoreCase
-      ? exact
-      : matching((value) => value.toLowerCase())
-  ).sort(([a], [b]) => compareCodeUnits(a, b));
-  if (matches.length > 1) {
-    throw new RepositoryRegistryError(
-      "REPOSITORY_NAME_AMBIGUOUS",
-      `Repository name ${name} resolves to multiple repo IDs`,
-    );
+  const entries = Object.entries(repositories);
+  const exact = (value: string) => value === name;
+  const folded = (value: string) => value.toLowerCase() === name.toLowerCase();
+  const tiers: ReadonlyArray<(entry: RepositoryRegistryEntry) => boolean> =
+    offline
+      ? [
+          (entry) => exact(entry.currentName),
+          (entry) => folded(entry.currentName),
+          (entry) => entry.aliases.some(exact),
+          (entry) => entry.aliases.some(folded),
+        ]
+      : [(entry) => exact(entry.currentName) || entry.aliases.some(exact)];
+  for (const matches of tiers) {
+    const found = entries
+      .filter(([, entry]) => matches(entry))
+      .sort(([a], [b]) => compareCodeUnits(a, b));
+    if (found.length > 1) {
+      throw new RepositoryRegistryError(
+        "REPOSITORY_NAME_AMBIGUOUS",
+        `Repository name ${name} resolves to multiple repo IDs`,
+      );
+    }
+    const match = found[0];
+    if (match) return toResolvedRepository(registryRoot, match[0], match[1]);
   }
-  const match = matches[0];
-  return match ? toResolvedRepository(registryRoot, match[0], match[1]) : null;
+  return null;
 }
 
 function toResolvedRepository(
