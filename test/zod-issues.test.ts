@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { addCustomIssue } from "../src/zod-issues.js";
+import {
+  addCustomIssue,
+  addDuplicateIdIssues,
+  type CustomIssue,
+} from "../src/zod-issues.js";
 
 // `addCustomIssue` replaces `.superRefine()`'s `ctx.addIssue`. These cases pin
 // that the two produce the same issues, so the migration did not change what
@@ -13,10 +17,7 @@ const Shape = z.strictObject({
 });
 type ShapeValue = z.output<typeof Shape>;
 
-function rules(
-  value: ShapeValue,
-  report: (issue: { message: string; path?: PropertyKey[] }) => void,
-): void {
+function rules(value: ShapeValue, report: (issue: CustomIssue) => void): void {
   if (value.name.length === 0) report({ message: "name is empty" });
   for (const [index, item] of value.items.entries()) {
     if (item === "bad") {
@@ -70,6 +71,45 @@ describe("addCustomIssue", () => {
     );
   });
 
+  it("keeps running the parent's checks after a child issue", () => {
+    const parentCheck = (
+      report: (issue: CustomIssue) => void,
+      value: { children: unknown[] },
+    ) => {
+      if (value.children.length > 1) report({ message: "too many children" });
+    };
+    const WithCheckParent = z
+      .strictObject({ children: z.array(WithCheck) })
+      .check((context) => {
+        parentCheck((issue) => addCustomIssue(context, issue), context.value);
+      });
+    const WithSuperRefineParent = z
+      .strictObject({ children: z.array(WithSuperRefine) })
+      .superRefine((value, context) => {
+        parentCheck(
+          (issue) => context.addIssue({ code: "custom", ...issue }),
+          value,
+        );
+      });
+    const input = {
+      children: [
+        { items: [], name: "" },
+        { items: [], name: "ok" },
+      ],
+    };
+    expect(issuesOf(WithCheckParent, input)).toEqual([
+      {
+        code: "custom",
+        message: "name is empty",
+        path: ["children", 0],
+      },
+      { code: "custom", message: "too many children", path: [] },
+    ]);
+    expect(issuesOf(WithCheckParent, input)).toEqual(
+      issuesOf(WithSuperRefineParent, input),
+    );
+  });
+
   it("keeps running later checks, like superRefine", () => {
     const Chained = WithCheck.check((context) => {
       addCustomIssue(context, { message: "later check ran" });
@@ -91,5 +131,60 @@ describe("addCustomIssue", () => {
       false,
     );
     expect(transformed).toBe(0);
+  });
+});
+
+describe("addDuplicateIdIssues", () => {
+  const Rows = z.strictObject({
+    rows: z.array(z.strictObject({ id: z.string() })),
+  });
+  const WithField = Rows.check((context) => {
+    addDuplicateIdIssues(
+      context,
+      "rows",
+      context.value.rows.map((row) => row.id),
+    );
+  });
+  const WithLabel = Rows.check((context) => {
+    addDuplicateIdIssues(
+      context,
+      "rows",
+      context.value.rows.map((row) => row.id),
+      "row",
+    );
+  });
+  const input = { rows: [{ id: "a" }, { id: "b" }, { id: "a" }, { id: "a" }] };
+
+  it("points at each repeated entry's id in the input", () => {
+    const issues = issuesOf(WithField, input);
+    expect(issues).toEqual([
+      {
+        code: "custom",
+        message: "duplicate rows id a",
+        path: ["rows", 2, "id"],
+      },
+      {
+        code: "custom",
+        message: "duplicate rows id a",
+        path: ["rows", 3, "id"],
+      },
+    ]);
+    for (const issue of issues) {
+      const [, index] = issue.path;
+      expect(input.rows[index as number]?.id).toBe("a");
+    }
+  });
+
+  it("uses the label in the message when one is given", () => {
+    expect(issuesOf(WithLabel, input).map((issue) => issue.message)).toEqual([
+      "duplicate row id a",
+      "duplicate row id a",
+    ]);
+  });
+
+  it("accepts unique ids", () => {
+    expect(issuesOf(WithField, { rows: [{ id: "a" }, { id: "b" }] })).toEqual(
+      [],
+    );
   });
 });

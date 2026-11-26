@@ -13,7 +13,7 @@ import {
   OUTCOME_RANKING_POLICY,
   type KnowledgeOutcomeCounts,
 } from "./knowledge-search.js";
-import { addCustomIssue } from "./zod-issues.js";
+import { addCustomIssue, addDuplicateIdIssues } from "./zod-issues.js";
 
 export const OUTCOME_RANKING_BASELINE_POLICY_VERSION = "m1-baseline";
 
@@ -96,17 +96,11 @@ export const OutcomeRankingFixtureSchema = z
     schema_version: z.literal(1),
   })
   .check((context) => {
-    const value = context.value;
-    const seen = new Set<string>();
-    for (const [index, query] of value.queries.entries()) {
-      if (seen.has(query.id)) {
-        addCustomIssue(context, {
-          message: `duplicate queries id ${query.id}`,
-          path: ["queries", index, "id"],
-        });
-      }
-      seen.add(query.id);
-    }
+    addDuplicateIdIssues(
+      context,
+      "queries",
+      context.value.queries.map((query) => query.id),
+    );
   });
 
 export type OutcomeRankingFixture = z.infer<typeof OutcomeRankingFixtureSchema>;

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { IsoDateTimeSchema } from "./domain-schemas.js";
-import { addCustomIssue } from "./zod-issues.js";
+import { addCustomIssue, addDuplicateIdIssues } from "./zod-issues.js";
 
 export const PILOT_HUMAN_RUBRIC_KIND = "m2_pilot_human_rubric";
 export const PILOT_RUBRIC_EVALUATION_KIND = "m2_pilot_rubric_evaluation";
@@ -39,17 +39,12 @@ const PilotRubricQuerySchema = z
     query: z.string().min(1),
   })
   .check((context) => {
-    const value = context.value;
-    const seen = new Set<string>();
-    for (const [index, criterion] of value.criteria.entries()) {
-      if (seen.has(criterion.id)) {
-        addCustomIssue(context, {
-          message: `duplicate criterion id ${criterion.id}`,
-          path: ["criteria", index, "id"],
-        });
-      }
-      seen.add(criterion.id);
-    }
+    addDuplicateIdIssues(
+      context,
+      "criteria",
+      context.value.criteria.map((criterion) => criterion.id),
+      "criterion",
+    );
   });
 
 /**
@@ -70,15 +65,15 @@ export const PilotHumanRubricSchema = z
   })
   .check((context) => {
     const value = context.value;
-    assertUniqueIds(
-      value.queries.map((query) => query.id),
+    addDuplicateIdIssues(
+      context,
       "queries",
-      context,
+      value.queries.map((query) => query.id),
     );
-    assertUniqueIds(
-      value.checkpoints.map((checkpoint) => checkpoint.id),
-      "checkpoints",
+    addDuplicateIdIssues(
       context,
+      "checkpoints",
+      value.checkpoints.map((checkpoint) => checkpoint.id),
     );
     const days = value.checkpoints.map((checkpoint) => checkpoint.day);
     if (new Set(days).size !== days.length) {
@@ -245,21 +240,4 @@ function validateCriterionResults(
     }
   }
   return metCount;
-}
-
-function assertUniqueIds(
-  ids: readonly string[],
-  path: string,
-  context: z.core.ParsePayload,
-): void {
-  const seen = new Set<string>();
-  for (const [index, id] of ids.entries()) {
-    if (seen.has(id)) {
-      addCustomIssue(context, {
-        message: `duplicate ${path} id ${id}`,
-        path: [path, index, "id"],
-      });
-    }
-    seen.add(id);
-  }
 }
