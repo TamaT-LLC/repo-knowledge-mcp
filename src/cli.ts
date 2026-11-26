@@ -11,11 +11,7 @@ import {
   REPO_KNOWLEDGE_CLI_EXIT,
   RepoKnowledgeCliError,
 } from "./cli-errors.js";
-import {
-  countNeutralizedRules,
-  renderGuidedSetupSummary,
-  renderRuleExport,
-} from "./cli-render.js";
+import { renderGuidedSetupSummary, renderRuleExport } from "./cli-render.js";
 import {
   assertReviewTerminal,
   executeReviewSession,
@@ -291,19 +287,26 @@ async function executeCliCommand(
         );
       }
       const rules = await exporter.collect(command.request);
-      // Stdout carries only the paste-ready block; nothing is written to files.
-      options.io.writeStdout(
-        renderRuleExport(command.format, command.request.store, rules),
+      const rendered = renderRuleExport(
+        command.format,
+        command.request.store,
+        rules,
       );
+      // Stdout carries only the paste-ready block; nothing is written to files.
+      options.io.writeStdout(rendered.block);
       if (rules.length === 0) {
         options.io.writeStderr(
           "No active rules matched; the block has no rules.\n",
         );
       }
-      const neutralized = countNeutralizedRules(rules);
-      if (neutralized > 0) {
+      if (rendered.omitted > 0) {
         options.io.writeStderr(
-          `${String(neutralized)} rule(s) contained HTML comment or block marker text; it was escaped (for example <!-- as &lt;!--) so the pasted block keeps its boundaries.\n`,
+          `${String(rendered.omitted)} rule(s) had no visible text and were left out.\n`,
+        );
+      }
+      if (rendered.neutralized > 0) {
+        options.io.writeStderr(
+          `${String(rendered.neutralized)} rule(s) contained HTML comment or block marker text; it was escaped (for example <!-- as &lt;!--) so the pasted block keeps its boundaries.\n`,
         );
       }
       return;

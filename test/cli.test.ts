@@ -558,7 +558,9 @@ describe("repo-knowledge CLI", () => {
       repo: REPOSITORY,
       store: "all",
     });
-    expect(current.stdout()).toBe(renderRuleExport("agents-md", "all", rules));
+    expect(current.stdout()).toBe(
+      renderRuleExport("agents-md", "all", rules).block,
+    );
     expect(current.stderr()).toBe("");
     expect(current.resolveMutation).not.toHaveBeenCalled();
     expect(current.resolveOperations).not.toHaveBeenCalled();
@@ -566,68 +568,75 @@ describe("repo-knowledge CLI", () => {
     expect(current.doctorRun).not.toHaveBeenCalled();
   });
 
-  it("notes an empty export on stderr and reports an unavailable exporter", async () => {
-    const empty = fixture(["export", "--format", "claude-md"]);
-    await expect(
-      runRepoKnowledgeCli({
-        ...empty.options,
-        ruleExporter: { collect: async () => [] },
-      }),
-    ).resolves.toBe(0);
-    expect(empty.stdout()).toBe(
-      renderRuleExport("claude-md", "repository", []),
-    );
-    expect(empty.stderr()).toBe(
-      "No active rules matched; the block has no rules.\n",
-    );
-
-    const missing = fixture(["export", "--format", "claude-md"]);
-    await expect(runRepoKnowledgeCli(missing.options)).resolves.toBe(1);
-    expect(missing.stdout()).toBe("");
-    expect(missing.stderr()).toBe(
-      "CLI_COMMAND_UNAVAILABLE: export --format is unavailable in this runtime\n",
-    );
-
-    const escaped = fixture(["export", "--format", "claude-md"]);
-    await expect(
-      runRepoKnowledgeCli({
-        ...escaped.options,
-        ruleExporter: {
-          collect: async () => [
-            {
-              hook: false,
-              id: KNOWLEDGE_ID,
-              rule: "Keep <!-- x -->",
-              scope: [],
-            },
-          ],
-        },
-      }),
-    ).resolves.toBe(0);
-    expect(escaped.stdout()).toContain("- Keep &lt;!-- x --&gt;\n");
-    expect(escaped.stderr()).toBe(
-      "1 rule(s) contained HTML comment or block marker text; it was escaped (for example <!-- as &lt;!--) so the pasted block keeps its boundaries.\n",
-    );
-
-    const failing = fixture(["export", "--format", "claude-md"]);
-    await expect(
-      runRepoKnowledgeCli({
-        ...failing.options,
-        ruleExporter: {
-          collect: async () => {
-            throw new RuleExportError(
-              "RULE_EXPORT_REPOSITORY_UNRESOLVED",
-              "no repository was selected",
-            );
-          },
-        },
-      }),
-    ).resolves.toBe(1);
-    expect(failing.stdout()).toBe("");
-    expect(failing.stderr()).toBe(
-      "RULE_EXPORT_REPOSITORY_UNRESOLVED: no repository was selected\n",
-    );
+  const rule = (text: string) => ({
+    hook: false,
+    id: KNOWLEDGE_ID,
+    rule: text,
+    scope: [],
   });
+  it.each([
+    {
+      name: "notes an empty export on stderr",
+      exporter: { collect: async () => [] },
+      exitCode: 0,
+      stdout: renderRuleExport("claude-md", "repository", []).block,
+      stderr: "No active rules matched; the block has no rules.\n",
+    },
+    {
+      name: "reports an unavailable exporter",
+      exporter: undefined,
+      exitCode: 1,
+      stdout: "",
+      stderr:
+        "CLI_COMMAND_UNAVAILABLE: export --format is unavailable in this runtime\n",
+    },
+    {
+      name: "notes rules whose marker text was escaped",
+      exporter: { collect: async () => [rule("Keep <!-- x -->")] },
+      exitCode: 0,
+      stdout: renderRuleExport("claude-md", "repository", [
+        rule("Keep <!-- x -->"),
+      ]).block,
+      stderr:
+        "1 rule(s) contained HTML comment or block marker text; it was escaped (for example <!-- as &lt;!--) so the pasted block keeps its boundaries.\n",
+    },
+    {
+      name: "notes rules left out for having no visible text",
+      exporter: { collect: async () => [rule(" \n\t"), rule("Kept")] },
+      exitCode: 0,
+      stdout: renderRuleExport("claude-md", "repository", [rule("Kept")]).block,
+      stderr: "1 rule(s) had no visible text and were left out.\n",
+    },
+    {
+      name: "reports an exporter error without printing a block",
+      exporter: {
+        collect: async () => {
+          throw new RuleExportError(
+            "RULE_EXPORT_REPOSITORY_UNRESOLVED",
+            "no repository was selected",
+          );
+        },
+      },
+      exitCode: 1,
+      stdout: "",
+      stderr: "RULE_EXPORT_REPOSITORY_UNRESOLVED: no repository was selected\n",
+    },
+  ])(
+    "export --format $name",
+    async ({ exporter, exitCode, stdout, stderr }) => {
+      const current = fixture(["export", "--format", "claude-md"]);
+
+      await expect(
+        runRepoKnowledgeCli({
+          ...current.options,
+          ...(exporter === undefined ? {} : { ruleExporter: exporter }),
+        }),
+      ).resolves.toBe(exitCode);
+
+      expect(current.stdout()).toBe(stdout);
+      expect(current.stderr()).toBe(stderr);
+    },
+  );
 
   it("rejects admin commands without a real input and output TTY", async () => {
     const current = fixture(["approve", KNOWLEDGE_ID, "--repo", REPOSITORY], {

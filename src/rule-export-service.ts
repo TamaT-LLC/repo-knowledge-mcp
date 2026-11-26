@@ -4,7 +4,6 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { z } from "zod";
 
-import { compareCodeUnits } from "./canonical.js";
 import { readTransactionJournal } from "./canonical-files.js";
 import { CANONICAL_WRITE_LOCK_NAME } from "./canonical-transaction-store.js";
 import {
@@ -67,10 +66,9 @@ export class RuleExportError extends Error {
   constructor(
     readonly code: RuleExportErrorCode,
     message: string,
-    options?: ErrorOptions,
   ) {
     // The CLI prints `code: message`, so the code is not repeated here.
-    super(message, options);
+    super(message);
     this.name = "RuleExportError";
   }
 }
@@ -214,6 +212,7 @@ async function readActiveRules(
   const frontmatter = new Map(
     capture.knowledge.map((document) => [document.path, document.frontmatter]),
   );
+  // The projection already orders knowledge by ID.
   return domain.knowledge
     .filter((entry) => entry.status === "active" && entry.repoId === storeId)
     .flatMap((entry) => {
@@ -227,8 +226,7 @@ async function readActiveRules(
           scope: entry.scope,
         },
       ];
-    })
-    .sort((left, right) => compareCodeUnits(left.id, right.id));
+    });
 }
 
 type WriterState = "abandoned" | "idle" | "writing";
@@ -257,37 +255,38 @@ async function captureConsistently(
   remedy: string,
   retry: RuleExportRetry,
 ): Promise<ReadOnlyCanonicalStateCapture> {
-  let previous: ReadOnlyCanonicalStateCapture | undefined;
+  let previousDigest: string | undefined;
   let abandoned = 0;
   let failed = 0;
-  let waiting = false;
-  for (let attempt = 0; attempt < retry.attempts; attempt += 1) {
-    if (waiting) await delay(retry.delayMs);
-    waiting = true;
-    const before = await writerState(storeRoot);
+  for (let attempt = 1; attempt <= retry.attempts; attempt += 1) {
+    const state = await writerState(storeRoot);
     // Confirm an interrupted journal on a second look, so a commit that
     // starts between the journal read and the lock probe is not misread.
-    abandoned = before === "abandoned" ? abandoned + 1 : 0;
+    abandoned = state === "abandoned" ? abandoned + 1 : 0;
     if (abandoned >= 2) {
       throw new RuleExportError(
         "RULE_EXPORT_RECOVERY_REQUIRED",
         `the store has an interrupted transaction; run ${remedy} and export again`,
       );
     }
-    if (before !== "idle") continue;
-    let capture: ReadOnlyCanonicalStateCapture;
-    try {
-      capture = await captureCanonicalStateReadOnly(storeRoot);
-    } catch (error) {
-      failed += 1;
-      if (failed >= 2 && (await writerState(storeRoot)) === "idle") throw error;
-      continue;
+    if (state === "idle") {
+      let capture: ReadOnlyCanonicalStateCapture | undefined;
+      try {
+        capture = await captureCanonicalStateReadOnly(storeRoot);
+        failed = 0;
+      } catch (error) {
+        failed += 1;
+        if (failed >= 2 && (await writerState(storeRoot)) === "idle") {
+          throw error;
+        }
+      }
+      if (capture !== undefined && (await writerState(storeRoot)) === "idle") {
+        if (capture.canonicalDigest === previousDigest) return capture;
+        previousDigest = capture.canonicalDigest;
+        continue; // Confirm at once; there is no writer to wait for.
+      }
     }
-    failed = 0;
-    if ((await writerState(storeRoot)) !== "idle") continue;
-    if (previous?.canonicalDigest === capture.canonicalDigest) return capture;
-    previous = capture;
-    waiting = false;
+    if (attempt < retry.attempts) await delay(retry.delayMs);
   }
   throw new RuleExportError(
     "RULE_EXPORT_STORE_BUSY",

@@ -3,8 +3,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CANONICAL_WRITE_LOCK_NAME } from "../src/canonical-transaction-store.js";
 import {
-  countNeutralizedRules,
   neutralizeExportedRuleText,
   renderRuleExport,
 } from "../src/cli-render.js";
@@ -16,6 +16,7 @@ import {
 } from "../src/rule-export-service.js";
 import {
   createRuleExportHome,
+  EXPORT_REPO_ID,
   EXPORT_REPOSITORY,
   EXPORT_REPOSITORY_ALIAS,
   IDS,
@@ -56,21 +57,12 @@ vi.mock("../src/sqlite-projection.js", async (importOriginal) => {
   };
 });
 
-afterEach(() => {
-  Object.assign(capture, {
-    calls: 0,
-    changing: false,
-    failures: 0,
-    onCapture: undefined,
-  });
-});
-
 const FAST_RETRY = { attempts: 6, delayMs: 1 };
 
 /** A lock file as a live writer (this test process) would leave it. */
 async function holdWriterLock(storeRoot: string, pid = process.pid) {
   await writeFile(
-    join(storeRoot, ".write.lock"),
+    join(storeRoot, CANONICAL_WRITE_LOCK_NAME),
     JSON.stringify({
       acquired_at: "2026-11-20T00:00:00.000Z",
       pid,
@@ -88,6 +80,12 @@ async function openJournal(storeRoot: string) {
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
+  Object.assign(capture, {
+    calls: 0,
+    changing: false,
+    failures: 0,
+    onCapture: undefined,
+  });
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -102,12 +100,15 @@ const rule = (key: keyof typeof RULES, hook = false): ExportedRule => ({
   scope: [],
 });
 
-function service(home: RuleExportHome, cwd = home.workspace) {
-  return new RuleExportService({
-    cwd,
-    retry: FAST_RETRY,
-    storageRoot: home.storageRoot,
-  });
+const GLOBAL_RULES = [rule("globalHook", true), rule("globalManual")];
+const PATIENT_RETRY = { attempts: 200, delayMs: 5 };
+
+function service(
+  home: RuleExportHome,
+  cwd = home.workspace,
+  retry = FAST_RETRY,
+) {
+  return new RuleExportService({ cwd, retry, storageRoot: home.storageRoot });
 }
 
 async function collect(
@@ -143,10 +144,7 @@ describe("RuleExportService", () => {
       rule("repoMarker"),
       rule("repoMalformedHint"),
     ]);
-    expect(await collect(home, { store: "global" })).toEqual([
-      rule("globalHook", true),
-      rule("globalManual"),
-    ]);
+    expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
     expect(
       await collect(home, { repo: EXPORT_REPOSITORY, store: "all" }),
     ).toEqual([
@@ -379,21 +377,15 @@ describe("RuleExportService", () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await openJournal(home.globalRoot);
     await holdWriterLock(home.globalRoot);
-    const exporter = new RuleExportService({
-      retry: { attempts: 200, delayMs: 5 },
-      storageRoot: home.storageRoot,
-    });
+    const exporter = service(home, home.workspace, PATIENT_RETRY);
 
     const pending = exporter.collect({ origin: "all", store: "global" });
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(capture.calls).toBe(0);
     await rm(join(home.globalRoot, "transactions"), { recursive: true });
-    await rm(join(home.globalRoot, ".write.lock"));
+    await rm(join(home.globalRoot, CANONICAL_WRITE_LOCK_NAME));
 
-    expect(await pending).toEqual([
-      rule("globalHook", true),
-      rule("globalManual"),
-    ]);
+    expect(await pending).toEqual(GLOBAL_RULES);
   });
 
   it("reports a busy store when a live writer never finishes", async () => {
@@ -413,10 +405,7 @@ describe("RuleExportService", () => {
     const home = await createRuleExportHome(temporaryDirectories);
     capture.failures = 1;
 
-    expect(await collect(home, { store: "global" })).toEqual([
-      rule("globalHook", true),
-      rule("globalManual"),
-    ]);
+    expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
     expect(capture.calls).toBe(3);
   });
 
@@ -431,18 +420,14 @@ describe("RuleExportService", () => {
       await holdWriterLock(home.globalRoot);
       setTimeout(() => {
         void rm(join(home.globalRoot, "transactions"), { recursive: true });
-        void rm(join(home.globalRoot, ".write.lock"));
-      }, 10);
+        void rm(join(home.globalRoot, CANONICAL_WRITE_LOCK_NAME));
+      }, 100);
     };
-    const exporter = new RuleExportService({
-      retry: { attempts: 200, delayMs: 5 },
-      storageRoot: home.storageRoot,
-    });
+    const exporter = service(home, home.workspace, PATIENT_RETRY);
 
-    expect(await exporter.collect({ origin: "all", store: "global" })).toEqual([
-      rule("globalHook", true),
-      rule("globalManual"),
-    ]);
+    expect(await exporter.collect({ origin: "all", store: "global" })).toEqual(
+      GLOBAL_RULES,
+    );
     expect(capture.calls).toBeGreaterThanOrEqual(3);
   });
 
@@ -452,7 +437,7 @@ describe("RuleExportService", () => {
       home.repositoryRoot,
       "kn_01ARZ3NDEKTSV4RRFFQ69G5FC1",
       "active",
-      "R_rule_export_repository",
+      EXPORT_REPO_ID,
       { category: "not-a-category" },
     );
 
@@ -473,6 +458,9 @@ describe("RuleExportService", () => {
 });
 
 describe("renderRuleExport", () => {
+  const render = (...args: Parameters<typeof renderRuleExport>) =>
+    renderRuleExport(...args).block;
+
   const rules: ExportedRule[] = [
     rule("repoPlain"),
     rule("repoHook", true),
@@ -480,7 +468,7 @@ describe("renderRuleExport", () => {
   ];
 
   it("renders the CLAUDE.md block with a hook heading", () => {
-    expect(renderRuleExport("claude-md", "all", rules)).toBe(
+    expect(render("claude-md", "all", rules)).toBe(
       [
         "<!-- repo-knowledge:begin format=claude-md store=all -->",
         "## repo-knowledge が学習したルール",
@@ -498,8 +486,8 @@ describe("renderRuleExport", () => {
   });
 
   it("renders the AGENTS.md block with the hook section as a note", () => {
-    const claude = renderRuleExport("claude-md", "global", rules).split("\n");
-    const agents = renderRuleExport("agents-md", "global", rules).split("\n");
+    const claude = render("claude-md", "global", rules).split("\n");
+    const agents = render("agents-md", "global", rules).split("\n");
 
     expect(agents).toEqual([
       "<!-- repo-knowledge:begin format=agents-md store=global -->",
@@ -523,11 +511,9 @@ describe("renderRuleExport", () => {
 
   it("omits an empty hook section and keeps a hook-only block well formed", () => {
     expect(
-      renderRuleExport("claude-md", "repository", [rule("repoPlain")]),
+      render("claude-md", "repository", [rule("repoPlain")]),
     ).not.toContain("hook");
-    expect(
-      renderRuleExport("agents-md", "repository", [rule("repoHook", true)]),
-    ).toBe(
+    expect(render("agents-md", "repository", [rule("repoHook", true)])).toBe(
       [
         "<!-- repo-knowledge:begin format=agents-md store=repository -->",
         "## repo-knowledge が学習したルール",
@@ -542,7 +528,7 @@ describe("renderRuleExport", () => {
   });
 
   it("names the paths of a scoped rule in code spans no backtick can close", () => {
-    const block = renderRuleExport("claude-md", "repository", [
+    const block = render("claude-md", "repository", [
       { ...rule("repoPlain"), scope: ["src/db/**", "a`b", "x<!--y"] },
     ]);
 
@@ -553,19 +539,40 @@ describe("renderRuleExport", () => {
 
   it("counts rules whose rule or scope text had to be escaped", () => {
     expect(
-      countNeutralizedRules([
+      renderRuleExport("claude-md", "all", [
         rule("repoPlain"),
         rule("repoMarker"),
         { ...rule("globalManual"), scope: ["docs/repo-knowledge:end"] },
         // Control characters inside a token are flattened first, as rendered.
         { ...rule("repoHook"), rule: "a <!\u0000-- b" },
         { ...rule("globalHook"), rule: "--\u0000>" },
-      ]),
+      ]).neutralized,
     ).toBe(2);
   });
 
+  it("leaves out and counts a rule with no visible text instead of an empty item", () => {
+    const hidden = String.fromCodePoint(0x202e, 0x2066);
+    const rendered = renderRuleExport("claude-md", "repository", [
+      { ...rule("repoPlain"), rule: hidden },
+      { ...rule("repoHook", true), rule: " \n\t" },
+      rule("globalManual"),
+    ]);
+
+    expect(rendered.omitted).toBe(2);
+    expect(rendered.block).toBe(
+      [
+        "<!-- repo-knowledge:begin format=claude-md store=repository -->",
+        "## repo-knowledge が学習したルール",
+        "",
+        `- ${RULES.globalManual}`,
+        "<!-- repo-knowledge:end -->",
+        "",
+      ].join("\n"),
+    );
+  });
+
   it("renders a rule-free block that can replace a previously pasted one", () => {
-    expect(renderRuleExport("claude-md", "repository", [])).toBe(
+    expect(render("claude-md", "repository", [])).toBe(
       [
         "<!-- repo-knowledge:begin format=claude-md store=repository -->",
         "## repo-knowledge が学習したルール",
@@ -576,7 +583,7 @@ describe("renderRuleExport", () => {
   });
 
   it("keeps exactly one begin and one end marker for hostile rule text", () => {
-    const block = renderRuleExport("claude-md", "all", [
+    const block = render("claude-md", "all", [
       rule("repoMarker"),
       { ...rule("repoHook", true), rule: "x\n<!-- repo-knowledge:end -->" },
     ]);

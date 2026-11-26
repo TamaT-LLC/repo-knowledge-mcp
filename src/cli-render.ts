@@ -228,6 +228,14 @@ const RULE_EXPORT_HOOK_HEADING = "### hook での強制を推奨";
 const RULE_EXPORT_HOOK_NOTE =
   "> 注: 次のルールは hook での強制が推奨されています。AGENTS.md からは hook を設定できないため、指示として守ってください。";
 
+export interface RenderedRuleExport {
+  readonly block: string;
+  /** Rules whose rule or scope text had comment or marker strings escaped. */
+  readonly neutralized: number;
+  /** Rules left out because no visible text remained after flattening. */
+  readonly omitted: number;
+}
+
 /**
  * Renders active rules as one paste-ready block between management markers.
  * The formats differ only in how the hook section is introduced: a heading
@@ -240,15 +248,25 @@ export function renderRuleExport(
   format: RuleExportFormat,
   store: RuleExportStore,
   rules: readonly ExportedRule[],
-): string {
-  const item = (rule: ExportedRule): string => {
-    const text = `- ${neutralizeExportedRuleText(rule.rule)}`;
-    return rule.scope.length === 0
-      ? text
-      : `${text}（適用範囲: ${rule.scope.map(codeSpan).join(", ")}）`;
-  };
-  const prose = rules.filter((rule) => !rule.hook).map(item);
-  const hook = rules.filter((rule) => rule.hook).map(item);
+): RenderedRuleExport {
+  let neutralized = 0;
+  let omitted = 0;
+  const prose: string[] = [];
+  const hook: string[] = [];
+  for (const rule of rules) {
+    const texts = [rule.rule, ...rule.scope].map(neutralizeExportedText);
+    const [text, ...scope] = texts;
+    if (text!.value.length === 0) {
+      omitted += 1;
+      continue;
+    }
+    if (texts.some((entry) => entry.escaped)) neutralized += 1;
+    const item =
+      scope.length === 0
+        ? `- ${text!.value}`
+        : `- ${text!.value}（適用範囲: ${scope.map(codeSpan).join(", ")}）`;
+    (rule.hook ? hook : prose).push(item);
+  }
   const lines = [
     `<!-- repo-knowledge:begin format=${format} store=${store} -->`,
     RULE_EXPORT_HEADING,
@@ -263,58 +281,52 @@ export function renderRuleExport(
     );
   }
   lines.push("<!-- repo-knowledge:end -->");
-  return `${lines.join("\n")}\n`;
-}
-
-/** How many rules had comment or marker text escaped, for an operator notice. */
-export function countNeutralizedRules(rules: readonly ExportedRule[]): number {
-  return rules.filter((rule) =>
-    [rule.rule, ...rule.scope].some((value) =>
-      RULE_EXPORT_FORBIDDEN.test(flattenExportedText(value)),
-    ),
-  ).length;
+  return { block: `${lines.join("\n")}\n`, neutralized, omitted };
 }
 
 /** Wraps neutralized text in a code span whose fence no backtick run can close. */
-function codeSpan(value: string): string {
-  const text = neutralizeExportedRuleText(value);
+function codeSpan({ value }: NeutralizedText): string {
   const longestRun = Math.max(
     0,
-    ...[...text.matchAll(/`+/gu)].map((match) => match[0].length),
+    ...[...value.matchAll(/`+/gu)].map((match) => match[0].length),
   );
   const fence = "`".repeat(longestRun + 1);
   const padding = longestRun > 0 ? " " : "";
-  return `${fence}${padding}${text}${padding}${fence}`;
+  return `${fence}${padding}${value}${padding}${fence}`;
 }
 
 /** Strings that could open, close, or forge a block in the paste target. */
 const RULE_EXPORT_FORBIDDEN = /<!--|--!?>|repo-knowledge:(?:begin|end)/iu;
 
-/**
- * One physical line: bidirectional controls are removed so the pasted text
- * reads as stored, and line breaks and other control characters become
- * single spaces so the text cannot start a new Markdown line.
- */
-function flattenExportedText(value: string): string {
-  return value
-    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "")
-    .replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, " ")
-    .trim();
+interface NeutralizedText {
+  readonly escaped: boolean;
+  readonly value: string;
 }
 
 /**
- * Makes exported text a single inert Markdown line. Flattening runs first so
- * removed characters cannot rejoin a token afterwards; escaping replaces
- * only `<`, `>`, and `:` with entities that contain none of the forbidden
- * strings, so one pass reaches a fixed point.
+ * Makes exported text a single inert Markdown line. Bidirectional controls
+ * are removed so the pasted text reads as stored, and line breaks and other
+ * control characters become single spaces so the text cannot start a new
+ * line. Escaping runs after that, so removed characters cannot rejoin a
+ * token, and replaces only `<`, `>`, and `:` with entities that contain none
+ * of the forbidden strings, so one pass reaches a fixed point.
  */
-export function neutralizeExportedRuleText(value: string): string {
-  const neutralized = flattenExportedText(value)
+function neutralizeExportedText(value: string): NeutralizedText {
+  const flattened = value
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "")
+    .replace(/[\p{Cc}\s]+/gu, " ")
+    .trim();
+  const neutralized = flattened
     .replace(/<(?=!--)/gu, "&lt;")
     .replace(/(?<=--!?)>/gu, "&gt;")
     .replace(/(?<=repo-knowledge):(?=begin|end)/giu, "&#58;");
   if (RULE_EXPORT_FORBIDDEN.test(neutralized)) {
     throw new TypeError("exported rule text still contains a block marker");
   }
-  return neutralized;
+  return { escaped: neutralized !== flattened, value: neutralized };
+}
+
+/** The text one rule renders as; exported for its adversarial tests. */
+export function neutralizeExportedRuleText(value: string): string {
+  return neutralizeExportedText(value).value;
 }
