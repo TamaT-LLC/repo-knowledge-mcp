@@ -728,12 +728,33 @@ describe("global matches across repeated reads", () => {
       global_matched_count: 0,
       global_truncated: false,
     });
+    // An empty-scope global rule never matches files, only a task.
     await writeGlobalRule(high, "active", { scope: [] });
-    const allFiles = await service.getRules(input);
-    expect(allFiles.global_matched_count).toBe(1);
+    expect(await service.getRules(input)).toEqual({
+      ...baseline,
+      global_matched_count: 0,
+      global_truncated: false,
+    });
+    const byTask = await service.getRules({ ...input, task: "stdio outcome" });
     expect(
-      allFiles.rules.find((rule) => rule.id === high)?.match_reasons,
-    ).toEqual([{ type: "global_store", via: "scope" }]);
+      byTask.rules.find((rule) => rule.id === high)?.match_reasons,
+    ).toEqual([
+      { type: "global_store", via: "task", score: expect.any(Number) },
+    ]);
+    // An ID the repository already owns is not listed again from global.
+    await writeGlobalRule(localIds[0]!, "active");
+    expect(
+      (await service.getRules({ ...input, limit: 20 })).rules.filter(
+        (rule) => rule.id === localIds[0],
+      ),
+    ).toHaveLength(1);
+    await rm(
+      join(
+        globalStore.reference.absolutePath,
+        "knowledge",
+        `${localIds[0]}.md`,
+      ),
+    );
     await globalStore.setAlwaysReturn(always, true, { actor: "cli" });
     for (const [id, severity] of [
       [low, "consider"],

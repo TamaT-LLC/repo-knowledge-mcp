@@ -293,7 +293,15 @@ export class KnowledgeReadService {
     const exampleUrls = representativeEvidenceUrls(snapshot, this.repoId);
     const ordered = [...matches.values()].sort(compareRuleMatches);
     const matchedCount = ordered.length;
-    const ranked = rankGlobalRules(global ?? undefined, filePaths);
+    const ranked = rankGlobalRules(
+      global ?? undefined,
+      filePaths,
+      new Set(
+        snapshot.domain.knowledge
+          .filter((knowledge) => knowledge.repoId === this.repoId)
+          .map((knowledge) => knowledge.id),
+      ),
+    );
     const alwaysQuota = Math.min(
       ranked.always.length,
       ALWAYS_RETURN_LIMIT,
@@ -516,6 +524,7 @@ function rankGlobalRules(
     | Awaited<ReturnType<GlobalStore["store"]["readGlobalRules"]>>
     | undefined,
   files: string[],
+  repositoryIds: ReadonlySet<string>,
 ) {
   const always: GlobalMatch[] = [];
   const matches: GlobalMatch[] = [];
@@ -527,6 +536,9 @@ function rankGlobalRules(
     return scopeMatches.get(pattern);
   };
   for (const knowledge of global.active) {
+    // get_knowledge and record_outcome resolve such an ID to the repository,
+    // so a global copy would be listed twice and never be reachable.
+    if (repositoryIds.has(knowledge.id)) continue;
     const setting = global.settings.get(knowledge.id);
     if (setting) {
       always.push({
@@ -538,7 +550,8 @@ function rankGlobalRules(
       continue;
     }
     const reasons: RuleMatchReason[] = [];
-    if (knowledge.scope.length === 0 || knowledge.scope.some(matchesFiles))
+    // A global rule with an empty scope matches only through its task score.
+    if (knowledge.scope.length > 0 && knowledge.scope.some(matchesFiles))
       reasons.push({ type: "global_store", via: "scope" });
     const taskScore = global.scores.get(knowledge.id);
     if (taskScore !== undefined)
