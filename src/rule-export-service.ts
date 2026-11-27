@@ -275,23 +275,29 @@ async function captureConsistently(
       abandoned = undefined;
     }
     if (observed.state !== "idle") {
+      // A writer changes the store: earlier captures and failures no longer
+      // describe it, so confirmation starts over once it is quiet again.
       failed = 0;
+      captures = 0;
+      previousDigest = undefined;
     } else {
       let capture: ReadOnlyCanonicalStateCapture | undefined;
+      let failure: unknown;
       try {
         capture = await captureCanonicalStateReadOnly(storeRoot);
         failed = 0;
       } catch (error) {
-        const quiet =
-          (await observeCanonicalWriter(storeRoot)).state === "idle";
-        failed = quiet ? failed + 1 : 0;
-        if (failed >= 2) throw error;
-        if (quiet) continue; // Retry at once; there is no writer to wait for.
+        failure = error;
       }
-      if (
-        capture !== undefined &&
-        (await observeCanonicalWriter(storeRoot)).state === "idle"
-      ) {
+      const after = await observeCanonicalWriter(storeRoot);
+      // A journal left during the capture gets its second look next round.
+      if (after.state === "abandoned") abandoned = after.prepared.join("/");
+      if (capture === undefined) {
+        failed = after.state === "idle" ? failed + 1 : 0;
+        if (failed >= 2) throw failure;
+        // Retry at once; there is no writer to wait for.
+        if (after.state === "idle") continue;
+      } else if (after.state === "idle") {
         if (capture.canonicalDigest === previousDigest) return capture;
         previousDigest = capture.canonicalDigest;
         // Confirm at once; digests that never agree without a writer are

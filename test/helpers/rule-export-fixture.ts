@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
+import { constants } from "node:fs";
 import {
   chmod,
   lstat,
   mkdir,
   mkdtemp,
+  open,
   readdir,
-  readFile,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -175,24 +176,33 @@ export async function writeKnowledge(
 export async function snapshotTree(directory: string): Promise<string[]> {
   const result: string[] = [];
   const visit = async (current: string): Promise<void> => {
-    for (const name of (await readdir(current)).sort()) {
-      const path = join(current, name);
-      const status = await lstat(path, { bigint: true });
-      const kind = status.isDirectory()
-        ? "dir"
-        : status.isSymbolicLink()
-          ? "link"
-          : "file";
-      const digest =
-        kind === "file"
-          ? createHash("sha256")
-              .update(await readFile(path))
-              .digest("hex")
-          : "";
-      result.push(
-        `${relative(directory, path)} ${kind} ${status.mode.toString(8)} ${String(status.size)} ${String(status.mtimeNs)} ${digest}`,
-      );
-      if (kind === "dir") await visit(path);
+    const entries = await readdir(current, { withFileTypes: true });
+    entries.sort((left, right) => (left.name < right.name ? -1 : 1));
+    for (const entry of entries) {
+      const path = join(current, entry.name);
+      let line: string;
+      if (entry.isFile()) {
+        // Stat and hash through one handle, so both describe the same file.
+        const handle = await open(
+          path,
+          constants.O_RDONLY | constants.O_NOFOLLOW,
+        );
+        try {
+          const status = await handle.stat({ bigint: true });
+          const digest = createHash("sha256")
+            .update(await handle.readFile())
+            .digest("hex");
+          line = `file ${status.mode.toString(8)} ${String(status.size)} ${String(status.mtimeNs)} ${digest}`;
+        } finally {
+          await handle.close();
+        }
+      } else {
+        const status = await lstat(path, { bigint: true });
+        const kind = entry.isDirectory() ? "dir" : "link";
+        line = `${kind} ${status.mode.toString(8)} ${String(status.size)} ${String(status.mtimeNs)} `;
+      }
+      result.push(`${relative(directory, path)} ${line}`);
+      if (entry.isDirectory()) await visit(path);
     }
   };
   await visit(directory);

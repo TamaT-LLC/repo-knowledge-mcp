@@ -258,7 +258,7 @@ export function renderRuleExport(
     const item =
       scope.length === 0
         ? `- ${text.value}`
-        : `- ${text.value}（適用範囲: ${scope.map((entry) => codeSpan(entry.value)).join(", ")}）`;
+        : `- ${text.value}（適用範囲: ${scope.map((entry) => codeSpan(entry.value, text.value)).join(", ")}）`;
     (rule.hook ? hook : prose).push(item);
   }
   const lines = [
@@ -278,10 +278,15 @@ export function renderRuleExport(
   return { block: `${lines.join("\n")}\n`, neutralized };
 }
 
-/** Wraps neutralized text in a code span whose fence no backtick run can close. */
-function codeSpan(value: string): string {
+/**
+ * Wraps neutralized text in a code span whose fence no backtick run in it,
+ * or in the rule text before it on the same line, can close or pair with.
+ */
+function codeSpan(value: string, lineText: string): string {
   const longestRun = longestBacktickRun(value);
-  const fence = "`".repeat(longestRun + 1);
+  const fence = "`".repeat(
+    Math.max(longestRun, longestBacktickRun(lineText)) + 1,
+  );
   const padding = longestRun > 0 ? " " : "";
   return `${fence}${padding}${value}${padding}${fence}`;
 }

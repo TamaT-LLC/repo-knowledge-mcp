@@ -409,6 +409,50 @@ describe("RuleExportService", () => {
     });
   });
 
+  it("gives a journal left during a capture its second look on the last wait", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    await startWriter(home.globalRoot);
+    let polls = 0;
+    // The writer finishes on the last wait; a new one starts during that
+    // capture and dies, leaving its journal without a live lock.
+    journal.onRead = async (root) => {
+      polls += 1;
+      if (polls === FAST_RETRY.attempts) await finishWriter(root);
+    };
+    capture.onCapture = async () => {
+      if (polls === FAST_RETRY.attempts) await openJournal(home.globalRoot);
+    };
+
+    await expect(collect(home, { store: "global" })).rejects.toMatchObject({
+      code: "RULE_EXPORT_RECOVERY_REQUIRED",
+    });
+  });
+
+  it("restarts confirmation after a writer, so a store that settles is read", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    // The first two captures disagree and use the whole confirmation
+    // budget; then a writer runs, and the settled store must still be read.
+    capture.changing = true;
+    capture.onCapture = async () => {
+      if (capture.calls === 3) capture.changing = false;
+    };
+    let polls = 0;
+    journal.onRead = async (root) => {
+      polls += 1;
+      if (polls === 5) await startWriter(root);
+      if (polls === 6) await finishWriter(root);
+    };
+    const exporter = new RuleExportService({
+      retry: { attempts: 2, delayMs: 1 },
+      storageRoot: home.storageRoot,
+    });
+
+    expect(await exporter.collect({ origin: "all", store: "global" })).toEqual(
+      GLOBAL_RULES,
+    );
+    expect(capture.calls).toBe(4);
+  });
+
   it("reads the hint with the shared schema, so a hint without rationale is prose", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     const id = "kn_01ARZ3NDEKTSV4RRFFQ69G5FC2";
@@ -670,6 +714,15 @@ describe("renderRuleExport", () => {
     );
   });
 
+  it("fences a scope longer than any backtick run in the rule text", () => {
+    // A lone backtick in the rule must not pair with the scope's fence.
+    expect(
+      render("claude-md", "repository", [
+        { ...rule("repoPlain"), rule: "use `foo", scope: ["src/**"] },
+      ]).split("\n")[3],
+    ).toBe("- use `foo（適用範囲: ``src/**``）");
+  });
+
   it("names the paths of a scoped rule in code spans no backtick can close", () => {
     const block = render("claude-md", "repository", [
       { ...rule("repoPlain"), scope: ["src/db/**", "a`b", "x<!--y"] },
@@ -711,7 +764,8 @@ describe("renderRuleExport", () => {
     ]);
 
     expect(block.match(/<!--/gu)).toHaveLength(2);
-    expect(block.match(/-->/gu)).toHaveLength(2);
+    // Both comment closers count: `-->` and `--!>`.
+    expect(block.match(/--!?>/gu)).toHaveLength(2);
     expect(block.match(/repo-knowledge:(?:begin|end)/giu)).toHaveLength(2);
     expect(block.split("\n")).toHaveLength(10);
     expect(block).toContain(
