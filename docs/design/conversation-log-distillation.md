@@ -435,10 +435,13 @@ $REPO_KNOWLEDGE_HOME/
     ├── utterances.jsonl              # マスク後の発言と supersede
     ├── episodes.jsonl                # エピソードとクラスタ割り当て
     ├── checkpoints.json              # ソースファイルごとの読み取り位置
-    ├── purge-filters.json            # 削除条件（鍵に依存しない値で保存）
+    ├── purge-filters.json            # 削除条件とリンクで消したコピー（鍵に依存しない値で保存）
+    ├── purge-progress.json           # 中断した purge の進捗（完了したら消す）
+    ├── reset-pending.json            # reset-key の reset-pending マーカー（完了したら消す）
     ├── route-cache.json              # cwd からプロジェクトへの解決結果
     ├── mcp-ingest-state.json         # MCP からの取り込みの最終実行時刻
     ├── local.key                     # 発言 ID とハッシュ化に使う鍵（0600）
+    ├── local.key.next                # reset-key の途中だけ存在する新しい鍵（0600）
     └── .lock                         # 会話データ領域の writer lock
 ```
 
@@ -574,7 +577,10 @@ history の行は時刻順に追記されるため、取り込みを分けても
 
 #### 削除条件の形式
 
-`purge-filters.json` の各要素は、`source`、`session_id`（ソース側の値）、`before`、`after`、`project_path_prefix`、`name_with_owner` のうち一つ以上と、追加日時を持つ。
+`purge-filters.json` は、利用者が指定した削除条件の配列（`filters`）と、リンクでつながったコピーの識別情報の配列（`copies`）を持つ。
+`filters` の各要素は、`source`、`session_id`（ソース側の値）、`before`、`after`、`project_path_prefix`、`name_with_owner` のうち一つ以上と、追加日時を持つ。
+`copies` の各要素は、条件には一致せず `superseded` のリンクをたどって消した発言の `source`、`session_id`、`timestamp` を持つ。
+リンクは `reset-key` で破棄されるため、コピーの識別情報を別に残し、再取り込みでも同じコピーを保存しない。照合は条件の走査ではなく識別情報の完全一致で行う。
 条件は、ソースから読んだ直後のマスク前の値、または保存済みの発言と tombstone の `path_prefix_hmacs` に対して照合する（[保存期間の tombstone](#cd-tombstone)）。
 擬似セッションの発言は、期間、ソース、プロジェクトの条件で削除する。
 
@@ -1595,7 +1601,7 @@ interface ConversationFinalizeJob extends ConversationJobBase {
 | `repo-knowledge ingest-conversations [--source claude-code\|codex\|all] [--since <iso>] [--dry-run] [--json]` | 収集からプロジェクト解決まで。`--dry-run` は保存せずに統計だけを出す | PR3 |
 | `repo-knowledge distill-conversations [--store repository\|global\|all] [--repo <owner/name>] [--plan] [--limit <n>] [--group-pending]` | クラスタ化と job 作成。`--plan` は job を作らずに予定だけを出す。Provider の同意がある場合は蒸留まで実行する。`--group-pending` は未ラベルのクラスタが 1 件以上あれば統合の job を作る | PR4a、PR5 |
 | `repo-knowledge conversations status [--json]` | M4-FR-018 の統計。未登録リポジトリと保留中の発言件数、送信字数の累計、常時返却の一覧と操作した側を含む | PR1、PR2、PR3、PR4a |
-| `repo-knowledge conversations purge (--session <id> \| --before <iso> \| --source <name> \| --project <owner/name\|path>) [--yes]` | 発言の削除（M4-FR-017） | PR2、PR4a、PR4b |
+| `repo-knowledge conversations purge (--session <id> \| --before <iso> \| --source <name> \| --project <owner/name\|path> \| --resume) [--yes]` | 発言の削除（M4-FR-017）。`--resume` は条件を加えずに中断した purge を最後まで行う | PR2、PR4a、PR4b |
 | `repo-knowledge conversations reset-key [--yes] [--restart]` | 鍵の作り直し。`--restart` は鍵ファイルが失われて再開できないときに 0 段目からやり直す | PR2、PR4b |
 | `repo-knowledge export --format claude-md\|agents-md [--store repository\|global\|all] [--repo <owner/name>] [--origin conversation\|all]` | active ルールの stdout 出力 | PR6 |
 | `repo-knowledge add --global ...` | 手動のグローバルルール | PR1 |
@@ -1622,7 +1628,8 @@ Claude Code の会話ファイルが削除される前に取り込めるよう�
 
 2 を 3 より先に行うため、途中で中断しても、以後の取り込みは削除条件を参照して該当する発言を保存しない。
 3 は tombstone も照合の対象にするため、保存期間で本文が消えた後の発言についても、4 で evidence を withdrawn にし、5 で job を failed にできる。照合に使った tombstone も compaction で消す。
-再実行すると、`purge-progress.json` がなければ 3 から、`ids_recorded` なら控えた ID で compaction から、`compacted` 以降なら記録された段の次からやり直す（控えた ID にリンクで結ばれたコピーが増えていた場合は、下に書くとおり compaction からやり直す）。
+再実行すると、`purge-progress.json` がなければ 3 から、`filter_saved` なら控えた条件の追記から、`ids_recorded` なら控えた ID で compaction から、`compacted` 以降なら記録された段の次からやり直す（控えた ID にリンクで結ばれたコピーが増えていた場合は、下に書くとおり compaction からやり直す）。
+中断した purge は、次に `conversations purge` を実行したときに新しい条件より先に完了させる。条件を加えずに完了させるだけなら `conversations purge --resume` を使う。
 ID の一時ファイルの有無だけで段を判断しないため、compaction の完了前に中断しても発言が物理的に残ることはない。
 
 2 の前には、追記する条件を `purge-progress.json` に `stage: filter_saved` として記録する。2 の途中で中断しても、再実行（`conversations purge --resume` を含む）と取り込みがその条件を使う。
