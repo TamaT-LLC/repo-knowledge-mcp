@@ -31,6 +31,8 @@ const FRAGMENTS = [
   "postgres://admin:p@ss@db.example.test/x",
   "/Users/alice/",
   "/home/bob",
+  "-Users-alice-",
+  "-home-bob-",
   "C:\\Users\\Carol Ann\\",
   "~/",
   "[REDACTED]",

@@ -62,6 +62,14 @@ const RULES = [
     redactions: [{ count: 2, kind: "home_directory_path" }],
   },
   {
+    name: "account names in Claude Code's encoded project directories",
+    input:
+      "see ~/.claude/projects/-Users-alice-repos-secret/memory and /private/tmp/claude-501/-home-bob--claude/x",
+    output:
+      "see ~/.claude/projects/-Users-[REDACTED]-repos-secret/memory and /private/tmp/claude-501/-home-[REDACTED]--claude/x",
+    redactions: [{ count: 2, kind: "home_directory_path" }],
+  },
+  {
     name: "connection string credentials",
     input: "db postgres://admin:s3cr3t@db.example.test:5432/app",
     output: "db postgres://[REDACTED]@db.example.test:5432/app",
@@ -468,6 +476,8 @@ describe("user dictionary (redactTerms)", () => {
     ["repeated empty connection strings", "x://:".repeat(20_000)],
     ["repeated secret keys", "password=".repeat(20_000)],
     ["a chain of home directories", "/home/a".repeat(20_000)],
+    ["a long run of JWT starts", "eyJ-".repeat(100_000)],
+    ["a chain of encoded home directories", "-Users-a".repeat(20_000)],
   ])("masks %s in linear time", (_name, text) => {
     const started = performance.now();
 

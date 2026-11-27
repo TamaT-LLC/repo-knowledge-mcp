@@ -170,6 +170,21 @@ const WIDER_SHARED_RULES: Partial<Record<SensitiveContentKind, RedactionRule>> =
 const RULES: readonly RedactionRule[] = [
   HOME_RULE,
   {
+    // Claude Code names a project directory after its path with `/` and `.`
+    // turned into `-` (`~/.claude/projects/-Users-alice-repo`), so the
+    // account name survives the path rule. The name runs to the next `-`; a
+    // name that itself holds `-` keeps its later part, but the account is
+    // no longer identifiable from what is left. Matched on the whole text
+    // and never right after a placeholder: per segment, each mask would
+    // expose the next link of a `-Users-a-Users-a` chain to the next pass,
+    // and the fixpoint loop would take quadratic time.
+    kind: "home_directory_path",
+    pattern:
+      /(?<![A-Za-z0-9_.\]-])(?<prefix>-(?:[Uu]sers|home)-)[^-/\\\s"'\x60<>()[\]{}|;:,]+/gu,
+    replacement: "keep_prefix",
+    wholeText: true,
+  },
+  {
     // The shared detector only sees the BEGIN line; mask through END so the
     // key body never survives. A paste cut before END (PEM headers, blank
     // lines and all) is masked to the end of the text.
@@ -225,8 +240,11 @@ const RULES: readonly RedactionRule[] = [
       /\b(?:[Bb]asic|BASIC)\s+(?=[A-Za-z0-9+/]+[A-Z0-9+/])(?:[A-Za-z0-9+/]{4}){2,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![A-Za-z0-9+/=])/gu,
   },
   {
+    // Starts only where no token character precedes: `\b` would let every
+    // `-eyJ` in one long run start a scan to its end (quadratic time).
     kind: "jwt",
-    pattern: /\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/gu,
+    pattern:
+      /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/gu,
   },
   // Every other shared detector, in its own order, so a kind added to the
   // shared list is masked here too. Wider conversation rules replace some.
