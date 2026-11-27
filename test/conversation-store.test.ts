@@ -1103,6 +1103,70 @@ describe("purge", () => {
     expect(await store().readPurgeFilters()).toHaveLength(1);
   });
 
+  /** A path purge stopped after recording its progress, with a linked copy. */
+  async function interruptedPathPurgeWithLinkedCopy() {
+    const copyDraft = draft({
+      project: projectAt("/srv/elsewhere"),
+      source_message_id: "history-linked",
+      source_origin: "history",
+      text: "same words",
+    });
+    await store().saveUtterances(
+      [copyDraft, draft({ project: projectAt("/work/secret") })],
+      config(),
+    );
+    const [copy, matching] = await utterances();
+    await store().saveSuperseded([
+      {
+        superseded_by: matching!.utterance_id,
+        utterance_id: copy!.utterance_id,
+      },
+    ]);
+    await expect(
+      crashingStore("purge:progress-recorded").purge({
+        project_path_prefix: "/work/secret",
+      }),
+    ).rejects.toBeInstanceOf(Crash);
+    return copyDraft;
+  }
+
+  it("finishes an interrupted path purge with an old key reset-key is replacing", async () => {
+    const copyDraft = await interruptedPathPurgeWithLinkedCopy();
+    // Unsafe permissions: not usable for new work, but still the old key.
+    await chmod(join(root, "conversations", "local.key"), 0o644);
+
+    await store().resetKey();
+
+    // The copy found through the old key's path match stays refused.
+    await expect(
+      store().saveUtterances([copyDraft], config()),
+    ).resolves.toMatchObject({ saved: 0, skipped: { purged: 1 } });
+  });
+
+  it("stops reset-key when an interrupted path purge has no old key", async () => {
+    await interruptedPathPurgeWithLinkedCopy();
+    await rm(join(root, "conversations", "local.key"));
+
+    await expect(store().resetKey()).rejects.toMatchObject({
+      code: "CONVERSATION_KEY_MISSING",
+      message: expect.stringMatching(/restore local\.key/u),
+    });
+    // Progress and links are kept, and the condition is already saved.
+    expect(
+      (await store().readRecords()).some((r) => r.type === "superseded"),
+    ).toBe(true);
+    await expect(
+      readFile(join(root, "conversations", "purge-progress.json"), "utf8"),
+    ).resolves.toContain("filter_saved");
+    expect(await store().readPurgeFilters()).toMatchObject([
+      { project_path_prefix: "/work/secret" },
+    ]);
+
+    // Giving up the linked copies is an explicit step.
+    await rm(join(root, "conversations", "purge-progress.json"));
+    await expect(store().resetKey()).resolves.toBeDefined();
+  });
+
   it("keeps purging by session while a path filter cannot be matched", async () => {
     await store().saveUtterances(
       [

@@ -665,6 +665,7 @@ symlink は拒否し、group や others から読める権限は読み込み時�
 確認を断ると `{"confirmed":false}` を出力し、何も変更しません。
 処理が中断した場合、次回の実行が進捗ファイル（`purge-progress.json`、`reset-pending.json`）から続きを再開します。
 `reset-key` の中断後に新しい鍵が失われた場合だけ、`--restart` で最初からやり直します。
+パスを条件にした purge が中断したまま古い `local.key` を失った場合、`reset-key` は止まります。リンクでつながったコピーを古い鍵なしでは探せないためです。`local.key` を戻して再実行するか、そのコピーの追跡を諦めて `purge-progress.json` を削除してから再実行します。削除条件そのものは保存済みで、以後の取り込みにも適用されます。
 
 鍵ファイル `local.key` が symlink の場合、group や others から読める権限の場合、他のユーザーが所有している場合は使いません。
 `repo-knowledge doctor` の `conversations.store` が状態と対処方法を表示します。

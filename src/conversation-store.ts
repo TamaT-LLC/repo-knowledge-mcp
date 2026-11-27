@@ -566,6 +566,8 @@ export class ConversationStore {
     readonly filters?: readonly PurgeCriteria[];
     /** Records already chosen (a purge's recorded IDs). */
     readonly ids?: readonly string[];
+    /** Key to match paths with instead of `local.key` (reset-key stage 0). */
+    readonly key?: ConversationKey;
   }): Promise<{
     readonly ids: string[];
     readonly linked: readonly ConversationIdentity[];
@@ -583,8 +585,8 @@ export class ConversationStore {
         (filter) => filter.project_path_prefix !== undefined,
       ) ||
       (conditions.excludeProjects ?? []).some((entry) => entry.startsWith("/"));
-    let key: ConversationKey | null = null;
-    if (needsKey) {
+    let key: ConversationKey | null = conditions.key ?? null;
+    if (needsKey && key === null) {
       try {
         key = await this.readKey();
       } catch (error) {
@@ -912,12 +914,17 @@ export class ConversationStore {
    */
   async #assertPathMatchable(): Promise<void> {
     if ((await this.readKey()) !== null) return;
+    if (await this.#hasStoredUtterances()) throw missingKeyWithData();
+  }
+
+  /** True when any utterance or tombstone is stored (links alone do not count). */
+  async #hasStoredUtterances(): Promise<boolean> {
     let hasData = false;
     await this.#forEachLine(FILES.utterances, (line) => {
       hasData = peekDataRecord(line).type !== "superseded";
       return hasData ? STOP : undefined;
     });
-    if (hasData) throw missingKeyWithData();
+    return hasData;
   }
 
   /**
@@ -1103,7 +1110,10 @@ export class ConversationStore {
   }
 
   /** Runs purge from the recorded stage to the end, then drops progress. */
-  async #finishPurge(progress: IdsProgress | null): Promise<CompactionResult> {
+  async #finishPurge(
+    progress: IdsProgress | null,
+    key?: ConversationKey,
+  ): Promise<CompactionResult> {
     let counts = emptyCompaction();
     let current = progress;
     if (current === null) {
@@ -1113,6 +1123,7 @@ export class ConversationStore {
       const { ids, linked } = await this.#matchRecords({
         copies: state.copies,
         filters: state.filters,
+        ...(key === undefined ? {} : { key }),
       });
       await this.#keepLinkedCopies(state, linked);
       if (ids.length === 0) {
@@ -1206,8 +1217,22 @@ export class ConversationStore {
       PurgeProgressSchema,
     );
     if (progress?.stage === "filter_saved") {
+      // Saved first: whatever happens below, ingest honors the condition.
       await this.#saveFilter(progress.filter);
-      await this.#finishPurge(null);
+      if (progress.filter.project_path_prefix === undefined) {
+        await this.#finishPurge(null);
+      } else {
+        // A path filter matches stored records only through the old key.
+        // One with unsafe permissions is still readable, and it is about to
+        // be discarded, so it may finish the purge. Without any old key the
+        // copies linked to matching utterances cannot be found, and the
+        // reset would drop their links: stop, keeping progress and links.
+        const oldKey = await this.#identifyKey(FILES.key);
+        if (oldKey === null && (await this.#hasStoredUtterances())) {
+          throw interruptedPathPurgeWithoutKey();
+        }
+        await this.#finishPurge(null, oldKey ?? undefined);
+      }
     } else if (progress !== null) {
       await this.#finishPurge(progress);
     }
@@ -1288,7 +1313,9 @@ export class ConversationStore {
 
   /**
    * Which generation a key file holds, ignoring its permissions; a missing,
-   * symlinked or corrupt file holds none. Never use the result to hash.
+   * symlinked or corrupt file holds none. Never hash with the result, except
+   * in reset-key stage 0, where the old key finishes a purge just before it
+   * is discarded.
    */
   async #identifyKey(file: string): Promise<ConversationKey | null> {
     try {
@@ -2030,6 +2057,13 @@ function corrupt(file: string): ConversationStoreError {
     "CONVERSATION_DATA_CORRUPT",
     `${file} contains a record that does not match its schema`,
     { file },
+  );
+}
+
+function interruptedPathPurgeWithoutKey(): ConversationStoreError {
+  return new ConversationStoreError(
+    "CONVERSATION_KEY_MISSING",
+    "an interrupted path purge needs the old local.key to find the copies linked to the utterances it removes; restore local.key and rerun repo-knowledge conversations reset-key, or remove purge-progress.json to reset without them (the purge condition is already saved and still applies to new ingests)",
   );
 }
 
