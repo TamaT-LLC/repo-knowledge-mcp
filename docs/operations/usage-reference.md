@@ -630,7 +630,7 @@ npm run quality:gate
 
 設定は `~/.repo-knowledge/conversation-distillation.json` に置きます。
 ファイルがなければ会話の取り込みは無効です。
-symlink は拒否し、group や others から読める権限は読み込み時に 600 に矯正します。`conversations status` は権限を報告するだけで、変更しません。
+symlink は拒否します。group や others から読める権限は、取り込みが設定を読み込むときに 600 に矯正します（取り込みは後続の変更で追加します）。`conversations status` は権限を報告するだけで、変更しません。
 
 ```json
 {
@@ -646,7 +646,7 @@ symlink は拒否し、group や others から読める権限は読み込み時�
 - `retentionDays` を過ぎた発話は、取り込みの開始時に本文を消し、削除条件の照合に必要な値だけを残します。`null`（既定）は無期限です。
 - `redactTerms` は保存前に置換する語です。秘密情報の既定パターンに加えて適用されます。
   語を変えても効くのは新しい取り込みだけです。保存済みの発言に効かせるには `conversations reset-key` で取り込み直します。
-- `excludeProjects` は `owner/name` または `/` から始まる path prefix です。一致するプロジェクトの発言は取り込みません。path は大文字小文字を区別せずに照合します。
+- `excludeProjects` は `owner/name` または `/` から始まる path prefix です。一致するプロジェクトの発言は取り込みません。`owner/name` も path も大文字小文字を区別せずに照合します。
 
 | command | 用途 |
 | --- | --- |
@@ -661,6 +661,13 @@ symlink は拒否し、group や others から読める権限は読み込み時�
 `purge` の条件は一度に一つだけ指定します。
 削除条件は `purge-filters.json` に保存され、以後の取り込みでも同じ条件の発言は保存されません。
 `reset-key` も削除条件を保持するので、次回の取り込みで source を読み直しても削除済みの発言は戻りません。
+`reset-key` の後に戻るのは、元のログがまだ残っている発言だけです。ログが消えた期間の発言は戻りません。
+
+削除条件を取り消すコマンドはありません。
+未来の時刻を `--before` に指定したり、`--project /` を指定したりすると、以後の取り込みがすべて止まります。
+条件は `~/.repo-knowledge/conversations/purge-filters.json` の `filters` に、指定した値のまま並んでいます（`conversations status` は件数だけを表示します）。
+取り消す場合は、取り込みや purge を実行していないときに、そのファイルから該当する要素を消します。
+`copies` の要素は、リンク経由で消したコピーの記録なので消さないでください。
 
 `purge` と `reset-key` はデータを削除するため、実 TTY で確認するか `--yes` を指定します。
 確認を断ると `{"confirmed":false}` を出力し、何も変更しません。
@@ -671,6 +678,23 @@ symlink は拒否し、group や others から読める権限は読み込み時�
 鍵ファイル `local.key` が symlink の場合、group や others から読める権限の場合、他のユーザーが所有している場合は使いません。
 例外は `reset-key` が中断中のパス purge を片付けるときだけです。直後に捨てる古い鍵なので、権限や所有者に問題があっても読めれば照合に使います（symlink は使いません）。
 `repo-knowledge doctor` の `conversations.store` が状態と対処方法を表示します。
+
+`utterances.jsonl` に壊れた行があると、purge は `CONVERSATION_DATA_CORRUPT` で止まり、`purge-progress.json` が残ります。
+この状態では、中断した purge を先に片付けようとする `reset-key` も同じエラーで止まります。
+保存済みの発言を作り直してよい場合は、`purge-progress.json` を消してから `reset-key` を実行します。
+条件は purge の 2 段目で保存済みなので、消しても以後の取り込みには適用されます。
+
+### マスクされないもの
+
+マスクは既知の形の秘密情報とユーザー名を含むパスを対象にしており、次のものは残ることがあります。
+残したくない語は `redactTerms` に登録してください。
+
+- 16 文字未満の値の代入（`DB_PASSWORD=hunter2`、`token=abc`）や、空白を含む引用値
+- 対象外のキー名（`pass`、`pwd`、`private_key` など）の代入
+- コマンド引数に書いた認証情報（`curl -u admin:pass`、`mysql -phunter2`）
+- 区切り文字で 32 文字未満に分かれるトークン
+- PGP の秘密鍵ブロック（`-----BEGIN PGP PRIVATE KEY BLOCK-----`）
+- 第三者の氏名や社名（自動の氏名検出は行いません）
 会話データ領域の directory は mode 700、file は mode 600 で作成します。
 
 ## storage と直接編集
