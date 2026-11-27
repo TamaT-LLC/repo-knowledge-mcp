@@ -640,16 +640,18 @@ repo-knowledge export --format agents-md --store global
 | --- | --- |
 | `--format claude-md\|agents-md` | 出力の形式。二つは begin マーカーと hook の節の導入だけが異なる。`claude-md` は `### hook での強制を推奨` の見出し、`agents-md` は注記を置く |
 | `--store repository\|global\|all` | 対象のストア。既定は `repository`。`global` は個人用のグローバルストアで、リポジトリを指定しない。`all` はリポジトリ、グローバルの順に出す |
-| `[repo]` または `--repo <owner/name>` | 登録済みのリポジトリ。省略すると cwd の `workspaceMappings`、`defaultRepo` の順に選ぶ。GitHub には問い合わせず、大文字小文字を区別せずに照合する |
+| `[repo]` または `--repo <owner/name>` | 登録済みのリポジトリ。省略すると cwd の `workspaceMappings`、`defaultRepo` の順に選ぶ。GitHub には問い合わせず、現在の名前を改名前の名前（alias）より優先し、大文字小文字を区別せずに照合する。`--workspace` は使えない |
 | `--origin conversation\|all` | `conversation` は会話から蒸留した rule（frontmatter の `origin.source: conversation`）だけを出す。既定は `all` |
 
 出力は `<!-- repo-knowledge:begin format=... store=... -->` と `<!-- repo-knowledge:end -->` で囲まれます。
 scope を持つ rule には「（適用範囲: `glob`）」を添えます。
 rule 本文や scope に含まれる `<!--`、`-->`、`repo-knowledge:begin`、`repo-knowledge:end` は `&lt;!--` などに置き換え、改行や制御文字は空白にして一行にします。
-置き換えた rule、見える文字が残らず省いた rule、見えない scope パターンを省いた rule の件数は stderr に出ます。
+見える文字が残らない rule と、すべての scope パターンが見えない rule は出力しません。一部の scope パターンだけが見えない rule は、見えるパターンだけを添えます。
+置き換えた rule、省いた rule、見えない scope パターンを省いた rule の件数は stderr に出ます。stdout にはブロックだけが出ます。
 
 export は読み取りだけを行い、lock、registry、`index.sqlite` を作りません。
-ほかの repo-knowledge のコマンドが書き込み中の場合は、終わるまで約 2 秒待ちます。
+ほかの repo-knowledge のコマンドが書き込み中の場合は最大で約 2 秒待ち、終わらなければ `RULE_EXPORT_STORE_BUSY` で終了します。
+成功時は exit 0、下表のエラーは exit 1、引数の誤り（`CLI_ARGUMENT_INVALID`）は exit 2 です。
 
 | エラー | 意味と対処 |
 | --- | --- |
@@ -657,7 +659,8 @@ export は読み取りだけを行い、lock、registry、`index.sqlite` を作�
 | `RULE_EXPORT_REPOSITORY_UNRESOLVED` | リポジトリを選べない。`--repo` を渡すか、`workspaceMappings` か `defaultRepo` を設定する |
 | `RULE_EXPORT_STORE_BUSY` | 書き込みが続いている。少し待って再実行する |
 | `RULE_EXPORT_RECOVERY_REQUIRED` | 中断された書き込みが残っている。表示された `reindex` か `doctor` の案内に従う |
-| `RULE_EXPORT_STORE_UNSAFE` | ストアや配下がシンボリックリンク、または journal や lock の種類が違う。表示された案内に従って配置を直す |
+| `RULE_EXPORT_STORE_UNSAFE` | ストレージルート、ストアやその配下がシンボリックリンク、または journal や lock の種類が違う。表示された案内に従って配置を直す |
+| `CONFIG_PATH_UNSAFE` | `REPO_KNOWLEDGE_HOME` が空。storage root を明示する |
 
 ## storage と直接編集
 
