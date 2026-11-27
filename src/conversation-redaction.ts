@@ -106,8 +106,10 @@ const HOME_DIRECTORY_PATH_SOURCE = String.raw`(?:(?<![\w.-])|(?<=(?:^|\s)-[A-Za-
 /**
  * Start of a conversation-only secret assignment, up to and including the
  * `:` or `=` and its spaces; the `prefix` group stays open for the quote.
+ * The keyword may sit anywhere in the key (`SECRET_KEY`, `PASSWORD_DB`),
+ * but a suffix must start with `_` or `-`, so `max_tokens: 100` is kept.
  */
-const SECRET_KEY_SOURCE = String.raw`\b(?<prefix>(?:[A-Za-z0-9_-]{0,64}(?:password|passwd|passphrase|pwd|secret|token|private[_-]?key|api[_-]?key)|pass(?=["'\x60]?\s*=))["'\x60]?\s*[:=]\s*`;
+const SECRET_KEY_SOURCE = String.raw`\b(?<prefix>(?:[A-Za-z0-9_-]{0,64}(?:password|passwd|passphrase|pwd|secret|token|private[_-]?key|api[_-]?key)(?:[_-][A-Za-z0-9_-]{0,64})?|pass(?=["'\x60]?\s*=))["'\x60]?\s*[:=]\s*`;
 
 /** A value runs until whitespace, a quote, or a list/statement separator. */
 const VALUE_TAIL = String.raw`[^\s"'\x60,;]*`;

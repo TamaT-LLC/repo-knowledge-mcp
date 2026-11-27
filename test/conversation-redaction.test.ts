@@ -85,6 +85,14 @@ const RULES = [
     redactions: [{ count: 7, kind: "generic_secret_assignment" }],
   },
   {
+    name: "short secrets whose key name continues after the keyword",
+    input:
+      "SECRET_KEY=abc PASSWORD_DB=hunter2 TOKEN_VALUE=abc private_key_pem=abc AWS_SECRET_ACCESS_KEY='a b'",
+    output:
+      "SECRET_KEY=[REDACTED] PASSWORD_DB=[REDACTED] TOKEN_VALUE=[REDACTED] private_key_pem=[REDACTED] AWS_SECRET_ACCESS_KEY='[REDACTED]'",
+    redactions: [{ count: 5, kind: "generic_secret_assignment" }],
+  },
+  {
     name: "passwords on a command line",
     input: "curl -u admin:hunter2 x; mysql -u root -phunter2secret db",
     output: "curl -u admin:[REDACTED] x; mysql -u root -p[REDACTED] db",
@@ -311,6 +319,7 @@ const UNCHANGED = [
   "Tests pass: 5 of 6, bypass=1, max_tokens: 100 and cwd: /tmp",
   "the token is valid; hf_transfer_enabled; mkdir -p dir; mysql -u root -p",
   "a home-made my-home-page",
+  "tokenizer: bpe and max_tokens: 100",
 ] as const;
 
 describe("conversation redaction rules", () => {
