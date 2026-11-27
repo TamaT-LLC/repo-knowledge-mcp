@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   PilotRecordError,
+  UtcDaySchema,
   buildMissingDailyRecord,
   buildObservedDailyRecord,
   listPilotWindowDates,
@@ -566,6 +567,23 @@ describe("listPilotWindowDates", () => {
       "2026-08-31",
       "2026-09-01",
       "2026-09-02",
+    ]);
+  });
+});
+
+describe("UtcDaySchema", () => {
+  it("accepts a real UTC calendar day", () => {
+    expect(UtcDaySchema.parse("2026-02-28")).toBe("2026-02-28");
+  });
+
+  it("rejects a well-formed day that does not exist", () => {
+    const result = UtcDaySchema.safeParse("2026-02-30");
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({
+        code: "custom",
+        message: "must be a valid UTC calendar day",
+      }),
     ]);
   });
 });

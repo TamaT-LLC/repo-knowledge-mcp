@@ -82,190 +82,166 @@ export const READ_TOOL_ANNOTATIONS = Object.freeze({
 }) satisfies ToolAnnotations;
 
 const RepositorySelectionSchema = {
-  repo: RepositoryNameSchema.optional().describe(
-    "Repository in owner/name form. Overrides workspace and startup defaults.",
-  ),
-  workspace_path: NonEmptyStringSchema.optional().describe(
-    "Allowed local workspace whose origin identifies the repository.",
-  ),
+  repo: RepositoryNameSchema.optional().meta({
+    description:
+      "Repository in owner/name form. Overrides workspace and startup defaults.",
+  }),
+  workspace_path: NonEmptyStringSchema.optional().meta({
+    description:
+      "Allowed local workspace whose origin identifies the repository.",
+  }),
 };
 
-export const GetRulesInputSchema = z
-  .object({
-    ...RepositorySelectionSchema,
-    file_paths: z
-      .array(z.string().min(1))
-      .optional()
-      .describe("Repository-relative files expected to change."),
-    limit: z.number().int().positive().max(MAX_READ_RESULT_LIMIT).optional(),
-    task: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Short description used to find task-relevant rules."),
-  })
-  .strict();
+export const GetRulesInputSchema = z.strictObject({
+  ...RepositorySelectionSchema,
+  file_paths: z
+    .array(z.string().min(1))
+    .optional()
+    .meta({ description: "Repository-relative files expected to change." }),
+  limit: z.number().int().positive().max(MAX_READ_RESULT_LIMIT).optional(),
+  task: z.string().min(1).optional().meta({
+    description: "Short description used to find task-relevant rules.",
+  }),
+});
 
 const RuleMatchReasonSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("global") }).strict(),
-  z
-    .object({
-      type: z.literal("global_store"),
-      via: z.enum(["always", "task", "scope"]),
-      score: z.number().optional(),
-    })
-    .strict(),
-  z
-    .object({
-      file_path: z.string(),
-      pattern: z.string(),
-      type: z.literal("scope"),
-    })
-    .strict(),
-  z.object({ score: z.number(), type: z.literal("task") }).strict(),
+  z.strictObject({ type: z.literal("global") }),
+  z.strictObject({
+    type: z.literal("global_store"),
+    via: z.enum(["always", "task", "scope"]),
+    score: z.number().optional(),
+  }),
+  z.strictObject({
+    file_path: z.string(),
+    pattern: z.string(),
+    type: z.literal("scope"),
+  }),
+  z.strictObject({ score: z.number(), type: z.literal("task") }),
 ]);
 
-export const GetRulesOutputSchema = z
-  .object({
-    matched_count: z.number().int().nonnegative(),
-    global_matched_count: z.number().int().nonnegative().optional(),
-    global_truncated: z.boolean().optional(),
-    global_read_failed: z.literal(true).optional(),
-    readiness: RepositoryReadinessSchema.describe(
+export const GetRulesOutputSchema = z.strictObject({
+  matched_count: z.number().int().nonnegative(),
+  global_matched_count: z.number().int().nonnegative().optional(),
+  global_truncated: z.boolean().optional(),
+  global_read_failed: z.literal(true).optional(),
+  readiness: RepositoryReadinessSchema.meta({
+    description:
       "Repository initialization and learning state with an executable next step.",
-    ),
-    repo: RepositoryNameSchema,
-    rules: z.array(
-      z
-        .object({
-          evidence_count: z.number().int().nonnegative(),
-          example_url: z.url().optional(),
-          id: KnowledgeIdSchema,
-          match_reasons: z.array(RuleMatchReasonSchema),
-          always_return_set_by: z.literal("mcp").optional(),
-          rule: z.string(),
-          severity: SeveritySchema,
-          violation_count: z.number().int().nonnegative(),
-        })
-        .strict(),
-    ),
-    truncated: z.boolean(),
-  })
-  .strict();
+  }),
+  repo: RepositoryNameSchema,
+  rules: z.array(
+    z.strictObject({
+      evidence_count: z.number().int().nonnegative(),
+      example_url: z.url().optional(),
+      id: KnowledgeIdSchema,
+      match_reasons: z.array(RuleMatchReasonSchema),
+      always_return_set_by: z.literal("mcp").optional(),
+      rule: z.string(),
+      severity: SeveritySchema,
+      violation_count: z.number().int().nonnegative(),
+    }),
+  ),
+  truncated: z.boolean(),
+});
 
-export const SearchKnowledgeInputSchema = z
-  .object({
-    ...RepositorySelectionSchema,
-    category: KnowledgeCategorySchema.optional(),
-    limit: z.number().int().positive().max(MAX_READ_RESULT_LIMIT).optional(),
-    query: z.string().min(1),
-  })
-  .strict();
+export const SearchKnowledgeInputSchema = z.strictObject({
+  ...RepositorySelectionSchema,
+  category: KnowledgeCategorySchema.optional(),
+  limit: z.number().int().positive().max(MAX_READ_RESULT_LIMIT).optional(),
+  query: z.string().min(1),
+});
 
-export const SearchKnowledgeOutputSchema = z
-  .object({
-    mode: z.enum(["fts", "like"]),
-    query: z.string(),
-    repo: RepositoryNameSchema,
-    results: z.array(
-      z
-        .object({
-          applied_count: z.number().int().nonnegative(),
-          category: KnowledgeCategorySchema,
-          detail: z.string(),
-          etag: z.string().min(1),
-          evidence_count: z.number().int().nonnegative(),
-          id: KnowledgeIdSchema,
-          revision: z.number().int().nonnegative(),
-          rule: z.string(),
-          scope: z.array(z.string()),
-          score: z.number(),
-          severity: SeveritySchema,
-          sources: z.array(SourceProviderSchema),
-          violation_count: z.number().int().nonnegative(),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
+export const SearchKnowledgeOutputSchema = z.strictObject({
+  mode: z.enum(["fts", "like"]),
+  query: z.string(),
+  repo: RepositoryNameSchema,
+  results: z.array(
+    z.strictObject({
+      applied_count: z.number().int().nonnegative(),
+      category: KnowledgeCategorySchema,
+      detail: z.string(),
+      etag: z.string().min(1),
+      evidence_count: z.number().int().nonnegative(),
+      id: KnowledgeIdSchema,
+      revision: z.number().int().nonnegative(),
+      rule: z.string(),
+      scope: z.array(z.string()),
+      score: z.number(),
+      severity: SeveritySchema,
+      sources: z.array(SourceProviderSchema),
+      violation_count: z.number().int().nonnegative(),
+    }),
+  ),
+});
 
-export const GetKnowledgeInputSchema = z
-  .object({
-    ...RepositorySelectionSchema,
-    cursor: z.string().min(1).optional(),
-    evidence_limit: z
-      .number()
-      .int()
-      .positive()
-      .max(MAX_EVIDENCE_LIMIT)
-      .optional(),
+export const GetKnowledgeInputSchema = z.strictObject({
+  ...RepositorySelectionSchema,
+  cursor: z.string().min(1).optional(),
+  evidence_limit: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_EVIDENCE_LIMIT)
+    .optional(),
+  id: KnowledgeIdSchema,
+});
+
+const McpKnowledgeEvidenceSchema = z.strictObject({
+  actors: z.array(EvidenceActorSchema).min(1),
+  author_association: NonEmptyStringSchema.optional(),
+  comment_ids: z.array(GitHubNodeIdSchema).min(1),
+  content_fingerprint: Sha256DigestSchema,
+  eligible_for_count: z.boolean(),
+  evidence_id: EvidenceIdSchema,
+  knowledge_id: KnowledgeIdSchema,
+  observed_at: IsoDateTimeSchema,
+  occurrence_key: NonEmptyStringSchema,
+  originator: EvidenceActorSchema,
+  path: NonEmptyStringSchema.optional(),
+  pr_number: z.number().int().positive(),
+  repo_id: RepositoryIdSchema,
+  sources: z.array(SourceProviderSchema).min(1),
+  state_fingerprint: Sha256DigestSchema,
+  status: EvidenceStatusSchema,
+  superseded_by: EvidenceIdSchema.optional(),
+  supersedes: EvidenceIdSchema.optional(),
+  thread_id: NonEmptyStringSchema,
+  url: z.url().optional(),
+});
+
+const McpGeneratedCodeExampleSchema = z.strictObject({
+  content: NonEmptyStringSchema,
+  evidence_comment_ids: z.array(GitHubNodeIdSchema).min(1),
+  generated_example: z.literal(true),
+  language: NonEmptyStringSchema,
+});
+
+export const GetKnowledgeOutputSchema = z.strictObject({
+  evidence: z.array(McpKnowledgeEvidenceSchema),
+  conversation_summary: ConversationSummarySchema.optional(),
+  knowledge: z.strictObject({
+    applied_count: z.number().int().nonnegative(),
+    code_example: McpGeneratedCodeExampleSchema.nullable().meta({
+      description:
+        "Structured generated code example, or null when the document has none.",
+    }),
+    detail: z.string(),
+    etag: z.string().min(1),
+    evidence_count: z.number().int().nonnegative(),
+    frontmatter: z.looseObject({
+      id: KnowledgeIdSchema,
+      repo_id: RepositoryIdSchema,
+      revision: z.number().int().nonnegative(),
+      schema_version: z.literal(1),
+    }),
     id: KnowledgeIdSchema,
-  })
-  .strict();
-
-const McpKnowledgeEvidenceSchema = z
-  .object({
-    actors: z.array(EvidenceActorSchema).min(1),
-    author_association: NonEmptyStringSchema.optional(),
-    comment_ids: z.array(GitHubNodeIdSchema).min(1),
-    content_fingerprint: Sha256DigestSchema,
-    eligible_for_count: z.boolean(),
-    evidence_id: EvidenceIdSchema,
-    knowledge_id: KnowledgeIdSchema,
-    observed_at: IsoDateTimeSchema,
-    occurrence_key: NonEmptyStringSchema,
-    originator: EvidenceActorSchema,
-    path: NonEmptyStringSchema.optional(),
-    pr_number: z.number().int().positive(),
-    repo_id: RepositoryIdSchema,
-    sources: z.array(SourceProviderSchema).min(1),
-    state_fingerprint: Sha256DigestSchema,
-    status: EvidenceStatusSchema,
-    superseded_by: EvidenceIdSchema.optional(),
-    supersedes: EvidenceIdSchema.optional(),
-    thread_id: NonEmptyStringSchema,
-    url: z.url().optional(),
-  })
-  .strict();
-
-const McpGeneratedCodeExampleSchema = z
-  .object({
-    content: NonEmptyStringSchema,
-    evidence_comment_ids: z.array(GitHubNodeIdSchema).min(1),
-    generated_example: z.literal(true),
-    language: NonEmptyStringSchema,
-  })
-  .strict();
-
-export const GetKnowledgeOutputSchema = z
-  .object({
-    evidence: z.array(McpKnowledgeEvidenceSchema),
-    conversation_summary: ConversationSummarySchema.optional(),
-    knowledge: z
-      .object({
-        applied_count: z.number().int().nonnegative(),
-        code_example: McpGeneratedCodeExampleSchema.nullable().describe(
-          "Structured generated code example, or null when the document has none.",
-        ),
-        detail: z.string(),
-        etag: z.string().min(1),
-        evidence_count: z.number().int().nonnegative(),
-        frontmatter: z.looseObject({
-          id: KnowledgeIdSchema,
-          repo_id: RepositoryIdSchema,
-          revision: z.number().int().nonnegative(),
-          schema_version: z.literal(1),
-        }),
-        id: KnowledgeIdSchema,
-        revision: z.number().int().nonnegative(),
-        sources: z.array(SourceProviderSchema),
-        violation_count: z.number().int().nonnegative(),
-      })
-      .strict(),
-    next_cursor: z.string().nullable(),
-    repo: RepositoryNameSchema,
-  })
-  .strict();
+    revision: z.number().int().nonnegative(),
+    sources: z.array(SourceProviderSchema),
+    violation_count: z.number().int().nonnegative(),
+  }),
+  next_cursor: z.string().nullable(),
+  repo: RepositoryNameSchema,
+});
 
 // The canonical request schema is extended, not redefined, so the MCP surface
 // can never accept window fields the stats read service would reject.
@@ -281,90 +257,73 @@ const OutcomeByTypeSchema = z.record(
   StatsCountSchema,
 );
 
-export const StatsOutputSchema = z
-  .object({
-    buckets: z
-      .array(
-        z
-          .object({
-            day: UtcDayKeySchema,
-            evidence_total: StatsCountSchema,
-            outcome_by_type: OutcomeByTypeSchema,
-            outcome_total: StatsCountSchema,
-          })
-          .strict(),
-      )
+export const StatsOutputSchema = z.strictObject({
+  buckets: z
+    .array(
+      z.strictObject({
+        day: UtcDayKeySchema,
+        evidence_total: StatsCountSchema,
+        outcome_by_type: OutcomeByTypeSchema,
+        outcome_total: StatsCountSchema,
+      }),
+    )
+    .nullable(),
+  canonical_digest: RawSha256DigestSchema,
+  evidence: z.strictObject({
+    by_source: z.record(SourceProviderSchema, StatsCountSchema),
+    by_status: z.record(EvidenceStatusSchema, StatsCountSchema),
+    eligible_for_count: StatsCountSchema,
+    total: StatsCountSchema,
+  }),
+  jobs: z.strictObject({
+    by_state: z.record(DistillJobStateSchema, StatsCountSchema),
+    total: StatsCountSchema,
+  }),
+  knowledge: z.strictObject({
+    by_category: z.record(KnowledgeCategorySchema, StatsCountSchema),
+    by_severity: z.record(SeveritySchema, StatsCountSchema),
+    by_status: z.record(KnowledgeStatusSchema, StatsCountSchema),
+    total: StatsCountSchema,
+  }),
+  operations: z.strictObject({
+    failed_jobs: StatsCountSchema,
+    last_sync_checkpoint_at: IsoDateTimeSchema.nullable(),
+    last_sync_success_at: IsoDateTimeSchema.nullable(),
+    pending_jobs: StatsCountSchema,
+  }),
+  outcomes: z.strictObject({
+    by_type: OutcomeByTypeSchema,
+    total: StatsCountSchema,
+  }),
+  repo: RepositoryNameSchema,
+  stats_schema_version: z.literal(STATS_SCHEMA_VERSION),
+  sync: z.strictObject({
+    last_checkpoint: z
+      .strictObject({
+        last_pr_number: z.number().int().positive(),
+        last_updated_at: IsoDateTimeSchema,
+        updated_at: IsoDateTimeSchema,
+      })
       .nullable(),
-    canonical_digest: RawSha256DigestSchema,
-    evidence: z
-      .object({
-        by_source: z.record(SourceProviderSchema, StatsCountSchema),
-        by_status: z.record(EvidenceStatusSchema, StatsCountSchema),
-        eligible_for_count: StatsCountSchema,
-        total: StatsCountSchema,
+    last_run: z
+      .strictObject({
+        consecutive_failures: StatsCountSchema,
+        error_code: z.string().min(1).nullable(),
+        finished_at: IsoDateTimeSchema,
+        has_more: z.boolean().nullable(),
+        outcome: SyncRunOutcomeSchema,
+        started_at: IsoDateTimeSchema,
       })
-      .strict(),
-    jobs: z
-      .object({
-        by_state: z.record(DistillJobStateSchema, StatsCountSchema),
-        total: StatsCountSchema,
-      })
-      .strict(),
-    knowledge: z
-      .object({
-        by_category: z.record(KnowledgeCategorySchema, StatsCountSchema),
-        by_severity: z.record(SeveritySchema, StatsCountSchema),
-        by_status: z.record(KnowledgeStatusSchema, StatsCountSchema),
-        total: StatsCountSchema,
-      })
-      .strict(),
-    operations: z
-      .object({
-        failed_jobs: StatsCountSchema,
-        last_sync_checkpoint_at: IsoDateTimeSchema.nullable(),
-        last_sync_success_at: IsoDateTimeSchema.nullable(),
-        pending_jobs: StatsCountSchema,
-      })
-      .strict(),
-    outcomes: z
-      .object({ by_type: OutcomeByTypeSchema, total: StatsCountSchema })
-      .strict(),
-    repo: RepositoryNameSchema,
-    stats_schema_version: z.literal(STATS_SCHEMA_VERSION),
-    sync: z
-      .object({
-        last_checkpoint: z
-          .object({
-            last_pr_number: z.number().int().positive(),
-            last_updated_at: IsoDateTimeSchema,
-            updated_at: IsoDateTimeSchema,
-          })
-          .strict()
-          .nullable(),
-        last_run: z
-          .object({
-            consecutive_failures: StatsCountSchema,
-            error_code: z.string().min(1).nullable(),
-            finished_at: IsoDateTimeSchema,
-            has_more: z.boolean().nullable(),
-            outcome: SyncRunOutcomeSchema,
-            started_at: IsoDateTimeSchema,
-          })
-          .strict()
-          .nullable(),
-        last_success_at: IsoDateTimeSchema.nullable(),
-      })
-      .strict(),
-    window: z
-      .object({
-        bucket: StatsBucketSchema,
-        since: IsoDateTimeSchema.nullable(),
-        timezone: z.literal(STATS_TIMEZONE),
-        until: IsoDateTimeSchema.nullable(),
-      })
-      .strict(),
-  })
-  .strict();
+      .nullable(),
+    last_success_at: IsoDateTimeSchema.nullable(),
+  }),
+  window: z.strictObject({
+    bucket: StatsBucketSchema,
+    since: IsoDateTimeSchema.nullable(),
+    timezone: z.literal(STATS_TIMEZONE),
+    until: IsoDateTimeSchema.nullable(),
+  }),
+});
 
 export interface KnowledgeReadOperations {
   getKnowledge(request: GetKnowledgeRequest): Promise<GetKnowledgeResult>;

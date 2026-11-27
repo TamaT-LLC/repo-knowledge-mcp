@@ -30,12 +30,10 @@ const SensitiveContentPathSchema = z
     "path must contain only scanner-generated field names and indexes",
   );
 
-export const SensitiveContentFindingSchema = z
-  .object({
-    kind: SensitiveContentKindSchema,
-    path: SensitiveContentPathSchema,
-  })
-  .strict();
+export const SensitiveContentFindingSchema = z.strictObject({
+  kind: SensitiveContentKindSchema,
+  path: SensitiveContentPathSchema,
+});
 
 export type SensitiveContentBoundary = z.infer<
   typeof SensitiveContentBoundarySchema

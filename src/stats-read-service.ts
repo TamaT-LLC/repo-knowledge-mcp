@@ -37,13 +37,11 @@ export type StatsBucketMode = z.infer<typeof StatsBucketSchema>;
  * window `[since, until)`; both are optional for `bucket: "total"` and both
  * are required for `bucket: "day"`.
  */
-export const RepositoryStatsRequestSchema = z
-  .object({
-    bucket: StatsBucketSchema.optional(),
-    since: IsoDateTimeSchema.optional(),
-    until: IsoDateTimeSchema.optional(),
-  })
-  .strict();
+export const RepositoryStatsRequestSchema = z.strictObject({
+  bucket: StatsBucketSchema.optional(),
+  since: IsoDateTimeSchema.optional(),
+  until: IsoDateTimeSchema.optional(),
+});
 
 export interface RepositoryStatsRequest {
   readonly bucket?: StatsBucketMode;

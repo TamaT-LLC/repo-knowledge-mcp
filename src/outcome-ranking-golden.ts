@@ -13,54 +13,49 @@ import {
   OUTCOME_RANKING_POLICY,
   type KnowledgeOutcomeCounts,
 } from "./knowledge-search.js";
+import { addCustomIssue } from "./zod-issues.js";
 
 export const OUTCOME_RANKING_BASELINE_POLICY_VERSION = "m1-baseline";
 
-const OutcomeRankingCandidateSchema = z
-  .object({
-    applied_count: z.number().int().nonnegative(),
-    evidence_count: z.number().int().nonnegative(),
-    false_positive_count: z.number().int().nonnegative(),
-    id: z.string().min(1),
-    not_applicable_count: z.number().int().nonnegative(),
-    severity: SeveritySchema,
-    text_rank: z.number().int().nonnegative(),
-    violation_count: z.number().int().nonnegative(),
-  })
-  .strict();
+const OutcomeRankingCandidateSchema = z.strictObject({
+  applied_count: z.number().int().nonnegative(),
+  evidence_count: z.number().int().nonnegative(),
+  false_positive_count: z.number().int().nonnegative(),
+  id: z.string().min(1),
+  not_applicable_count: z.number().int().nonnegative(),
+  severity: SeveritySchema,
+  text_rank: z.number().int().nonnegative(),
+  violation_count: z.number().int().nonnegative(),
+});
 
-const OutcomeRankingRubricSchema = z
-  .object({
-    description: z.string().min(1),
-    higher: z.string().min(1),
-    id: z.string().min(1),
-    lower: z.string().min(1),
-  })
-  .strict();
+const OutcomeRankingRubricSchema = z.strictObject({
+  description: z.string().min(1),
+  higher: z.string().min(1),
+  id: z.string().min(1),
+  lower: z.string().min(1),
+});
 
 const OutcomeRankingQuerySchema = z
-  .object({
+  .strictObject({
     candidates: z.array(OutcomeRankingCandidateSchema).min(1),
     id: z.string().min(1),
     relevance: z.record(z.string().min(1), z.number().int().nonnegative()),
     rubric: z.array(OutcomeRankingRubricSchema),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     const candidateIds = new Set<string>();
     const textRanks = new Set<number>();
     for (const [index, candidate] of value.candidates.entries()) {
       if (candidateIds.has(candidate.id)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate candidate id ${candidate.id}`,
           path: ["candidates", index, "id"],
         });
       }
       candidateIds.add(candidate.id);
       if (textRanks.has(candidate.text_rank)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate text_rank ${String(candidate.text_rank)}`,
           path: ["candidates", index, "text_rank"],
         });
@@ -70,24 +65,21 @@ const OutcomeRankingQuerySchema = z
     const rubricIds = new Set<string>();
     for (const [index, entry] of value.rubric.entries()) {
       if (rubricIds.has(entry.id)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate rubric id ${entry.id}`,
           path: ["rubric", index, "id"],
         });
       }
       rubricIds.add(entry.id);
       if (entry.higher === entry.lower) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: "rubric higher and lower must differ",
           path: ["rubric", index],
         });
       }
       for (const side of ["higher", "lower"] as const) {
         if (!candidateIds.has(entry[side])) {
-          context.addIssue({
-            code: "custom",
+          addCustomIssue(context, {
             message: `rubric ${side} ${entry[side]} is not a candidate`,
             path: ["rubric", index, side],
           });
@@ -97,19 +89,18 @@ const OutcomeRankingQuerySchema = z
   });
 
 export const OutcomeRankingFixtureSchema = z
-  .object({
+  .strictObject({
     fixture_id: z.string().min(1),
     fixture_kind: z.literal("outcome_ranking"),
     queries: z.array(OutcomeRankingQuerySchema).min(1),
     schema_version: z.literal(1),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     const seen = new Set<string>();
     for (const [index, query] of value.queries.entries()) {
       if (seen.has(query.id)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate queries id ${query.id}`,
           path: ["queries", index, "id"],
         });
