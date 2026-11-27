@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   observeCanonicalWriter,
+  TRANSACTIONS_DIRECTORY,
   type CanonicalWriterObservation,
 } from "./canonical-transaction-journal.js";
 import {
@@ -141,7 +142,7 @@ export class RuleExportService implements RuleExporter {
       inspectStoreDirectory(
         this.storageRoot,
         registered.path,
-        `The store of ${registered.currentName}`,
+        `Repository store ${registered.currentName}`,
       ),
     );
     if (!present) return [];
@@ -150,7 +151,8 @@ export class RuleExportService implements RuleExporter {
       registered.repoId,
       conversationOnly,
       {
-        doctor: `repo-knowledge doctor ${registered.currentName}`,
+        // doctor lists the repository journal's unexpected entries.
+        repair: `run repo-knowledge doctor ${registered.currentName} for the repair`,
         reindex: `repo-knowledge reindex ${registered.currentName}`,
       },
       this.retry,
@@ -167,7 +169,8 @@ export class RuleExportService implements RuleExporter {
       GLOBAL_STORE_ID,
       conversationOnly,
       {
-        doctor: "repo-knowledge doctor",
+        // doctor does not inspect the global journal, so name it directly.
+        repair: `restore or remove the unexpected entries in ${join(store.reference.absolutePath, TRANSACTIONS_DIRECTORY)}, then run repo-knowledge reindex --global`,
         reindex: "repo-knowledge reindex --global",
       },
       this.retry,
@@ -235,8 +238,8 @@ async function readActiveRules(
 
 /** Commands an operator runs when a store cannot be read as it stands. */
 interface RecoveryCommands {
-  /** Reports what is wrong and how to repair it, for what recovery refuses. */
-  readonly doctor: string;
+  /** How to repair what recovery refuses, as an instruction to the operator. */
+  readonly repair: string;
   /** Runs canonical recovery, for an interrupted but recoverable commit. */
   readonly reindex: string;
 }
@@ -265,7 +268,7 @@ async function observeWriter(
     if (code === "ENOTDIR" || code === "EISDIR") {
       throw new RuleExportError(
         "RULE_EXPORT_STORE_UNSAFE",
-        `the store's transaction journal or writer lock is damaged; run ${remedy.doctor} for the repair`,
+        `the store's transaction journal or writer lock is damaged; ${remedy.repair}`,
       );
     }
     throw error;
@@ -303,7 +306,7 @@ async function captureConsistently(
           "RULE_EXPORT_RECOVERY_REQUIRED",
           observed.recoverable
             ? `the store has an interrupted transaction; run ${remedy.reindex} and export again`
-            : `the store's transaction journal has entries recovery cannot apply; run ${remedy.doctor} for the repair`,
+            : `the store's transaction journal has entries recovery cannot apply; ${remedy.repair}`,
         );
       }
       abandoned = entries;
@@ -337,7 +340,8 @@ async function captureConsistently(
       }
     }
     waits += 1;
-    if (waits >= retry.attempts) break;
+    // An abandoned journal seen on the last wait still gets its second look.
+    if (waits >= retry.attempts + (abandoned === undefined ? 0 : 1)) break;
     await delay(retry.delayMs);
   }
   throw new RuleExportError(

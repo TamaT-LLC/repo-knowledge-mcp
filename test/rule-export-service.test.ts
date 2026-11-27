@@ -413,10 +413,37 @@ describe("RuleExportService", () => {
   it("reports a journal or lock of the wrong file type as an unsafe store", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await writeFile(join(home.globalRoot, TRANSACTIONS_DIRECTORY), "");
+    await mkdir(join(home.repositoryRoot, TRANSACTIONS_DIRECTORY));
+    await openJournal(home.repositoryRoot);
+    await mkdir(join(home.repositoryRoot, CANONICAL_WRITE_LOCK_NAME));
 
+    // doctor does not inspect the global journal, so its path is named.
     await expect(collect(home, { store: "global" })).rejects.toMatchObject({
       code: "RULE_EXPORT_STORE_UNSAFE",
-      message: expect.stringContaining("run repo-knowledge doctor"),
+      message: `the store's transaction journal or writer lock is damaged; restore or remove the unexpected entries in ${join(home.globalRoot, TRANSACTIONS_DIRECTORY)}, then run repo-knowledge reindex --global`,
+    });
+    await expect(
+      collect(home, { repo: EXPORT_REPOSITORY }),
+    ).rejects.toMatchObject({
+      code: "RULE_EXPORT_STORE_UNSAFE",
+      message: `the store's transaction journal or writer lock is damaged; run repo-knowledge doctor ${EXPORT_REPOSITORY} for the repair`,
+    });
+  });
+
+  it("gives an interrupted journal first seen on the last wait its second look", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    await startWriter(home.globalRoot);
+    let polls = 0;
+    // The writer dies (lock gone, journal left) just as the wait budget ends.
+    journal.onRead = async (root) => {
+      polls += 1;
+      if (polls === FAST_RETRY.attempts) {
+        await rm(join(root, CANONICAL_WRITE_LOCK_NAME));
+      }
+    };
+
+    await expect(collect(home, { store: "global" })).rejects.toMatchObject({
+      code: "RULE_EXPORT_RECOVERY_REQUIRED",
     });
   });
 
