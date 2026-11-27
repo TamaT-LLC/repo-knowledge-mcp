@@ -436,17 +436,16 @@ export const SubmitDistillationOutputSchema = mutationOutputSchema(
   SubmitDistillationResultSchema,
 );
 
-export const AddKnowledgeInputSchema = compileWhenHot(
-  z.strictObject({
-    ...RepositorySelectionShape,
-    category: KnowledgeCategorySchema,
-    detail: NonEmptyStringSchema,
-    related_ids: z.array(KnowledgeIdSchema).optional(),
-    rule: NonEmptyStringSchema,
-    scope: z.array(ScopePatternSchema),
-    severity: SeveritySchema,
-  }),
-);
+// Not compileWhenHot: compiling measured slower (0.7×).
+export const AddKnowledgeInputSchema = z.strictObject({
+  ...RepositorySelectionShape,
+  category: KnowledgeCategorySchema,
+  detail: NonEmptyStringSchema,
+  related_ids: z.array(KnowledgeIdSchema).optional(),
+  rule: NonEmptyStringSchema,
+  scope: z.array(ScopePatternSchema),
+  severity: SeveritySchema,
+});
 
 export const AddKnowledgeResultSchema = compileWhenHot(
   z.strictObject({
@@ -502,32 +501,30 @@ export const UpdateKnowledgeOutputSchema = mutationOutputSchema(
 
 // The canonical request schema is extended, not redefined, so the MCP surface
 // can never accept fields the outcome mutation service would reject.
-export const RecordOutcomeInputSchema = compileWhenHot(
-  RecordOutcomeRequestSchema.safeExtend(RepositorySelectionShape).check(
-    (context) => {
-      const request = context.value;
-      if (request.result_observed !== true) {
-        addCustomIssue(context, {
-          message: "record_outcome requires result_observed: true",
-          path: ["result_observed"],
-        });
-      }
-      if (request.context === undefined) {
-        addCustomIssue(context, {
-          message: "record_outcome requires observable task context",
-          path: ["context"],
-        });
-      }
-      if (request.note === undefined) {
-        addCustomIssue(context, {
-          message:
-            "record_outcome requires a note describing the observed result",
-          path: ["note"],
-        });
-      }
-    },
-  ),
-);
+// Not compileWhenHot: compiling measured 0.9–1.6×, not reliably faster.
+export const RecordOutcomeInputSchema = RecordOutcomeRequestSchema.safeExtend(
+  RepositorySelectionShape,
+).check((context) => {
+  const request = context.value;
+  if (request.result_observed !== true) {
+    addCustomIssue(context, {
+      message: "record_outcome requires result_observed: true",
+      path: ["result_observed"],
+    });
+  }
+  if (request.context === undefined) {
+    addCustomIssue(context, {
+      message: "record_outcome requires observable task context",
+      path: ["context"],
+    });
+  }
+  if (request.note === undefined) {
+    addCustomIssue(context, {
+      message: "record_outcome requires a note describing the observed result",
+      path: ["note"],
+    });
+  }
+});
 
 export const RecordOutcomeResultSchema = compileWhenHot(
   z.strictObject({

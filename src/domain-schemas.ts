@@ -323,16 +323,15 @@ export const SeveritySchema = compileWhenHot(
 export const KnowledgeStatusSchema = compileWhenHot(
   z.enum(["proposed", "active", "stale", "deprecated", "rejected"]),
 );
-export const SkipReasonSchema = compileWhenHot(
-  z.enum([
-    "typo",
-    "praise_or_chitchat",
-    "question_without_conclusion",
-    "pr_specific",
-    "duplicate_noise",
-    "insufficient_context",
-  ]),
-);
+// Not compileWhenHot: compiling measured only 1.3× faster.
+export const SkipReasonSchema = z.enum([
+  "typo",
+  "praise_or_chitchat",
+  "question_without_conclusion",
+  "pr_specific",
+  "duplicate_noise",
+  "insufficient_context",
+]);
 
 /**
  * Job-only terminal reasons used when server-side ingest makes unfinished
