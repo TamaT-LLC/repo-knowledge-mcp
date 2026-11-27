@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { chmod, open, readdir, rename, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { z } from "zod";
 
@@ -564,6 +564,8 @@ export class ConversationStore {
     readonly copies?: readonly ConversationIdentity[];
     readonly excludeProjects?: readonly string[];
     readonly filters?: readonly PurgeCriteria[];
+    /** Records already chosen (a purge's recorded IDs). */
+    readonly ids?: readonly string[];
   }): Promise<{
     readonly ids: string[];
     readonly linked: readonly ConversationIdentity[];
@@ -574,15 +576,25 @@ export class ConversationStore {
     // path criterion matches nothing: a new path purge is refused up front
     // (#assertPathMatchable), and older ones were swept when they were added
     // and are applied to raw paths at ingest.
+    // It is not even read otherwise, so an unreadable key file (EACCES)
+    // cannot stop a session or period purge.
+    const needsKey =
+      (conditions.filters ?? []).some(
+        (filter) => filter.project_path_prefix !== undefined,
+      ) ||
+      (conditions.excludeProjects ?? []).some((entry) => entry.startsWith("/"));
     let key: ConversationKey | null = null;
-    try {
-      key = await this.readKey();
-    } catch (error) {
-      if (!(error instanceof ConversationStoreError)) throw error;
+    if (needsKey) {
+      try {
+        key = await this.readKey();
+      } catch (error) {
+        if (!(error instanceof ConversationStoreError)) throw error;
+      }
     }
     const prefixHmac = (prefix: string): string | null =>
       key?.pathPrefixHmac(prefix) ?? null;
     const copies = new Set((conditions.copies ?? []).map(identityKey));
+    const chosen = new Set(conditions.ids);
     const direct = new Set<string>();
     const identities = new Map<string, ConversationIdentity>();
     const links: { duplicate: string; kept: string }[] = [];
@@ -601,6 +613,7 @@ export class ConversationStore {
       });
       const target = storedMatchTarget(record, prefixHmac);
       if (
+        chosen.has(record.utterance_id) ||
         copies.has(identityKey(record)) ||
         (conditions.filters ?? []).some((filter) =>
           matchesPurgeFilter(filter, target),
@@ -1099,16 +1112,7 @@ export class ConversationStore {
         copies: state.copies,
         filters: state.filters,
       });
-      // A copy removed only through its link would not match the filters
-      // once the link is gone (reset-key drops it): keep its identity.
-      const known = new Set(state.copies.map(identityKey));
-      const copies = linked.filter((copy) => !known.has(identityKey(copy)));
-      if (copies.length > 0) {
-        await this.#writePurgeState({
-          ...state,
-          copies: [...state.copies, ...copies],
-        });
-      }
+      await this.#keepLinkedCopies(state, linked);
       if (ids.length === 0) {
         await this.#unlinkDurably(FILES.purgeProgress);
         return counts;
@@ -1122,6 +1126,25 @@ export class ConversationStore {
       await this.#checkpoint("purge:ids-recorded");
     }
     if (current.stage === "ids_recorded") {
+      if (progress !== null) {
+        // Resumed: a link saved since the IDs were recorded may tie another
+        // copy to one of them. Nothing is removed yet, so it can be found.
+        const state = await this.#readPurgeState();
+        const { ids, linked } = await this.#matchRecords({
+          ids: current.utterance_ids,
+        });
+        await this.#keepLinkedCopies(state, linked);
+        // A recorded ID may already be gone from utterances.jsonl (the
+        // compaction stopped between files): keep it for the other files.
+        const all = new Set([...current.utterance_ids, ...ids]);
+        if (all.size !== current.utterance_ids.length) {
+          current = {
+            ...current,
+            utterance_ids: [...all].sort(compareCodeUnits),
+          };
+          await this.#writeJsonFile(FILES.purgeProgress, current);
+        }
+      }
       counts = await this.#compact(new Set(current.utterance_ids), null);
       current = await this.#writePurgeStage(current, "compacted");
       await this.#checkpoint("purge:compacted");
@@ -1134,6 +1157,24 @@ export class ConversationStore {
     await this.#followUp.failJobsFor(current.utterance_ids);
     await this.#unlinkDurably(FILES.purgeProgress);
     return counts;
+  }
+
+  /**
+   * A copy removed only through its link would not match the filters once
+   * the link is gone (reset-key drops it): keep its identity.
+   */
+  async #keepLinkedCopies(
+    state: PurgeState,
+    linked: readonly ConversationIdentity[],
+  ): Promise<void> {
+    const known = new Set(state.copies.map(identityKey));
+    const copies = linked.filter((copy) => !known.has(identityKey(copy)));
+    if (copies.length > 0) {
+      await this.#writePurgeState({
+        ...state,
+        copies: [...state.copies, ...copies],
+      });
+    }
   }
 
   async #writePurgeStage(
@@ -1797,15 +1838,16 @@ function sha256Text(value: string): string {
  * is kept and terminated instead.
  */
 async function repairTornTail(path: string): Promise<void> {
-  let handle: Awaited<ReturnType<typeof open>>;
+  // The handle that is checked is the one repaired: never a symlink target.
+  const opened = await openRegularFileNoFollow(
+    path,
+    () => unsafePath(`${basename(path)} must be a regular file, not a symlink`),
+    "read-write",
+  );
+  if (opened === null) return;
+  const { handle } = opened;
   try {
-    handle = await open(path, "r+");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  try {
-    const { size } = await handle.stat();
+    const { size } = opened.status;
     const buffer = Buffer.alloc(Math.min(size, 64 * 1024));
     let end = size;
     while (end > 0) {

@@ -41,6 +41,7 @@ describe("conversation-distillation.json", () => {
     expect(loaded.present).toBe(false);
     expect(loaded.config).toEqual(disabledConversationConfig());
     expect(loaded.config).toMatchObject({
+      assistantContext: { enabled: false },
       enabled: false,
       sources: {
         claudeCode: { enabled: false, home: "~/.claude" },
@@ -145,6 +146,15 @@ describe("conversation-distillation.json", () => {
     await writeConfig({ schemaVersion: 1, redactTerms: ["Secret Name", 7] });
     await expect(loadConversationDistillationConfig(root)).rejects.toThrow(
       /redactTerms\.1/u,
+    );
+    await expect(loadConversationDistillationConfig(root)).rejects.not.toThrow(
+      /Secret Name/u,
+    );
+
+    // A term typed as a key: Zod names unknown keys, the error must not.
+    await writeConfig({ schemaVersion: 1, "Secret Name": true });
+    await expect(loadConversationDistillationConfig(root)).rejects.toThrow(
+      /<root>: unrecognized key/u,
     );
     await expect(loadConversationDistillationConfig(root)).rejects.not.toThrow(
       /Secret Name/u,

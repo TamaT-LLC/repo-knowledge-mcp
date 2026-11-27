@@ -266,6 +266,11 @@ function sameRepositoryName(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase();
 }
 
+/** A bound as purge stores it, so every caller compares the same way. */
+function boundMilliseconds(value: string, direction: "down" | "up"): number {
+  return purgeBoundMilliseconds(value, direction) ?? Date.parse(value);
+}
+
 export function matchesPurgeFilter(
   filter: PurgeCriteria,
   target: ConversationMatchTarget,
@@ -275,8 +280,10 @@ export function matchesPurgeFilter(
     (filter.source === undefined || filter.source === target.source) &&
     (filter.session_id === undefined ||
       filter.session_id === target.session_id) &&
-    (filter.before === undefined || time < Date.parse(filter.before)) &&
-    (filter.after === undefined || time >= Date.parse(filter.after)) &&
+    (filter.before === undefined ||
+      time < boundMilliseconds(filter.before, "up")) &&
+    (filter.after === undefined ||
+      time >= boundMilliseconds(filter.after, "down")) &&
     (filter.project_path_prefix === undefined ||
       target.matchesPathPrefix(filter.project_path_prefix)) &&
     (filter.name_with_owner === undefined ||

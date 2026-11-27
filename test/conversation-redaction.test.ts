@@ -289,6 +289,13 @@ describe("conversation redaction rules", () => {
     expect(redactConversationText(text)).toEqual({ redactions: [], text });
   });
 
+  it("masks a private key block that already holds a placeholder", () => {
+    const result = redactConversationText(
+      "-----BEGIN PRIVATE KEY-----\n[REDACTED]\nQUJDREVGRw==\n-----END PRIVATE KEY-----\nafter",
+    );
+    expect(result.text).toBe("[REDACTED]\nafter");
+  });
+
   it("masks every shared detector kind", () => {
     const covered = new Set(
       RULES.flatMap((rule) => rule.redactions.map((entry) => entry.kind)),
@@ -367,6 +374,28 @@ describe("user dictionary (redactTerms)", () => {
       "[REDACTED] さん, [REDACTED], [REDACTED]-san, [REDACTED], [REDACTED]",
     );
     expect(result.redactions).toEqual([{ count: 5, kind: "redact_term" }]);
+  });
+
+  it("applies full case folding to terms and text alike", () => {
+    expect(
+      redactConversationText("STRASSE, strasse, Straße", {
+        redactTerms: ["Straße"],
+      }).text,
+    ).toBe("[REDACTED], [REDACTED], [REDACTED]");
+    expect(
+      redactConversationText("Straße", { redactTerms: ["STRASSE"] }).text,
+    ).toBe("[REDACTED]");
+  });
+
+  it("uses the current terms when the caller's list changes", () => {
+    const terms = ["Alice"];
+    expect(
+      redactConversationText("Alice Bob", { redactTerms: terms }).text,
+    ).toBe("[REDACTED] Bob");
+    terms.push("Bob");
+    expect(
+      redactConversationText("Alice Bob", { redactTerms: terms }).text,
+    ).toBe("[REDACTED] [REDACTED]");
   });
 
   it("maps a folded match back to whole original characters", () => {

@@ -7,6 +7,7 @@ import {
   compareCodeUnits,
   sortAndDedupeStrings,
 } from "./canonical.js";
+import { foldCase } from "./case-fold.js";
 import { computeByteSha256 } from "./knowledge-document.js";
 import {
   SENSITIVE_PATTERNS,
@@ -179,6 +180,9 @@ const RULES: readonly RedactionRule[] = [
       `${SHARED.get("private_key_block")!.source}(?:[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----|[\\s\\S]*)`,
       "gu",
     ),
+    // A placeholder inside the block (`[REDACTED]` pasted from a scrubbed
+    // log) must not split it: the body after it would survive.
+    wholeText: true,
   },
   {
     // Replace the whole header value. Leaving `Bearer [REDACTED]` would make
@@ -359,27 +363,19 @@ export function computeConversationMaskingVersion(
   return `${CONVERSATION_MASKING_RULES_VERSION}+terms.${digest}`;
 }
 
-const normalizedTerms = new WeakMap<readonly string[], readonly string[]>();
-
 /**
- * NFKC, case-folded, trimmed, deduplicated, code-unit ordered terms. The
- * result is cached per list, since one ingest masks many texts with the same
- * configured dictionary.
+ * NFKC, case-folded, trimmed, deduplicated, code-unit ordered terms. Not
+ * cached: the caller's list may change between calls, and a stale result
+ * would leave a new term unmasked.
  */
 export function normalizeRedactTerms(
   terms: readonly string[],
 ): readonly string[] {
-  const cached = normalizedTerms.get(terms);
-  if (cached !== undefined) return cached;
-  const result = Object.freeze(
-    sortAndDedupeStrings(
-      terms
-        .map((term) => foldSegment(term).folded.trim())
-        .filter((term) => term.length > 0),
-    ),
+  return sortAndDedupeStrings(
+    terms
+      .map((term) => foldSegment(term).folded.trim())
+      .filter((term) => term.length > 0),
   );
-  normalizedTerms.set(terms, result);
-  return result;
 }
 
 const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -416,7 +412,7 @@ interface FoldedSegment {
 }
 
 /**
- * Folds (NFKC, lowercase) one grapheme cluster at a time, so a folded match
+ * Folds (NFKC, case fold) one grapheme cluster at a time, so a folded match
  * maps back to whole original characters. Clusters keep half-width kana with
  * their sound marks and decomposed Hangul together, so they compose as NFKC
  * composes them. Terms are folded the same way, so per-cluster lowercasing
@@ -432,9 +428,9 @@ function foldSegment(segment: string): FoldedSegment {
   let folded = "";
   for (const { index, segment: cluster } of GRAPHEMES.segment(segment)) {
     const foldedStart = folded.length;
-    // Lowercasing plus final sigma: the case folding NFKC + toLowerCase
-    // leaves out for the scripts a name list is likely to use.
-    folded += cluster.normalize("NFKC").toLowerCase().replaceAll("ς", "σ");
+    // Full case folding may lengthen a cluster (`ß` -> `ss`); the cluster
+    // map below still points a match back at whole original characters.
+    folded += foldCase(cluster.normalize("NFKC"));
     clusters.push({
       foldedEnd: folded.length,
       foldedStart,

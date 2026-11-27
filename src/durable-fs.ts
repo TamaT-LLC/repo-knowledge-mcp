@@ -120,7 +120,8 @@ export async function lstatNoFollow(
 }
 
 /**
- * Opens a regular file for reading without following a symlink, so checks
+ * Opens a regular file without following a symlink (read-only unless
+ * `access` is "read-write"), so checks
  * on the returned stats and the reads that follow see the same file.
  * O_NONBLOCK keeps a FIFO in its place from blocking the open. `null` when
  * the file is missing; `unsafe()` for a symlink or any other type. The
@@ -129,12 +130,15 @@ export async function lstatNoFollow(
 export async function openRegularFileNoFollow(
   path: string,
   unsafe: () => Error,
+  access: "read" | "read-write" = "read",
 ): Promise<{ readonly handle: FileHandle; readonly status: Stats } | null> {
   let handle: FileHandle;
   try {
     handle = await open(
       path,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      (access === "read" ? constants.O_RDONLY : constants.O_RDWR) |
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK,
     );
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -142,10 +146,13 @@ export async function openRegularFileNoFollow(
     if (code === "ELOOP") throw unsafe();
     throw error;
   }
-  const status = await handle.stat();
-  if (!status.isFile()) {
+  // The handle is the caller's only once it is returned.
+  try {
+    const status = await handle.stat();
+    if (!status.isFile()) throw unsafe();
+    return { handle, status };
+  } catch (error) {
     await handle.close();
-    throw unsafe();
+    throw error;
   }
-  return { handle, status };
 }

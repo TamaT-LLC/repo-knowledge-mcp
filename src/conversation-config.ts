@@ -159,7 +159,11 @@ export interface LoadedConversationConfig {
 
 /** Defaults with everything disabled, used when the file is absent. */
 export function disabledConversationConfig(): ConversationDistillationConfig {
-  return ConversationDistillationConfigSchema.parse({ schemaVersion: 1 });
+  // The schema defaults assistantContext to on; without a file it is off.
+  return ConversationDistillationConfigSchema.parse({
+    assistantContext: { enabled: false },
+    schemaVersion: 1,
+  });
 }
 
 export function parseConversationDistillationConfig(
@@ -172,7 +176,15 @@ export function parseConversationDistillationConfig(
   throw new ConversationConfigError(
     "CONVERSATION_CONFIG_INVALID",
     path,
-    formatConfigIssues(result.error.issues),
+    formatConfigIssues(
+      result.error.issues.map((issue) =>
+        // Zod names the unknown keys, and a dictionary term typed as a key
+        // would be printed: report where, not which.
+        issue.code === "unrecognized_keys"
+          ? { message: "unrecognized key", path: issue.path }
+          : issue,
+      ),
+    ),
   );
 }
 

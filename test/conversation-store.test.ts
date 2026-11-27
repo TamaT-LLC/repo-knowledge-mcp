@@ -954,6 +954,67 @@ describe("purge", () => {
     ]);
   });
 
+  it("removes a copy linked after an interrupted purge recorded its IDs", async () => {
+    await store().saveUtterances(
+      [
+        draft({ session_id: "doomed" }),
+        draft({ session_id: "pseudo-1", source_origin: "history" }),
+      ],
+      config(),
+    );
+    const [doomed, copy] = await utterances();
+    await expect(
+      crashingStore("purge:ids-recorded").purge({ session_id: "doomed" }),
+    ).rejects.toBeInstanceOf(Crash);
+    await store().saveSuperseded([
+      { superseded_by: doomed!.utterance_id, utterance_id: copy!.utterance_id },
+    ]);
+
+    await expect(store().purge(null)).resolves.toMatchObject({
+      removed_utterances: 2,
+      resumed_from: "ids_recorded",
+    });
+    expect(await utterances()).toEqual([]);
+    // The copy matched only through its link, so its identity is kept.
+    await store().resetKey();
+    await expect(
+      store().saveUtterances(
+        [draft({ session_id: "pseudo-1", source_origin: "history" })],
+        config(),
+      ),
+    ).resolves.toMatchObject({ saved: 0, skipped: { purged: 1 } });
+  });
+
+  it("purges by session without reading an unreadable key", async () => {
+    await store().saveUtterances([draft({ session_id: "doomed" })], config());
+    const target = store();
+    const readKey = vi.spyOn(target, "readKey").mockRejectedValue(
+      Object.assign(new Error("EACCES: permission denied"), {
+        code: "EACCES",
+      }),
+    );
+
+    await expect(target.purge({ session_id: "doomed" })).resolves.toMatchObject(
+      { removed_utterances: 1 },
+    );
+    expect(readKey).not.toHaveBeenCalled();
+  });
+
+  it("finds and purges the same records for a sub-millisecond bound", async () => {
+    await store().saveUtterances(
+      [draft({ session_id: "edge", timestamp: "2026-11-19T00:00:00.123Z" })],
+      config(),
+    );
+    const before = "2026-11-19T00:00:00.1239Z";
+    const found = await store().findMatchingIds({
+      filters: [{ before }],
+    });
+    expect(found).toHaveLength(1);
+    await expect(store().purge({ before })).resolves.toMatchObject({
+      removed_utterances: 1,
+    });
+  });
+
   it("purges a superseded copy along with the copy that matched", async () => {
     const historyMessage = "history-1";
     const historyText = "same words";
@@ -1240,6 +1301,19 @@ describe("purge", () => {
       await store().findMatchingIds({ excludeProjects: ["/USERS/bob/OTHER"] }),
     ).toHaveLength(1);
     await store().purge({ project_path_prefix: "/users/bob/other" });
+    expect(await utterances()).toEqual([]);
+  });
+
+  it("folds final sigma and ß in project paths", async () => {
+    await store().saveUtterances(
+      [
+        draft({ project: projectAt("/work/ΟΣ") }),
+        draft({ project: projectAt("/work/Straße") }),
+      ],
+      config(),
+    );
+    await store().purge({ project_path_prefix: "/work/οσ" });
+    await store().purge({ project_path_prefix: "/work/STRASSE" });
     expect(await utterances()).toEqual([]);
   });
 

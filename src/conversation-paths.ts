@@ -2,6 +2,8 @@ import { posix } from "node:path";
 
 import { z } from "zod";
 
+import { foldCase } from "./case-fold.js";
+
 /**
  * The single normalization used both when a project path is HMACed for
  * storage and when a purge filter or `excludeProjects` path is matched, so the
@@ -28,7 +30,7 @@ function normalizeProjectPath(path: string): string {
  * Display paths keep their case; only matching and HMACs use this form.
  */
 export function projectPathMatchKey(path: string): string {
-  return normalizeProjectPath(path).toLowerCase();
+  return foldCase(normalizeProjectPath(path));
 }
 
 /**
