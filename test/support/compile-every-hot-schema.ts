@@ -10,6 +10,7 @@ import { z } from "zod";
 import { enableCompileWhenHot } from "../../src/zod-compile-when-hot.js";
 
 type SafeParseResult = ReturnType<z.ZodType["safeParse"]>;
+const DEPTH = { depth: Number.POSITIVE_INFINITY };
 
 /** What a caller can observe of one call: its value, or what it threw. */
 function settle<T>(
@@ -40,11 +41,18 @@ function agree<T>(
 ): T {
   const actual = settle(compiled);
   const expected = settle(runtime);
-  const seen = (outcome: typeof actual) =>
-    outcome.ok
+  const seen = (outcome: typeof actual) => {
+    // Two Promises compare equal below, so an async result is not compared.
+    if (outcome.ok && outcome.value instanceof Promise) {
+      throw new Error(`${method} returned a Promise for ${inspect(data)}`);
+    }
+    return outcome.ok
       ? { ok: true, value: view(outcome.value) }
       : { ok: false, error: issuesOf(outcome.error) };
-  if (!isDeepStrictEqual(seen(actual), seen(expected))) {
+  };
+  const [a, b] = [seen(actual), seen(expected)];
+  // isDeepStrictEqual ignores key order, which output serialised as JSON keeps.
+  if (!isDeepStrictEqual(a, b) || inspect(a, DEPTH) !== inspect(b, DEPTH)) {
     throw new Error(
       `compiled ${method} disagrees with the runtime one for ${inspect(data)}`,
     );
