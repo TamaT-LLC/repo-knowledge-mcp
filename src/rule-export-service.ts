@@ -3,11 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { z } from "zod";
 
-import {
-  observeCanonicalWriter,
-  TRANSACTIONS_DIRECTORY,
-  type CanonicalWriterObservation,
-} from "./canonical-transaction-journal.js";
+import { observeCanonicalWriter } from "./canonical-transaction-journal.js";
 import {
   assertExplicitStorageRoot,
   DEFAULT_CONFIG_FILE_NAME,
@@ -150,11 +146,7 @@ export class RuleExportService implements RuleExporter {
       registered.absolutePath,
       registered.repoId,
       conversationOnly,
-      {
-        // doctor lists the repository journal's unexpected entries.
-        repair: `run repo-knowledge doctor ${registered.currentName} for the repair`,
-        reindex: `repo-knowledge reindex ${registered.currentName}`,
-      },
+      `repo-knowledge reindex ${registered.currentName}`,
       this.retry,
     );
   }
@@ -168,11 +160,7 @@ export class RuleExportService implements RuleExporter {
       store.reference.absolutePath,
       GLOBAL_STORE_ID,
       conversationOnly,
-      {
-        // doctor does not inspect the global journal, so name it directly.
-        repair: `restore or remove the unexpected entries in ${join(store.reference.absolutePath, TRANSACTIONS_DIRECTORY)}, then run repo-knowledge reindex --global`,
-        reindex: "repo-knowledge reindex --global",
-      },
+      "repo-knowledge reindex --global",
       this.retry,
     );
   }
@@ -207,7 +195,7 @@ async function readActiveRules(
   storeRoot: string,
   storeId: string,
   conversationOnly: boolean,
-  remedy: RecoveryCommands,
+  remedy: string,
   retry: RuleExportRetry,
 ): Promise<ExportedRule[]> {
   const capture = await captureConsistently(storeRoot, remedy, retry);
@@ -236,14 +224,6 @@ async function readActiveRules(
     });
 }
 
-/** Commands an operator runs when a store cannot be read as it stands. */
-interface RecoveryCommands {
-  /** How to repair what recovery refuses, as an instruction to the operator. */
-  readonly repair: string;
-  /** Runs canonical recovery, for an interrupted but recoverable commit. */
-  readonly reindex: string;
-}
-
 /** Maps an unsafe store layout to the export's own error; ENOENT is "absent". */
 async function storeIsSafe(inspect: () => Promise<boolean>): Promise<boolean> {
   try {
@@ -251,25 +231,6 @@ async function storeIsSafe(inspect: () => Promise<boolean>): Promise<boolean> {
   } catch (error) {
     if (error instanceof StoreDirectoryUnsafeError) {
       throw new RuleExportError("RULE_EXPORT_STORE_UNSAFE", error.message);
-    }
-    throw error;
-  }
-}
-
-/** A journal or lock of the wrong file type is a damaged layout, not a busy one. */
-async function observeWriter(
-  storeRoot: string,
-  remedy: RecoveryCommands,
-): Promise<CanonicalWriterObservation> {
-  try {
-    return await observeCanonicalWriter(storeRoot);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOTDIR" || code === "EISDIR") {
-      throw new RuleExportError(
-        "RULE_EXPORT_STORE_UNSAFE",
-        `the store's transaction journal or writer lock is damaged; ${remedy.repair}`,
-      );
     }
     throw error;
   }
@@ -286,7 +247,7 @@ async function observeWriter(
  */
 async function captureConsistently(
   storeRoot: string,
-  remedy: RecoveryCommands,
+  remedy: string,
   retry: RuleExportRetry,
 ): Promise<ReadOnlyCanonicalStateCapture> {
   let previousDigest: string | undefined;
@@ -295,7 +256,7 @@ async function captureConsistently(
   let waits = 0;
   let captures = 0;
   for (;;) {
-    const observed = await observeWriter(storeRoot, remedy);
+    const observed = await observeCanonicalWriter(storeRoot);
     if (observed.state === "abandoned") {
       // Only the same journal, still without a live lock on a second look,
       // is interrupted; a commit ending between the journal read and the
@@ -304,9 +265,9 @@ async function captureConsistently(
       if (entries === abandoned) {
         throw new RuleExportError(
           "RULE_EXPORT_RECOVERY_REQUIRED",
-          observed.recoverable
-            ? `the store has an interrupted transaction; run ${remedy.reindex} and export again`
-            : `the store's transaction journal has entries recovery cannot apply; ${remedy.repair}`,
+          // Recovery names any entry it cannot apply, so reindex is the
+          // one next step for every interrupted journal.
+          `the store has an interrupted transaction; run ${remedy} and export again`,
         );
       }
       abandoned = entries;
@@ -321,14 +282,15 @@ async function captureConsistently(
         capture = await captureCanonicalStateReadOnly(storeRoot);
         failed = 0;
       } catch (error) {
-        const quiet = (await observeWriter(storeRoot, remedy)).state === "idle";
+        const quiet =
+          (await observeCanonicalWriter(storeRoot)).state === "idle";
         failed = quiet ? failed + 1 : 0;
         if (failed >= 2) throw error;
         if (quiet) continue; // Retry at once; there is no writer to wait for.
       }
       if (
         capture !== undefined &&
-        (await observeWriter(storeRoot, remedy)).state === "idle"
+        (await observeCanonicalWriter(storeRoot)).state === "idle"
       ) {
         if (capture.canonicalDigest === previousDigest) return capture;
         previousDigest = capture.canonicalDigest;

@@ -233,10 +233,6 @@ export interface RenderedRuleExport {
   readonly block: string;
   /** Rules whose rule or scope text had comment or marker strings escaped. */
   readonly neutralized: number;
-  /** Rules left out because their text, or every scope pattern, was invisible. */
-  readonly omitted: number;
-  /** Rules printed with fewer scope patterns because some were invisible. */
-  readonly scopeTrimmed: number;
 }
 
 /**
@@ -253,29 +249,16 @@ export function renderRuleExport(
   rules: readonly ExportedRule[],
 ): RenderedRuleExport {
   let neutralized = 0;
-  let omitted = 0;
-  let scopeTrimmed = 0;
   const prose: string[] = [];
   const hook: string[] = [];
   for (const rule of rules) {
     const text = neutralizeExportedText(rule.rule);
     const scope = rule.scope.map(neutralizeExportedText);
-    // A scope pattern with no visible text would render as stray backticks.
-    const visible = scope.flatMap((entry) =>
-      entry.visible ? [codeSpan(entry.value)] : [],
-    );
-    // Rendering a scoped rule without its scope would widen it to the whole
-    // repository, so a rule whose patterns are all invisible is left out too.
-    if (!text.visible || (scope.length > 0 && visible.length === 0)) {
-      omitted += 1;
-      continue;
-    }
     if ([text, ...scope].some((entry) => entry.escaped)) neutralized += 1;
-    if (visible.length < scope.length) scopeTrimmed += 1;
     const item =
-      visible.length === 0
+      scope.length === 0
         ? `- ${text.value}`
-        : `- ${text.value}（適用範囲: ${visible.join(", ")}）`;
+        : `- ${text.value}（適用範囲: ${scope.map((entry) => codeSpan(entry.value)).join(", ")}）`;
     (rule.hook ? hook : prose).push(item);
   }
   const lines = [
@@ -292,12 +275,7 @@ export function renderRuleExport(
     );
   }
   lines.push("<!-- repo-knowledge:end -->");
-  return {
-    block: `${lines.join("\n")}\n`,
-    neutralized,
-    omitted,
-    scopeTrimmed,
-  };
+  return { block: `${lines.join("\n")}\n`, neutralized };
 }
 
 /** Wraps neutralized text in a code span whose fence no backtick run can close. */
@@ -314,8 +292,6 @@ const RULE_EXPORT_FORBIDDEN = /<!--|--!?>|repo-knowledge:(?:begin|end)/iu;
 interface NeutralizedText {
   readonly escaped: boolean;
   readonly value: string;
-  /** False when only spaces and default-ignorable characters (U+200B…) remain. */
-  readonly visible: boolean;
 }
 
 /**
@@ -338,13 +314,7 @@ function neutralizeExportedText(value: string): NeutralizedText {
   if (RULE_EXPORT_FORBIDDEN.test(neutralized)) {
     throw new TypeError("exported rule text still contains a block marker");
   }
-  return {
-    escaped: neutralized !== flattened,
-    value: neutralized,
-    visible:
-      neutralized.replace(/[\p{Default_Ignorable_Code_Point}\s]+/gu, "")
-        .length > 0,
-  };
+  return { escaped: neutralized !== flattened, value: neutralized };
 }
 
 /** The text one rule renders as; exported for its adversarial tests. */

@@ -601,34 +601,6 @@ describe("repo-knowledge CLI", () => {
         "1 rule(s) contained HTML comment or block marker text; it was escaped (for example <!-- as &lt;!--) so the pasted block keeps its boundaries.\n",
     },
     {
-      name: "notes rules left out for having no visible text",
-      exporter: { collect: async () => [rule(" \n\t"), rule("Kept")] },
-      exitCode: 0,
-      stdout: renderRuleExport("claude-md", "repository", [rule("Kept")]).block,
-      stderr:
-        "1 rule(s) had no visible rule or scope text and were left out.\n",
-    },
-    {
-      name: "says the block is empty when every rule was left out",
-      exporter: { collect: async () => [rule(" ")] },
-      exitCode: 0,
-      stdout: renderRuleExport("claude-md", "repository", []).block,
-      stderr:
-        "1 rule(s) had no visible rule or scope text and were left out; the block has no rules.\n",
-    },
-    {
-      name: "notes rules printed without their invisible scope patterns",
-      exporter: {
-        collect: async () => [{ ...rule("Scoped"), scope: ["src/**", " "] }],
-      },
-      exitCode: 0,
-      stdout: renderRuleExport("claude-md", "repository", [
-        { ...rule("Scoped"), scope: ["src/**"] },
-      ]).block,
-      stderr:
-        "1 rule(s) had scope patterns with no visible text; only the visible patterns are listed.\n",
-    },
-    {
       name: "reports an exporter error without printing a block",
       exporter: {
         collect: async () => {

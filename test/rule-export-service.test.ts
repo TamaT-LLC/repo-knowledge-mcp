@@ -392,44 +392,6 @@ describe("RuleExportService", () => {
     });
   });
 
-  it("points to doctor, not reindex, for a journal recovery would refuse", async () => {
-    const home = await createRuleExportHome(temporaryDirectories);
-    await mkdir(join(home.repositoryRoot, TRANSACTIONS_DIRECTORY), {
-      recursive: true,
-    });
-    await writeFile(
-      join(home.repositoryRoot, TRANSACTIONS_DIRECTORY, ".DS_Store"),
-      "",
-    );
-
-    await expect(
-      collect(home, { repo: EXPORT_REPOSITORY }),
-    ).rejects.toMatchObject({
-      code: "RULE_EXPORT_RECOVERY_REQUIRED",
-      message: `the store's transaction journal has entries recovery cannot apply; run repo-knowledge doctor ${EXPORT_REPOSITORY} for the repair`,
-    });
-  });
-
-  it("reports a journal or lock of the wrong file type as an unsafe store", async () => {
-    const home = await createRuleExportHome(temporaryDirectories);
-    await writeFile(join(home.globalRoot, TRANSACTIONS_DIRECTORY), "");
-    await mkdir(join(home.repositoryRoot, TRANSACTIONS_DIRECTORY));
-    await openJournal(home.repositoryRoot);
-    await mkdir(join(home.repositoryRoot, CANONICAL_WRITE_LOCK_NAME));
-
-    // doctor does not inspect the global journal, so its path is named.
-    await expect(collect(home, { store: "global" })).rejects.toMatchObject({
-      code: "RULE_EXPORT_STORE_UNSAFE",
-      message: `the store's transaction journal or writer lock is damaged; restore or remove the unexpected entries in ${join(home.globalRoot, TRANSACTIONS_DIRECTORY)}, then run repo-knowledge reindex --global`,
-    });
-    await expect(
-      collect(home, { repo: EXPORT_REPOSITORY }),
-    ).rejects.toMatchObject({
-      code: "RULE_EXPORT_STORE_UNSAFE",
-      message: `the store's transaction journal or writer lock is damaged; run repo-knowledge doctor ${EXPORT_REPOSITORY} for the repair`,
-    });
-  });
-
   it("gives an interrupted journal first seen on the last wait its second look", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await startWriter(home.globalRoot);
@@ -718,14 +680,6 @@ describe("renderRuleExport", () => {
     );
   });
 
-  it("drops a scope pattern with no visible text instead of rendering stray backticks", () => {
-    expect(
-      render("claude-md", "repository", [
-        { ...rule("repoPlain"), scope: ["src/**", " \n"] },
-      ]).split("\n")[3],
-    ).toBe(`- ${RULES.repoPlain}（適用範囲: \`src/**\`）`);
-  });
-
   it("counts rules whose rule or scope text had to be escaped", () => {
     expect(
       renderRuleExport("claude-md", "all", [
@@ -737,51 +691,6 @@ describe("renderRuleExport", () => {
         { ...rule("globalHook"), rule: "--\u0000>" },
       ]).neutralized,
     ).toBe(2);
-  });
-
-  it("counts rules printed without some of their invisible scope patterns", () => {
-    const rendered = renderRuleExport("claude-md", "repository", [
-      {
-        ...rule("repoPlain"),
-        scope: ["src/**", String.fromCodePoint(0x200b)],
-      },
-      { ...rule("globalManual"), scope: ["docs/**"] },
-    ]);
-
-    expect(rendered.scopeTrimmed).toBe(1);
-    expect(rendered.omitted).toBe(0);
-    expect(rendered.block).toContain(
-      `- ${RULES.repoPlain}（適用範囲: \`src/**\`）`,
-    );
-  });
-
-  it("leaves out and counts a rule with no visible text instead of an empty item", () => {
-    const hidden = String.fromCodePoint(0x202e, 0x2066);
-    const rendered = renderRuleExport("claude-md", "repository", [
-      { ...rule("repoPlain"), rule: hidden },
-      { ...rule("repoHook", true), rule: " \n\t" },
-      // Rendering it without its only (invisible) scope would widen it.
-      { ...rule("repoMarker"), scope: [" ", hidden] },
-      // Zero-width and other default-ignorable characters show nothing either.
-      {
-        ...rule("globalHook", true),
-        rule: String.fromCodePoint(0x200b, 0x2060, 0x00ad, 0x3164),
-      },
-      { ...rule("repoMalformedHint"), scope: [String.fromCodePoint(0x200b)] },
-      rule("globalManual"),
-    ]);
-
-    expect(rendered.omitted).toBe(5);
-    expect(rendered.block).toBe(
-      [
-        "<!-- repo-knowledge:begin format=claude-md store=repository -->",
-        "## repo-knowledge が学習したルール",
-        "",
-        `- ${RULES.globalManual}`,
-        "<!-- repo-knowledge:end -->",
-        "",
-      ].join("\n"),
-    );
   });
 
   it("renders a rule-free block that can replace a previously pasted one", () => {

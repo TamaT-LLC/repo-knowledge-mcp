@@ -1676,8 +1676,7 @@ rule 本文に含まれる `<!--`、`-->`、`repo-knowledge:begin`、`repo-knowl
 
 - リポジトリのストアのルール、グローバルストアのルールの順に、それぞれ knowledge ID の順に並べる
 - `scope` を持つルールには「（適用範囲: `glob`）」を添える。添えないと、貼り付け先でリポジトリ全体の指示に広がるためである
-- 無害化の後に見える文字が残らないルール（空白と、ゼロ幅文字などの既定で無視される文字だけのもの）、またはすべての scope パターンが見えないルールは出さない。一部の scope パターンだけが見えないルールは、見えるパターンだけを添えて出す
-- 省いたルール、見えない scope パターンを省いたルール、無害化で本文を置き換えたルールの件数は stderr に出す。stdout はブロックだけとする
+- 無害化で本文や scope を置き換えたルールの件数と、一致するルールがないことは stderr に出す。stdout はブロックだけとする
 
 export は読み取りだけを行う。
 lock の取得、registry への登録、`index.sqlite` の再構築、recovery、GitHub への問い合わせをしない。
@@ -1690,9 +1689,9 @@ registry との照合は GitHub を引けないため、現在の名前を古い
 | 状態 | 扱い |
 | --- | --- |
 | journal に準備済みの項目があり、writer lock の持ち主が生きている | 書き込みの終了を待つ。待っても終わらなければ `RULE_EXPORT_STORE_BUSY` |
-| journal に準備済みの項目があり、lock がないか持ち主が終了している（同じ journal を二回続けて見た） | `RULE_EXPORT_RECOVERY_REQUIRED`。recovery で直る場合は `reindex`、直らない項目（ディレクトリでない項目、manifest のない COMMITTED）を含む場合は `doctor`（グローバルストアは journal のパス）を案内する |
+| journal に準備済みの項目があり、lock がないか持ち主が終了している（同じ journal を二回続けて見た） | `RULE_EXPORT_RECOVERY_REQUIRED`。`reindex` を案内する。recovery が適用できない項目は、`reindex` がその項目を示して止まる |
 | manifest も COMMITTED もない staging | recovery が消すだけで正本に触れていないため、無視して読む |
-| ストレージルート、ストアやその配下がシンボリックリンク、journal や lock の種類が違う | `RULE_EXPORT_STORE_UNSAFE`。journal や lock の種類が違う場合は、リポジトリは `doctor`、グローバルストアは journal のパスを案内する |
+| ストレージルート、ストアやその配下がシンボリックリンク | `RULE_EXPORT_STORE_UNSAFE` |
 | 読み取り中に commit が完了した | 二回続けた読み取りの digest が一致するまで読み直す |
 
 <a id="cd-config"></a>

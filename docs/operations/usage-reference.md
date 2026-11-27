@@ -646,8 +646,7 @@ repo-knowledge export --format agents-md --store global
 出力は `<!-- repo-knowledge:begin format=... store=... -->` と `<!-- repo-knowledge:end -->` で囲まれます。
 scope を持つ rule には「（適用範囲: `glob`）」を添えます。
 rule 本文や scope に含まれる `<!--`、`-->`、`repo-knowledge:begin`、`repo-knowledge:end` は `&lt;!--` などに置き換え、改行や制御文字は空白にして一行にします。
-見える文字が残らない rule と、すべての scope パターンが見えない rule は出力しません。一部の scope パターンだけが見えない rule は、見えるパターンだけを添えます。
-置き換えた rule、省いた rule、見えない scope パターンを省いた rule の件数は stderr に出ます。stdout にはブロックだけが出ます。
+置き換えた rule の件数と、一致する rule がないことは stderr に出ます。stdout にはブロックだけが出ます。
 
 export は読み取りだけを行い、lock、registry、`index.sqlite` を作りません。
 ほかの repo-knowledge のコマンドが書き込み中の場合は最大で約 2 秒待ち、終わらなければ `RULE_EXPORT_STORE_BUSY` で終了します。
@@ -658,8 +657,8 @@ export は読み取りだけを行い、lock、registry、`index.sqlite` を作�
 | `RULE_EXPORT_REPOSITORY_NOT_REGISTERED` | リポジトリが未登録。`repo-knowledge setup owner/name` を先に実行する |
 | `RULE_EXPORT_REPOSITORY_UNRESOLVED` | リポジトリを選べない。`--repo` を渡すか、`workspaceMappings` か `defaultRepo` を設定する |
 | `RULE_EXPORT_STORE_BUSY` | 書き込みが続いている。少し待って再実行する |
-| `RULE_EXPORT_RECOVERY_REQUIRED` | 中断された書き込みが残っている。表示された `reindex` か `doctor` の案内に従う |
-| `RULE_EXPORT_STORE_UNSAFE` | ストレージルート、ストアやその配下がシンボリックリンク、または journal や lock の種類が違う。表示された案内に従って配置を直す |
+| `RULE_EXPORT_RECOVERY_REQUIRED` | 中断された書き込みが残っている。表示された `reindex` を実行する。`reindex` が適用できない項目を示した場合は、その項目を戻すか取り除く |
+| `RULE_EXPORT_STORE_UNSAFE` | ストレージルート、ストアやその配下がシンボリックリンク。実ディレクトリに直す |
 | `CONFIG_PATH_UNSAFE` | `REPO_KNOWLEDGE_HOME` が空。storage root を明示する |
 
 ## storage と直接編集
