@@ -22,12 +22,11 @@ function prefixedUlidSchema(prefix: string): z.ZodString {
     );
 }
 
+/** An array of unique strings, returned sorted. */
 function stringSetSchema<T extends z.ZodType<string>>(
   itemSchema: T,
-): z.ZodPipe<z.ZodArray<T>, z.ZodTransform<z.output<T>[], z.output<T>[]>> {
-  return z
-    .array(itemSchema)
-    .transform((values) => sortAndDedupeStrings(values) as z.output<T>[]);
+): z.ZodArray<T> {
+  return z.array(itemSchema).overwrite(sortAndDedupeStrings);
 }
 
 export const KnowledgeIdSchema = prefixedUlidSchema("kn");
@@ -343,10 +342,7 @@ export const GeneratedCodeExampleSchema = z.strictObject({
   ).refine((value) => value.trim().length > 0, {
     error: "code example content must not be blank",
   }),
-  evidence_comment_ids: z
-    .array(GitHubNodeIdSchema)
-    .min(1)
-    .transform((values) => sortAndDedupeStrings(values)),
+  evidence_comment_ids: stringSetSchema(GitHubNodeIdSchema).min(1),
   generated_example: z.literal(true),
   language: CodeExampleLanguageSchema,
 });
@@ -356,10 +352,7 @@ export const DistilledCandidateSchema = z.strictObject({
   code_example: GeneratedCodeExampleSchema.optional(),
   confidence: z.number().min(0).max(1),
   detail: NonEmptyStringSchema,
-  evidence_comment_ids: z
-    .array(GitHubNodeIdSchema)
-    .min(1)
-    .transform((values) => sortAndDedupeStrings(values)),
+  evidence_comment_ids: stringSetSchema(GitHubNodeIdSchema).min(1),
   rule: NonEmptyStringSchema,
   scope: stringSetSchema(ScopePatternSchema),
   severity: SeveritySchema,
@@ -491,10 +484,7 @@ export const EvidenceStatusSchema = z.enum([
 export const KnowledgeEvidenceSchema = z.strictObject({
   actors: z.array(EvidenceActorSchema).min(1),
   author_association: NonEmptyStringSchema.optional(),
-  comment_ids: z
-    .array(GitHubNodeIdSchema)
-    .min(1)
-    .transform((values) => sortAndDedupeStrings(values)),
+  comment_ids: stringSetSchema(GitHubNodeIdSchema).min(1),
   content_fingerprint: Sha256DigestSchema,
   eligible_for_count: z.boolean(),
   evidence_id: EvidenceIdSchema,
@@ -505,10 +495,7 @@ export const KnowledgeEvidenceSchema = z.strictObject({
   path: NonEmptyStringSchema.optional(),
   pr_number: z.number().int().positive(),
   repo_id: RepositoryIdSchema,
-  sources: z
-    .array(SourceProviderSchema)
-    .min(1)
-    .transform((values) => sortAndDedupeStrings(values)),
+  sources: stringSetSchema(SourceProviderSchema).min(1),
   state_fingerprint: Sha256DigestSchema,
   status: EvidenceStatusSchema,
   superseded_by: EvidenceIdSchema.optional(),
