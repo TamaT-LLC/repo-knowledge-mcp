@@ -19,6 +19,7 @@ import {
 import type { CanonicalKnowledgeReadView } from "./sqlite-projection.js";
 import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
 import type { SyncRunOutcome, SyncStatus } from "./sync-status-store.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const STATS_SCHEMA_VERSION = 1;
 export const STATS_TIMEZONE = "UTC";
@@ -37,11 +38,13 @@ export type StatsBucketMode = z.infer<typeof StatsBucketSchema>;
  * window `[since, until)`; both are optional for `bucket: "total"` and both
  * are required for `bucket: "day"`.
  */
-export const RepositoryStatsRequestSchema = z.strictObject({
-  bucket: StatsBucketSchema.optional(),
-  since: IsoDateTimeSchema.optional(),
-  until: IsoDateTimeSchema.optional(),
-});
+export const RepositoryStatsRequestSchema = compileWhenHot(
+  z.strictObject({
+    bucket: StatsBucketSchema.optional(),
+    since: IsoDateTimeSchema.optional(),
+    until: IsoDateTimeSchema.optional(),
+  }),
+);
 
 export interface RepositoryStatsRequest {
   readonly bucket?: StatsBucketMode;

@@ -6,33 +6,38 @@ import {
   RepositoryIdSchema,
 } from "./domain-schemas.js";
 import type { ProjectedCanonicalRecord } from "./sqlite-projection.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const GLOBAL_STORE_ID = "rk:global";
 export const ALWAYS_RETURN_PATH = "events/always_return.jsonl";
 export const ALWAYS_RETURN_LIMIT = 3;
-export const AlwaysReturnChangeSchema = z
-  .strictObject({
-    actor: z.enum(["cli", "mcp"]),
-    caller_repo_id: RepositoryIdSchema.optional(),
-    enabled: z.boolean(),
-    event_id: EventIdSchema,
-    knowledge_id: KnowledgeIdSchema,
-    recorded_at: IsoDateTimeSchema,
-  })
-  .refine((e) => (e.actor === "mcp") === (e.caller_repo_id !== undefined));
+export const AlwaysReturnChangeSchema = compileWhenHot(
+  z
+    .strictObject({
+      actor: z.enum(["cli", "mcp"]),
+      caller_repo_id: RepositoryIdSchema.optional(),
+      enabled: z.boolean(),
+      event_id: EventIdSchema,
+      knowledge_id: KnowledgeIdSchema,
+      recorded_at: IsoDateTimeSchema,
+    })
+    .refine((e) => (e.actor === "mcp") === (e.caller_repo_id !== undefined)),
+);
 
-export const AlwaysReturnResultSchema = z.strictObject({
-  state: z.enum(["changed", "unchanged", "rejected"]),
-  knowledge_id: KnowledgeIdSchema,
-  always_return: z.boolean(),
-  set_by: z.enum(["cli", "mcp"]).optional(),
-  always_return_count: z.number().int().min(0).max(ALWAYS_RETURN_LIMIT),
-  /** Slots held, including inactive rules' reservations; the limit counts these. */
-  reserved_count: z.number().int().min(0).max(ALWAYS_RETURN_LIMIT),
-  reason: z
-    .enum(["not_global", "not_active", "limit_reached", "set_by_cli"])
-    .optional(),
-});
+export const AlwaysReturnResultSchema = compileWhenHot(
+  z.strictObject({
+    state: z.enum(["changed", "unchanged", "rejected"]),
+    knowledge_id: KnowledgeIdSchema,
+    always_return: z.boolean(),
+    set_by: z.enum(["cli", "mcp"]).optional(),
+    always_return_count: z.number().int().min(0).max(ALWAYS_RETURN_LIMIT),
+    /** Slots held, including inactive rules' reservations; the limit counts these. */
+    reserved_count: z.number().int().min(0).max(ALWAYS_RETURN_LIMIT),
+    reason: z
+      .enum(["not_global", "not_active", "limit_reached", "set_by_cli"])
+      .optional(),
+  }),
+);
 export type AlwaysReturnChange = z.infer<typeof AlwaysReturnChangeSchema>;
 export type AlwaysReturnResult = z.infer<typeof AlwaysReturnResultSchema>;
 export type AlwaysReturnActor =
