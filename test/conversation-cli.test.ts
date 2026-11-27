@@ -310,7 +310,8 @@ describe("conversations command dispatch", () => {
     const conversations = fakeConversations();
     const current = harness(["conversations", "reset-key"], { conversations });
 
-    expect(await current.run()).toBe(2);
+    // Same exit code as setup's and the admin commands' TTY refusal.
+    expect(await current.run()).toBe(1);
     expect(current.stderr()).toMatch(/^CLI_TTY_REQUIRED: .*--yes/u);
     expect(conversations.resetKey).not.toHaveBeenCalled();
   });

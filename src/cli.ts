@@ -493,7 +493,7 @@ function purgeConfirmation(criteria: PurgeCriteria | null): string {
   return `Permanently delete stored conversation utterances matching ${condition}? The condition is kept, so matching utterances are never ingested again.`;
 }
 const RESET_KEY_CONFIRMATION =
-  "Replace the conversation key and discard stored utterances, episodes, checkpoints and the route cache? Purge conditions are kept; the next ingest re-reads the sources.";
+  "Replace the conversation key and discard stored utterances, episodes, checkpoints and the route cache? Purge conditions are kept; the next ingest re-reads the sources, so only utterances whose source logs still exist come back.";
 
 async function executeConversationCommand(
   command: Extract<
@@ -558,7 +558,8 @@ async function runConfirmed(
       throw new RepoKnowledgeCliError(
         "CLI_TTY_REQUIRED",
         "this command deletes data; confirm in a terminal or pass --yes",
-        REPO_KNOWLEDGE_CLI_EXIT.usage,
+        // Same exit code as the other CLI_TTY_REQUIRED refusals.
+        REPO_KNOWLEDGE_CLI_EXIT.failure,
       );
     }
     if (!(await io.confirm({ defaultValue: false, id, message }))) {
