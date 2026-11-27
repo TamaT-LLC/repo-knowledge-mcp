@@ -693,7 +693,6 @@ symlink は拒否します。group や others から読める権限は、取り�
 - 対象外のキー名（`pass`、`pwd`、`private_key` など）の代入
 - コマンド引数に書いた認証情報（`curl -u admin:pass`、`mysql -phunter2`）
 - 区切り文字で 32 文字未満に分かれるトークン
-- PGP の秘密鍵ブロック（`-----BEGIN PGP PRIVATE KEY BLOCK-----`）
 - 第三者の氏名や社名（自動の氏名検出は行いません）
 会話データ領域の directory は mode 700、file は mode 600 で作成します。
 

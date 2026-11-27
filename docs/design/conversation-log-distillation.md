@@ -899,9 +899,12 @@ history にだけある情報（プロジェクトのパス）は会話ファイ
 | 既存の検出種別（API key、GitHub token、Slack token、AWS key、Google API key、秘密鍵ブロック、汎用の秘密代入、メールアドレス） | 共有 | 該当部分を `[REDACTED]` |
 | Authorization header | 共有 | header の値全体を `[REDACTED]` にし、`Authorization: [REDACTED]` とする |
 | Bearer token | 会話だけ | `bearer <token>` 全体を `[REDACTED]` |
+| `Basic` の資格情報（header の外） | 会話だけ | `Basic <base64>` の base64 部分を含めて `[REDACTED]`。`Basic JavaScript` のような文は残す |
 | JWT | 会話だけ | 該当部分を `[REDACTED]` |
 | 英字と数字を両方含む 32 文字以上の連続 | 会話だけ | 該当部分を `[REDACTED]`。パスの一部は除く |
 | ホームディレクトリの絶対パス | 会話だけ | `/Users/<name>/`、`/home/<name>/` を `~/` |
+| Claude Code の符号化ディレクトリ名 | 会話だけ | `-Users-<name>-…`、`-home-<name>-…`（`/` と `.` を `-` にしたプロジェクトのディレクトリ名）の `<name>` を `[REDACTED]` |
+| 秘密鍵ブロックの本文 | 会話だけ | 共有の検出は BEGIN 行だけを見るため、END 行まで（END がなければ末尾まで）をまとめて `[REDACTED]`。PGP の秘密鍵ブロックも同じ |
 | 接続文字列の資格情報 | 会話だけ | `scheme://user:pass@host` 形式の `user:pass` を置換し、`scheme://[REDACTED]@host` とする |
 | 利用者辞書（`redactTerms`） | 会話だけ | NFKC 正規化と大文字小文字の無視をしたうえで、語に一致する部分を `[REDACTED]` |
 
