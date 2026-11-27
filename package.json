@@ -78,7 +78,7 @@
     "audit:gate": "node scripts/audit-gate.mjs",
     "bootstrap:pack": "node scripts/build-bootstrap-package.mjs",
     "build": "tsc -p tsconfig.build.json",
-    "check": "npm run format:check && npm run docs:check && npm run install-scripts:check && npm run lint && npm run typecheck && npm run golden:corpus:check && npm run test:release-tools && npm run test:audit-gate && npm run test:coverage-thresholds && npm run test:coverage",
+    "check": "npm run format:check && npm run docs:check && npm run install-scripts:check && npm run lint && npm run typecheck && npm run golden:corpus:check && npm run test:release-tools && npm run test:audit-gate && npm run test:coverage-thresholds && npm run test:coverage && vitest run --config vitest.compiled.config.mjs",
     "docs:check": "node check-markdown-links.mjs",
     "format": "biome format --write . && prettier --write '.github/**/*.yml'",
     "format:check": "biome format . && prettier --check '.github/**/*.yml'",
@@ -101,7 +101,8 @@
     "test:coverage": "npm run build && vitest run --coverage",
     "test:coverage-thresholds": "node --test scripts/coverage-gate-tests.mjs",
     "test:release-tools": "node --test scripts/release-tools-tests.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:compiled": "npm run build && vitest run --config vitest.compiled.config.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",
