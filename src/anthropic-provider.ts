@@ -6,28 +6,31 @@ import {
   type SubscriptionCliProviderAdapterOptions,
   type SubscriptionCliProviderDefinition,
 } from "./subscription-cli-provider.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const ANTHROPIC_PROVIDER = "anthropic";
 export const DEFAULT_ANTHROPIC_CLI_EXECUTABLE = "claude";
 
-const ClaudeCliResultSchema = z.looseObject({
-  is_error: z.boolean().optional(),
-  modelUsage: z
-    .record(
-      z.string(),
-      z.looseObject({
-        canonicalModel: z.string().min(1).optional(),
-      }),
-    )
-    .optional(),
-  result: z.string().optional(),
-  session_id: z.string().min(1).optional(),
-  stop_reason: z.string().nullable().optional(),
-  structured_output: z.unknown().optional(),
-  subtype: z.string().optional(),
-  type: z.string().optional(),
-  uuid: z.string().min(1).optional(),
-});
+const ClaudeCliResultSchema = compileWhenHot(
+  z.looseObject({
+    is_error: z.boolean().optional(),
+    modelUsage: z
+      .record(
+        z.string(),
+        z.looseObject({
+          canonicalModel: z.string().min(1).optional(),
+        }),
+      )
+      .optional(),
+    result: z.string().optional(),
+    session_id: z.string().min(1).optional(),
+    stop_reason: z.string().nullable().optional(),
+    structured_output: z.unknown().optional(),
+    subtype: z.string().optional(),
+    type: z.string().optional(),
+    uuid: z.string().min(1).optional(),
+  }),
+);
 
 export type AnthropicProviderAdapterOptions =
   SubscriptionCliProviderAdapterOptions;

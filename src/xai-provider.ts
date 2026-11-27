@@ -9,18 +9,21 @@ import {
   type SubscriptionCliProviderAdapterOptions,
   type SubscriptionCliProviderDefinition,
 } from "./subscription-cli-provider.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const XAI_PROVIDER = "xai";
 export const DEFAULT_XAI_CLI_EXECUTABLE = "grok";
 
-const GrokCliResultSchema = z.looseObject({
-  modelUsage: z.record(z.string(), z.looseObject({})).optional(),
-  requestId: z.string().min(1).optional(),
-  sessionId: z.string().min(1).optional(),
-  stopReason: z.string().optional(),
-  structuredOutput: z.unknown().optional(),
-  text: z.string().optional(),
-});
+const GrokCliResultSchema = compileWhenHot(
+  z.looseObject({
+    modelUsage: z.record(z.string(), z.looseObject({})).optional(),
+    requestId: z.string().min(1).optional(),
+    sessionId: z.string().min(1).optional(),
+    stopReason: z.string().optional(),
+    structuredOutput: z.unknown().optional(),
+    text: z.string().optional(),
+  }),
+);
 
 export type XaiProviderAdapterOptions = SubscriptionCliProviderAdapterOptions;
 

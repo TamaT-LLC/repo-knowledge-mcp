@@ -29,13 +29,16 @@ import type {
 import { evaluateMergeClassifierTransmission } from "./provider-transmission.js";
 import type { RepositoryResolution } from "./repository-resolver.js";
 import { assertNoSensitiveContent } from "./sensitive-content.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
-const JevChoiceResponseSchema = z.strictObject({
-  choice: NonEmptyStringSchema,
-  confidence: z.number().min(0).max(1),
-  probabilities: z.record(NonEmptyStringSchema, z.number().min(0).max(1)),
-  type: z.literal("choice"),
-});
+const JevChoiceResponseSchema = compileWhenHot(
+  z.strictObject({
+    choice: NonEmptyStringSchema,
+    confidence: z.number().min(0).max(1),
+    probabilities: z.record(NonEmptyStringSchema, z.number().min(0).max(1)),
+    type: z.literal("choice"),
+  }),
+);
 
 export interface JevMergeRelationClassifierOptions {
   readonly apiKey?: string;
