@@ -3,6 +3,7 @@ import { IsoDateTimeSchema } from "./domain-schemas.js";
 import type { CanonicalProjectionSnapshot } from "./sqlite-projection.js";
 import type { KnowledgeFrontmatter } from "./knowledge-document.js";
 
+// Not compileWhenHot: compiling measured no faster.
 const hint = z.object({
   kind: z.enum(["hook", "skill", "permission", "prose"]),
   rationale: z.string(),
@@ -17,6 +18,7 @@ export const ConversationSummarySchema = z.strictObject({
   has_conflict: z.boolean(),
 });
 
+// Not compileWhenHot: compiling measured only 1.3× faster.
 const ConversationOriginSchema = z.object({
   source: z.literal("conversation"),
 });

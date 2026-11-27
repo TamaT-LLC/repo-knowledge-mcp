@@ -7,7 +7,10 @@ import { inspect, isDeepStrictEqual } from "node:util";
 
 import { z } from "zod";
 
-import { enableCompileWhenHot } from "../../src/zod-compile-when-hot.js";
+import {
+  enableCompileWhenHot,
+  type Parsers,
+} from "../../src/zod-compile-when-hot.js";
 
 type SafeParseResult = ReturnType<z.ZodType["safeParse"]>;
 const DEPTH = { depth: Number.POSITIVE_INFINITY };
@@ -66,10 +69,6 @@ const safeParseView = (result: SafeParseResult) =>
     ? { success: true, data: result.data }
     : { success: false, issues: result.error.issues };
 
-type Parsers = Pick<z.ZodType, "parse" | "safeParse" | "validate"> & {
-  readonly "~standard": Pick<z.ZodType["~standard"], "validate">;
-};
-
 enableCompileWhenHot({
   afterUses: 0,
   compile(schema, runtime) {
@@ -80,33 +79,37 @@ enableCompileWhenHot({
     const checked =
       <A extends [unknown, ...unknown[]], R>(
         method: string,
-        pick: (parsers: Parsers) => (...args: A) => R,
+        compiledCall: (...args: A) => R,
+        runtimeCall: (...args: A) => R,
         view?: (value: R) => unknown,
       ) =>
       (...args: A): R =>
         agree(
           method,
           args[0],
-          () => pick(compiled)(...args),
-          () => pick(runtime)(...args),
+          () => compiledCall(...args),
+          () => runtimeCall(...args),
           view,
         );
     return {
-      parse: checked("parse", (parsers) => parsers.parse),
+      parse: checked("parse", compiled.parse, runtime.parse),
       safeParse: checked(
         "safeParse",
-        (parsers) => parsers.safeParse,
+        compiled.safeParse,
+        runtime.safeParse,
         safeParseView,
       ),
       validate: checked(
         "validate",
-        (parsers) => parsers.validate,
+        compiled.validate,
+        runtime.validate,
       ) as z.ZodType["validate"],
       // What the MCP SDK calls; its error text is built from these issues.
       "~standard": {
         validate: checked(
           "~standard.validate",
-          (parsers) => parsers["~standard"].validate,
+          compiled["~standard"].validate,
+          runtime["~standard"].validate,
         ),
       },
     };

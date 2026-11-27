@@ -14,14 +14,10 @@ describe("CLI entry", () => {
       join(repositoryRoot, "src", "bin.ts"),
       "utf8",
     );
-    // Anchored to the start of a line, so a commented-out call does not count.
-    const enable = /^enableCompileWhenHot\(/mu.exec(source)?.index ?? -1;
-    const run =
-      /^process\.exitCode = await runDefaultRepoKnowledgeCli\(/mu.exec(
-        source,
-      )?.index;
-    expect(enable).toBeGreaterThan(-1);
-    expect(run).toBeDefined();
-    expect(enable).toBeLessThan(run ?? -1);
+    // Anchored to line starts, so a commented-out call does not count, and
+    // in this order, so the CLI runs with compileWhenHot already on.
+    expect(source).toMatch(
+      /^enableCompileWhenHot\(\);$[\s\S]*^process\.exitCode = await runDefaultRepoKnowledgeCli\(/mu,
+    );
   });
 });

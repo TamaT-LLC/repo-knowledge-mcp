@@ -18,31 +18,34 @@ export const Sha256DigestSchema = compileWhenHot(
   z.string().regex(/^sha256:[a-f0-9]{64}$/u, "must use sha256:<lowercase hex>"),
 );
 
+/** Every domain ID is also validated on its own, by `createDomainId`. */
 function prefixedUlidSchema(prefix: string): z.ZodString {
-  return z
-    .string()
-    .regex(
-      new RegExp(`^${prefix}_[0-9A-HJKMNP-TV-Z]{26}$`, "u"),
-      `must be a ${prefix}_ prefixed ULID`,
-    );
+  return compileWhenHot(
+    z
+      .string()
+      .regex(
+        new RegExp(`^${prefix}_[0-9A-HJKMNP-TV-Z]{26}$`, "u"),
+        `must be a ${prefix}_ prefixed ULID`,
+      ),
+  );
 }
 
-/** An array of unique strings, returned sorted. */
+/** An array of strings, returned sorted with duplicates removed. */
 function stringSetSchema<T extends z.ZodType<string>>(
   itemSchema: T,
 ): z.ZodArray<T> {
   return z.array(itemSchema).overwrite(sortAndDedupeStrings);
 }
 
-export const KnowledgeIdSchema = compileWhenHot(prefixedUlidSchema("kn"));
+export const KnowledgeIdSchema = prefixedUlidSchema("kn");
 export const EvidenceIdSchema = prefixedUlidSchema("ev");
-export const JobIdSchema = compileWhenHot(prefixedUlidSchema("job"));
-export const TransactionIdSchema = compileWhenHot(prefixedUlidSchema("txn"));
-export const EventIdSchema = compileWhenHot(prefixedUlidSchema("evt"));
-export const ObservationIdSchema = compileWhenHot(prefixedUlidSchema("obs"));
-export const SnapshotIdSchema = compileWhenHot(prefixedUlidSchema("snap"));
+export const JobIdSchema = prefixedUlidSchema("job");
+export const TransactionIdSchema = prefixedUlidSchema("txn");
+export const EventIdSchema = prefixedUlidSchema("evt");
+export const ObservationIdSchema = prefixedUlidSchema("obs");
+export const SnapshotIdSchema = prefixedUlidSchema("snap");
 export const ReceiptIdSchema = prefixedUlidSchema("rcpt");
-export const CandidateIdSchema = compileWhenHot(prefixedUlidSchema("cand"));
+export const CandidateIdSchema = prefixedUlidSchema("cand");
 
 export const RepositoryIdSchema = NonEmptyStringSchema;
 export const RepositoryNameSchema = compileWhenHot(

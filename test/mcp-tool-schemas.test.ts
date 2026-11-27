@@ -10,8 +10,11 @@ import { buildServer, type BuildServerOptions } from "../src/mcp-server.js";
 // run test:compiled` each call is also checked against the runtime parser, so
 // the compiled path must report the same issues the SDK would show.
 
-/** Every input and output schema `buildServer` registers, by tool. */
-function registeredToolSchemas(): Array<readonly [string, z.ZodType]> {
+/** The tools `buildServer` registers, and their input and output schemas. */
+function registeredTools(): {
+  readonly count: number;
+  readonly schemas: Array<readonly [string, z.ZodType]>;
+} {
   const registerTool = vi.spyOn(McpServer.prototype, "registerTool");
   try {
     buildServer({
@@ -20,7 +23,7 @@ function registeredToolSchemas(): Array<readonly [string, z.ZodType]> {
         {} as BuildServerOptions["mutationServiceResolver"],
       readServiceResolver: {} as BuildServerOptions["readServiceResolver"],
     });
-    return registerTool.mock.calls.flatMap(([name, config]) => {
+    const schemas = registerTool.mock.calls.flatMap(([name, config]) => {
       const { inputSchema, outputSchema } = config as unknown as {
         inputSchema?: z.ZodType;
         outputSchema?: z.ZodType;
@@ -30,6 +33,7 @@ function registeredToolSchemas(): Array<readonly [string, z.ZodType]> {
         ...(outputSchema ? [[`${name} output`, outputSchema] as const] : []),
       ];
     });
+    return { count: registerTool.mock.calls.length, schemas };
   } finally {
     registerTool.mockRestore();
   }
@@ -45,7 +49,7 @@ function propertyNames(json: unknown): string[] {
   const members = ["oneOf", "anyOf", "allOf"].flatMap((key) =>
     Array.isArray(record[key]) ? (record[key] as unknown[]) : [],
   );
-  return [...new Set([...own, ...members.flatMap(propertyNames)])].sort();
+  return [...new Set([...own, ...members.flatMap(propertyNames)])];
 }
 
 /** Values from the root down to each field that tool schemas mostly reject. */
@@ -65,15 +69,15 @@ function invalidValues(schema: z.ZodType): unknown[] {
   ];
 }
 
-const TOOL_SCHEMAS = registeredToolSchemas();
+const TOOLS = registeredTools();
 
 describe("MCP tool schemas through ~standard.validate", () => {
-  it("covers every tool's input and output schema", () => {
-    // 12 tools with set_global_always_return enabled; each has both schemas.
-    expect(TOOL_SCHEMAS).toHaveLength(24);
+  it("covers both schemas of every tool", () => {
+    expect(TOOLS.count).toBeGreaterThan(0);
+    expect(TOOLS.schemas).toHaveLength(2 * TOOLS.count);
   });
 
-  it.each(TOOL_SCHEMAS)(
+  it.each(TOOLS.schemas)(
     "%s reports what safeParse reports for invalid values",
     (_name, schema) => {
       let rejected = 0;

@@ -87,6 +87,7 @@ const ReviewInboxItemBaseShape = {
   updated_at: IsoDateTimeSchema,
 };
 
+// Not compileWhenHot: compiling measured only 1.3× faster.
 export const ReviewInboxItemSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     ...ReviewInboxItemBaseShape,
@@ -116,6 +117,7 @@ export const ReviewInboxRequestSchema = compileWhenHot(
   }),
 );
 
+// Not compileWhenHot: compiling measured no faster.
 export const ReviewInboxResultSchema = z.strictObject({
   items: z.array(ReviewInboxItemSchema),
   next_cursor: z.string().nullable(),

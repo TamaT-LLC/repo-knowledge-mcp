@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 /**
- * Parses of one schema after which it is compiled. Measured over this
+ * Uses of one schema (`parse`, `safeParse`, `validate` or
+ * `~standard.validate`) after which it is compiled. Measured over this
  * repository's test inputs (with the inputs recorded through a wrapper, so the
  * figures are a guide rather than exact), compiling cost about 0.02–7 ms per
  * schema and later parses were roughly 1.5–18× faster; the break-even was
@@ -15,9 +16,9 @@ const DEFAULT_COMPILE_AFTER_USES = 500;
  * The entry points a caller validates through: the three methods this code
  * calls, and `~standard`, which the MCP SDK calls for tool input and output.
  */
-type Standard = z.ZodType["~standard"];
-type StandardValidate = Standard["validate"];
-interface Parsers extends Pick<z.ZodType, "parse" | "safeParse" | "validate"> {
+type StandardValidate = z.ZodType["~standard"]["validate"];
+export interface Parsers
+  extends Pick<z.ZodType, "parse" | "safeParse" | "validate"> {
   readonly "~standard": { readonly validate: StandardValidate };
 }
 
@@ -35,9 +36,10 @@ const installed = new WeakSet<z.ZodType>();
 let enabled: Required<CompileWhenHotOptions> | undefined;
 
 /**
- * Marks a schema to be compiled once it is parsed often, which only takes
- * effect in a process that calls `enableCompileWhenHot`. Libraries and tests
- * keep the runtime parser. Returns the same schema.
+ * Marks a schema to be compiled once it is used often, which only takes
+ * effect in a process that calls `enableCompileWhenHot`. A process that never
+ * does (a library user, the default test run) keeps the runtime parser.
+ * Returns the same schema.
  *
  * Mark a schema when both hold:
  * - It is validated on its own: this code calls its `parse`, `safeParse` or
@@ -45,7 +47,10 @@ let enabled: Required<CompileWhenHotOptions> | undefined;
  *   tool's input or output schema. A schema reached only as part of another
  *   one needs no mark: compiling the parent compiles it too.
  * - Compiling it was measured to make it at least 1.5× faster, and a process
- *   can use it 500 times (not a dev tool that parses once per run).
+ *   can use it 500 times (not a dev tool or a setup step that parses a few
+ *   times per run).
+ *
+ * A schema left unmarked on purpose says why where it is defined.
  */
 export function compileWhenHot<T extends z.ZodType>(schema: T): T {
   if (enabled === undefined) pending.push(schema);

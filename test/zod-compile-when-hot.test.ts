@@ -83,14 +83,17 @@ describe("compileWhenHot", () => {
     );
   });
 
-  it("keeps the vendor, version and JSON Schema of ~standard", async () => {
+  it("keeps the JSON Schema, and the vendor, version and jsonSchema of ~standard", async () => {
     const { compileWhenHot, enableCompileWhenHot } = await freshModule();
     const schema = compileWhenHot(Schema().meta({ description: "kept" }));
+    const before = z.toJSONSchema(schema);
     const { jsonSchema, vendor, version } = schema["~standard"];
     const listed = jsonSchema.input({ target: "draft-2020-12" });
     enableCompileWhenHot({ afterUses: 0 });
+    schema.parse({ id: "a" });
     schema["~standard"].validate({ id: "a" });
 
+    expect(z.toJSONSchema(schema)).toStrictEqual(before);
     expect(schema["~standard"].vendor).toBe(vendor);
     expect(schema["~standard"].version).toBe(version);
     expect(schema["~standard"].jsonSchema).toBe(jsonSchema);
@@ -111,14 +114,5 @@ describe("compileWhenHot", () => {
     }
     expect(schema.parse({ id: "a" })).toStrictEqual({ id: "a" });
     expect(() => schema.parse({ id: "" })).toThrow(z.ZodError);
-  });
-
-  it("does not change the schema's JSON Schema", async () => {
-    const { compileWhenHot, enableCompileWhenHot } = await freshModule();
-    const schema = compileWhenHot(Schema().meta({ description: "kept" }));
-    const before = z.toJSONSchema(schema);
-    enableCompileWhenHot({ afterUses: 0 });
-    schema.parse({ id: "a" });
-    expect(z.toJSONSchema(schema)).toStrictEqual(before);
   });
 });

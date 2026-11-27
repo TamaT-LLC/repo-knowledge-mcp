@@ -28,6 +28,7 @@ export const MAX_STATS_DAY_BUCKET_COUNT = 366;
 const MS_PER_UTC_DAY = 24 * 60 * 60 * 1000;
 const UTC_DAY_KEY_LENGTH = "YYYY-MM-DD".length;
 
+// Not compileWhenHot: parsed once per run, and compiling measured no faster.
 export const StatsBucketSchema = z.enum(["total", "day"]);
 
 export type StatsBucketMode = z.infer<typeof StatsBucketSchema>;

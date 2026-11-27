@@ -11,7 +11,6 @@ import {
 } from "./domain-schemas.js";
 import { createDomainId } from "./ids.js";
 import { withPosixFileLock } from "./posix-file-lock.js";
-import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const SetupPhaseSchema = z.enum([
   "configured",
@@ -20,18 +19,17 @@ export const SetupPhaseSchema = z.enum([
   "complete",
 ]);
 
-export const SetupStateSchema = compileWhenHot(
-  z.strictObject({
-    created_at: IsoDateTimeSchema,
-    initial_since: IsoDateTimeSchema.nullable(),
-    phase: SetupPhaseSchema,
-    repo_id: RepositoryIdSchema,
-    repository: RepositoryNameSchema,
-    schema_version: z.literal(1),
-    updated_at: IsoDateTimeSchema,
-    workspace_path: z.string().min(1).nullable(),
-  }),
-);
+// Not compileWhenHot: read and written a few times per setup run.
+export const SetupStateSchema = z.strictObject({
+  created_at: IsoDateTimeSchema,
+  initial_since: IsoDateTimeSchema.nullable(),
+  phase: SetupPhaseSchema,
+  repo_id: RepositoryIdSchema,
+  repository: RepositoryNameSchema,
+  schema_version: z.literal(1),
+  updated_at: IsoDateTimeSchema,
+  workspace_path: z.string().min(1).nullable(),
+});
 
 export type SetupState = z.infer<typeof SetupStateSchema>;
 
