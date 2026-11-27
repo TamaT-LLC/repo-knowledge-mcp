@@ -1,10 +1,12 @@
-import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { z } from "zod";
 
-import { observeCanonicalWriter } from "./canonical-transaction-journal.js";
+import {
+  observeCanonicalWriter,
+  type CanonicalWriterObservation,
+} from "./canonical-transaction-journal.js";
 import {
   assertExplicitStorageRoot,
   DEFAULT_CONFIG_FILE_NAME,
@@ -16,7 +18,11 @@ import {
 } from "./conversation-knowledge-summary.js";
 import { buildDomainProjectionSnapshot } from "./domain-projection.js";
 import { GLOBAL_STORE_ID } from "./global-always-return.js";
-import { GlobalStore } from "./global-store.js";
+import {
+  GlobalStore,
+  inspectStoreDirectory,
+  StoreDirectoryUnsafeError,
+} from "./global-store.js";
 import { RepositoryRegistry } from "./repository-registry.js";
 import { selectConfiguredRepository } from "./repository-resolver.js";
 import {
@@ -130,25 +136,23 @@ export class RuleExportService implements RuleExporter {
         `${name} is not registered in this storage; run repo-knowledge setup ${name} first`,
       );
     }
-    let status: Awaited<ReturnType<typeof lstat>>;
-    try {
-      status = await lstat(registered.absolutePath);
-    } catch (error) {
-      // Registered before anything was stored: there is nothing to export.
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
-    }
-    if (status.isSymbolicLink() || !status.isDirectory()) {
-      throw new RuleExportError(
-        "RULE_EXPORT_STORE_UNSAFE",
-        `the store of ${registered.currentName} must be a real directory`,
-      );
-    }
+    // Registered before anything was stored: there is nothing to export.
+    const present = await storeIsSafe(() =>
+      inspectStoreDirectory(
+        this.storageRoot,
+        registered.path,
+        `The store of ${registered.currentName}`,
+      ),
+    );
+    if (!present) return [];
     return readActiveRules(
       registered.absolutePath,
       registered.repoId,
       conversationOnly,
-      `repo-knowledge reindex ${registered.currentName}`,
+      {
+        doctor: `repo-knowledge doctor ${registered.currentName}`,
+        reindex: `repo-knowledge reindex ${registered.currentName}`,
+      },
       this.retry,
     );
   }
@@ -157,12 +161,15 @@ export class RuleExportService implements RuleExporter {
     conversationOnly: boolean,
   ): Promise<ExportedRule[]> {
     const store = new GlobalStore(this.storageRoot);
-    if (!(await store.exists())) return [];
+    if (!(await storeIsSafe(() => store.exists()))) return [];
     return readActiveRules(
       store.reference.absolutePath,
       GLOBAL_STORE_ID,
       conversationOnly,
-      "repo-knowledge reindex --global",
+      {
+        doctor: "repo-knowledge doctor",
+        reindex: "repo-knowledge reindex --global",
+      },
       this.retry,
     );
   }
@@ -197,7 +204,7 @@ async function readActiveRules(
   storeRoot: string,
   storeId: string,
   conversationOnly: boolean,
-  remedy: string,
+  remedy: RecoveryCommands,
   retry: RuleExportRetry,
 ): Promise<ExportedRule[]> {
   const capture = await captureConsistently(storeRoot, remedy, retry);
@@ -226,24 +233,66 @@ async function readActiveRules(
     });
 }
 
+/** Commands an operator runs when a store cannot be read as it stands. */
+interface RecoveryCommands {
+  /** Reports what is wrong and how to repair it, for what recovery refuses. */
+  readonly doctor: string;
+  /** Runs canonical recovery, for an interrupted but recoverable commit. */
+  readonly reindex: string;
+}
+
+/** Maps an unsafe store layout to the export's own error; ENOENT is "absent". */
+async function storeIsSafe(inspect: () => Promise<boolean>): Promise<boolean> {
+  try {
+    return await inspect();
+  } catch (error) {
+    if (error instanceof StoreDirectoryUnsafeError) {
+      throw new RuleExportError("RULE_EXPORT_STORE_UNSAFE", error.message);
+    }
+    throw error;
+  }
+}
+
+/** A journal or lock of the wrong file type is a damaged layout, not a busy one. */
+async function observeWriter(
+  storeRoot: string,
+  remedy: RecoveryCommands,
+): Promise<CanonicalWriterObservation> {
+  try {
+    return await observeCanonicalWriter(storeRoot);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOTDIR" || code === "EISDIR") {
+      throw new RuleExportError(
+        "RULE_EXPORT_STORE_UNSAFE",
+        `the store's transaction journal or writer lock is damaged; run ${remedy.doctor} for the repair`,
+      );
+    }
+    throw error;
+  }
+}
+
 /**
  * Captures until two consecutive captures taken while no writer was active
  * agree. A capture can only be torn by a commit that started and finished
  * inside it; the next capture then sees the committed state and the digests
  * differ. Capture errors from a concurrent commit (a half-appended line, a
  * file renamed away) are retried; an error twice in a row on a quiet store
- * is real.
+ * is real. Waiting for a writer and confirming a capture have separate
+ * budgets, so a store that has just gone quiet is always confirmed.
  */
 async function captureConsistently(
   storeRoot: string,
-  remedy: string,
+  remedy: RecoveryCommands,
   retry: RuleExportRetry,
 ): Promise<ReadOnlyCanonicalStateCapture> {
   let previousDigest: string | undefined;
   let abandoned: string | undefined;
   let failed = 0;
-  for (let attempt = 1; attempt <= retry.attempts; attempt += 1) {
-    const observed = await observeCanonicalWriter(storeRoot);
+  let waits = 0;
+  let captures = 0;
+  for (;;) {
+    const observed = await observeWriter(storeRoot, remedy);
     if (observed.state === "abandoned") {
       // Only the same journal, still without a live lock on a second look,
       // is interrupted; a commit ending between the journal read and the
@@ -252,7 +301,9 @@ async function captureConsistently(
       if (entries === abandoned) {
         throw new RuleExportError(
           "RULE_EXPORT_RECOVERY_REQUIRED",
-          `the store has an interrupted transaction; run ${remedy} and export again`,
+          observed.recoverable
+            ? `the store has an interrupted transaction; run ${remedy.reindex} and export again`
+            : `the store's transaction journal has entries recovery cannot apply; run ${remedy.doctor} for the repair`,
         );
       }
       abandoned = entries;
@@ -267,22 +318,27 @@ async function captureConsistently(
         capture = await captureCanonicalStateReadOnly(storeRoot);
         failed = 0;
       } catch (error) {
-        const quiet =
-          (await observeCanonicalWriter(storeRoot)).state === "idle";
+        const quiet = (await observeWriter(storeRoot, remedy)).state === "idle";
         failed = quiet ? failed + 1 : 0;
         if (failed >= 2) throw error;
         if (quiet) continue; // Retry at once; there is no writer to wait for.
       }
       if (
         capture !== undefined &&
-        (await observeCanonicalWriter(storeRoot)).state === "idle"
+        (await observeWriter(storeRoot, remedy)).state === "idle"
       ) {
         if (capture.canonicalDigest === previousDigest) return capture;
         previousDigest = capture.canonicalDigest;
-        continue; // Confirm at once; there is no writer to wait for.
+        // Confirm at once; digests that never agree without a writer are
+        // bounded by their own budget.
+        captures += 1;
+        if (captures <= retry.attempts) continue;
+        break;
       }
     }
-    if (attempt < retry.attempts) await delay(retry.delayMs);
+    waits += 1;
+    if (waits >= retry.attempts) break;
+    await delay(retry.delayMs);
   }
   throw new RuleExportError(
     "RULE_EXPORT_STORE_BUSY",

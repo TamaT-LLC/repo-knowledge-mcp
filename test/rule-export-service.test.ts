@@ -342,6 +342,37 @@ describe("RuleExportService", () => {
     ).rejects.toMatchObject({ code: "RULE_EXPORT_STORE_UNSAFE" });
   });
 
+  it.each([
+    [
+      "the repos directory",
+      (home: RuleExportHome) => join(home.storageRoot, "repos"),
+      { repo: EXPORT_REPOSITORY },
+    ],
+    [
+      "a repository store entry",
+      (home: RuleExportHome) => join(home.repositoryRoot, "knowledge"),
+      { repo: EXPORT_REPOSITORY },
+    ],
+    [
+      "the global store",
+      (home: RuleExportHome) => home.globalRoot,
+      { store: "global" as const },
+    ],
+  ])(
+    "refuses %s when it is a symbolic link out of the home",
+    async (_name, target, request) => {
+      const home = await createRuleExportHome(temporaryDirectories);
+      const path = target(home);
+      const moved = join(home.root, "outside");
+      await rename(path, moved);
+      await symlink(moved, path);
+
+      await expect(collect(home, request)).rejects.toMatchObject({
+        code: "RULE_EXPORT_STORE_UNSAFE",
+      });
+    },
+  );
+
   it("refuses an interrupted transaction (no live lock holder) and names the recovery command", async () => {
     const home = await createRuleExportHome(temporaryDirectories);
     await openJournal(home.repositoryRoot);
@@ -358,6 +389,34 @@ describe("RuleExportService", () => {
     await expect(collect(home, { store: "global" })).rejects.toMatchObject({
       code: "RULE_EXPORT_RECOVERY_REQUIRED",
       message: expect.stringContaining("run repo-knowledge reindex --global"),
+    });
+  });
+
+  it("points to doctor, not reindex, for a journal recovery would refuse", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    await mkdir(join(home.repositoryRoot, TRANSACTIONS_DIRECTORY), {
+      recursive: true,
+    });
+    await writeFile(
+      join(home.repositoryRoot, TRANSACTIONS_DIRECTORY, ".DS_Store"),
+      "",
+    );
+
+    await expect(
+      collect(home, { repo: EXPORT_REPOSITORY }),
+    ).rejects.toMatchObject({
+      code: "RULE_EXPORT_RECOVERY_REQUIRED",
+      message: `the store's transaction journal has entries recovery cannot apply; run repo-knowledge doctor ${EXPORT_REPOSITORY} for the repair`,
+    });
+  });
+
+  it("reports a journal or lock of the wrong file type as an unsafe store", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    await writeFile(join(home.globalRoot, TRANSACTIONS_DIRECTORY), "");
+
+    await expect(collect(home, { store: "global" })).rejects.toMatchObject({
+      code: "RULE_EXPORT_STORE_UNSAFE",
+      message: expect.stringContaining("run repo-knowledge doctor"),
     });
   });
 
@@ -401,7 +460,22 @@ describe("RuleExportService", () => {
     await expect(collect(home, { store: "global" })).rejects.toMatchObject({
       code: "RULE_EXPORT_STORE_BUSY",
     });
-    expect(capture.calls).toBe(FAST_RETRY.attempts);
+    // One first capture plus one confirmation per attempt of its budget.
+    expect(capture.calls).toBe(FAST_RETRY.attempts + 1);
+  });
+
+  it("confirms a capture even when the store goes quiet on the last wait", async () => {
+    const home = await createRuleExportHome(temporaryDirectories);
+    await startWriter(home.globalRoot);
+    let polls = 0;
+    // The writer finishes exactly when the wait budget is used up.
+    journal.onRead = async (root) => {
+      polls += 1;
+      if (polls === FAST_RETRY.attempts) await finishWriter(root);
+    };
+
+    expect(await collect(home, { store: "global" })).toEqual(GLOBAL_RULES);
+    expect(capture.calls).toBe(2);
   });
 
   it("waits for a live writer and reads the store once its commit finishes", async () => {
@@ -636,6 +710,22 @@ describe("renderRuleExport", () => {
         { ...rule("globalHook"), rule: "--\u0000>" },
       ]).neutralized,
     ).toBe(2);
+  });
+
+  it("counts rules printed without some of their invisible scope patterns", () => {
+    const rendered = renderRuleExport("claude-md", "repository", [
+      {
+        ...rule("repoPlain"),
+        scope: ["src/**", String.fromCodePoint(0x200b)],
+      },
+      { ...rule("globalManual"), scope: ["docs/**"] },
+    ]);
+
+    expect(rendered.scopeTrimmed).toBe(1);
+    expect(rendered.omitted).toBe(0);
+    expect(rendered.block).toContain(
+      `- ${RULES.repoPlain}（適用範囲: \`src/**\`）`,
+    );
   });
 
   it("leaves out and counts a rule with no visible text instead of an empty item", () => {

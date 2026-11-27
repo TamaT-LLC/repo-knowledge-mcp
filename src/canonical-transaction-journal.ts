@@ -35,6 +35,12 @@ export interface CanonicalWriterObservation {
   /** Journal entries recovery would apply or refuse, sorted. */
   readonly prepared: readonly string[];
   /**
+   * Whether recovery can resolve every prepared entry by itself: each is a
+   * directory with a manifest. A stray file or a COMMITTED marker without a
+   * manifest makes recovery refuse with UNRECOVERABLE_TRANSACTION.
+   */
+  readonly recoverable: boolean;
+  /**
    * `idle`: nothing prepared, so canonical files are safe to read.
    * `writing`: prepared entries under a live writer lock.
    * `abandoned`: prepared entries with the lock free or its owner dead.
@@ -54,22 +60,32 @@ export async function observeCanonicalWriter(
   repositoryRoot: string,
 ): Promise<CanonicalWriterObservation> {
   const prepared: string[] = [];
+  let recoverable = true;
   for (const entry of await readTransactionJournal(repositoryRoot)) {
+    if (!entry.isDirectory()) {
+      prepared.push(entry.name);
+      recoverable = false;
+      continue;
+    }
     const directory = join(repositoryRoot, TRANSACTIONS_DIRECTORY, entry.name);
+    const manifest = await pathExists(
+      join(directory, TRANSACTION_MANIFEST_FILE),
+    );
     if (
-      !entry.isDirectory() ||
-      (await pathExists(join(directory, TRANSACTION_MANIFEST_FILE))) ||
+      manifest ||
       (await pathExists(join(directory, TRANSACTION_COMMITTED_FILE)))
     ) {
       prepared.push(entry.name);
+      recoverable &&= manifest;
     }
   }
-  if (prepared.length === 0) return { prepared, state: "idle" };
+  if (prepared.length === 0) return { prepared, recoverable, state: "idle" };
   const held = await isPosixFileLockHeld(
     join(repositoryRoot, CANONICAL_WRITE_LOCK_NAME),
   );
   return {
     prepared: prepared.sort(compareCodeUnits),
+    recoverable,
     state: held ? "writing" : "abandoned",
   };
 }

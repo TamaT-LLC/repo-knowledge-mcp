@@ -301,7 +301,12 @@ async function executeCliCommand(
       }
       if (rendered.omitted > 0) {
         options.io.writeStderr(
-          `${String(rendered.omitted)} rule(s) had no visible rule or scope text and were left out.\n`,
+          `${String(rendered.omitted)} rule(s) had no visible rule or scope text and were left out${rendered.omitted === rules.length ? "; the block has no rules" : ""}.\n`,
+        );
+      }
+      if (rendered.scopeTrimmed > 0) {
+        options.io.writeStderr(
+          `${String(rendered.scopeTrimmed)} rule(s) had scope patterns with no visible text; only the visible patterns are listed.\n`,
         );
       }
       if (rendered.neutralized > 0) {

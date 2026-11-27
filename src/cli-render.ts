@@ -235,6 +235,8 @@ export interface RenderedRuleExport {
   readonly neutralized: number;
   /** Rules left out because their text, or every scope pattern, was invisible. */
   readonly omitted: number;
+  /** Rules printed with fewer scope patterns because some were invisible. */
+  readonly scopeTrimmed: number;
 }
 
 /**
@@ -252,6 +254,7 @@ export function renderRuleExport(
 ): RenderedRuleExport {
   let neutralized = 0;
   let omitted = 0;
+  let scopeTrimmed = 0;
   const prose: string[] = [];
   const hook: string[] = [];
   for (const rule of rules) {
@@ -268,6 +271,7 @@ export function renderRuleExport(
       continue;
     }
     if ([text, ...scope].some((entry) => entry.escaped)) neutralized += 1;
+    if (visible.length < scope.length) scopeTrimmed += 1;
     const item =
       visible.length === 0
         ? `- ${text.value}`
@@ -288,7 +292,12 @@ export function renderRuleExport(
     );
   }
   lines.push("<!-- repo-knowledge:end -->");
-  return { block: `${lines.join("\n")}\n`, neutralized, omitted };
+  return {
+    block: `${lines.join("\n")}\n`,
+    neutralized,
+    omitted,
+    scopeTrimmed,
+  };
 }
 
 /** Wraps neutralized text in a code span whose fence no backtick run can close. */

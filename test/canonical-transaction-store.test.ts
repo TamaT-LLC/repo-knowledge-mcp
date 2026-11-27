@@ -134,8 +134,32 @@ describe("canonical writer observation contract", () => {
     );
     expect(await observeCanonicalWriter(repository)).toEqual({
       prepared: [],
+      recoverable: true,
       state: "idle",
     });
+  });
+
+  it("flags journal entries that recovery refuses as not recoverable", async () => {
+    const repository = await createRepository();
+    await seedOldState(repository);
+    await mkdir(join(repository, "transactions", "txn_marker_only"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(repository, "transactions", "txn_marker_only", "COMMITTED"),
+      "{}",
+    );
+    await writeFile(join(repository, "transactions", ".DS_Store"), "");
+
+    expect(await observeCanonicalWriter(repository)).toEqual({
+      prepared: [".DS_Store", "txn_marker_only"],
+      recoverable: false,
+      state: "abandoned",
+    });
+    // The store's own recovery refuses the same journal.
+    await expect(
+      new CanonicalTransactionStore(repository).recover(),
+    ).rejects.toMatchObject({ code: "UNRECOVERABLE_TRANSACTION" });
   });
 
   it.each(allPoints)(
@@ -148,8 +172,12 @@ describe("canonical writer observation contract", () => {
 
       expect(await observeCanonicalWriter(repository)).toEqual(
         prePreparedKillPoints.includes(point)
-          ? { prepared: [], state: "idle" }
-          : { prepared: ["txn_acceptance_25"], state: "abandoned" },
+          ? { prepared: [], recoverable: true, state: "idle" }
+          : {
+              prepared: ["txn_acceptance_25"],
+              recoverable: true,
+              state: "abandoned",
+            },
       );
     },
   );
