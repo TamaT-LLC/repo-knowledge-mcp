@@ -902,7 +902,7 @@ history にだけある情報（プロジェクトのパス）は会話ファイ
 | `Basic` の資格情報（header の外） | 会話だけ | `Basic <base64>` の base64 部分を含めて `[REDACTED]`。`Basic JavaScript` のような文は残す |
 | JWT | 会話だけ | 該当部分を `[REDACTED]` |
 | 英字と数字を両方含む 32 文字以上の連続 | 会話だけ | 該当部分を `[REDACTED]`。パスの一部は除く |
-| ホームディレクトリの絶対パス | 会話だけ | `/Users/<name>/`、`/home/<name>/` を `~/` |
+| ホームディレクトリの絶対パス | 会話だけ | `/Users/<name>/`、`/home/<name>/`（`/usr/home`、`/var/home`、`/mnt/<drive>`、`/Volumes/<disk>` などの下と Windows の `C:\Users\<name>` を含む）を `~/` |
 | Claude Code の符号化ディレクトリ名 | 会話だけ | `-Users-<name>-…`、`-home-<name>-…`（`/` と `.` を `-` にしたプロジェクトのディレクトリ名）の `<name>` を `[REDACTED]` |
 | 秘密鍵ブロックの本文 | 会話だけ | 共有の検出は BEGIN 行だけを見るため、END 行まで（END がなければ末尾まで）をまとめて `[REDACTED]`。PGP の秘密鍵ブロックも同じ |
 | よく知られたキー名への短い秘密代入 | 会話だけ | キー名に `password`、`passwd`、`passphrase`、`pwd`、`secret`、`token`、`private_key`、`api_key` を含む代入（語の後に続ける場合は `_` か `-` で区切ったもの。`SECRET_KEY`、`DB_PASSWORD` など。`pass=` も）は、16 文字未満や空白入りの引用値でもキー名と引用符を残して値を `[REDACTED]` |
@@ -1637,7 +1637,7 @@ submit 側も、ストアの writer lock を持った状態で、書き込む ev
 
 | 段階 | PR |
 | --- | --- |
-| 1〜3 | PR2 |
+| 1〜3（3 の `grouping-runs.jsonl` からラベルを消す部分は、そのファイルを作る PR5） | PR2 |
 | 5（job を failed にする） | PR4a |
 | 4（evidence を withdrawn にする） | PR4b |
 

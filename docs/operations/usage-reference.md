@@ -681,7 +681,7 @@ symlink は拒否します。group や others から読める権限は、取り�
 `repo-knowledge doctor` の `conversations.store` が状態と対処方法を表示します。
 会話データ領域の directory は mode 700、file は mode 600 で作成します。
 
-`utterances.jsonl` に壊れた行があると、purge は `CONVERSATION_DATA_CORRUPT` で止まり、`purge-progress.json` が残ります。
+`utterances.jsonl` に壊れた行があると、purge は `CONVERSATION_DATA_CORRUPT` で止まります。新しい条件を指定した purge だった場合は `purge-progress.json` が残ります（`--resume` や保存済みの条件の再指定では残りません）。
 この状態では、中断した purge を先に片付けようとする `reset-key` も同じエラーで止まります。
 保存済みの発言を作り直してよい場合は、`purge-progress.json` を消してから `reset-key` を実行します。
 条件は purge の 2 段目で保存済みなので、消しても以後の取り込みには適用されます。
@@ -699,10 +699,11 @@ symlink は拒否します。group や others から読める権限は、取り�
 マスクは既知の形の秘密情報とユーザー名を含むパスを対象にしており、次のものは残ることがあります。
 残したくない語は `redactTerms` に登録してください。
 
-- `password`、`token`、`secret`、`pwd`、`api_key`、`private_key` などを含まないキー名への代入（`pin=1234` など）と、これらの語の直後に `_` や `-` を挟まず文字が続くキー名への 16 文字未満の代入（`tokens=abc`、`passwordHash=x`、`secretKey=abc`）
+- `password`、`token`、`secret`、`pwd`、`api_key`、`private_key` などを含まないキー名への代入（`pin=1234` など）と、これらの語の直後に `_` や `-` を挟まず文字が続くキー名への代入。`password`、`passwd`、`secret`、`token`、`api_key` の場合は 16 文字未満の値だけが残り（`tokens=abc`、`passwordHash=x`、`secretKey=abc`）、`pwd`、`passphrase`、`private_key` の場合は値の長さによらず残ります（`pwdHash=…`、`privateKeyId=…`）
 - `-u user:pass` と MySQL の `-p<pass>` 以外の形でコマンド引数に書いた認証情報
 - 既知の接頭辞（`glpat-`、`hf_`、`sk_live_` など）がなく、区切り文字で 32 文字未満に分かれるトークン。接頭辞があっても数字を含まないもの
 - `Authorization` header の外にある `Bearer` の後の、8 文字未満の値や英字だけの値
+- `/Users`、`/home`、`/usr/home`、`/var/home`、`/mnt/<drive>/Users`、`/Volumes/<disk>/Users`、`C:\Users` など、既知の置き場所以外にあるホームディレクトリのパス
 - 第三者の氏名や社名（自動の氏名検出は行いません）
 
 ## storage と直接編集
