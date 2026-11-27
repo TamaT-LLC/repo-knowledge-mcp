@@ -690,10 +690,9 @@ symlink は拒否します。group や others から読める権限は、取り�
 マスクは既知の形の秘密情報とユーザー名を含むパスを対象にしており、次のものは残ることがあります。
 残したくない語は `redactTerms` に登録してください。
 
-- 16 文字未満の値の代入（`DB_PASSWORD=hunter2`、`token=abc`）や、空白を含む引用値
-- 対象外のキー名（`pass`、`pwd`、`private_key` など）の代入
-- コマンド引数に書いた認証情報（`curl -u admin:pass`、`mysql -phunter2`）
-- 区切り文字で 32 文字未満に分かれるトークン
+- `password`、`token`、`secret`、`pwd`、`api_key`、`private_key` などを含まないキー名への代入（`pin=1234` など）
+- `-u user:pass` と MySQL の `-p<pass>` 以外の形でコマンド引数に書いた認証情報
+- 既知の接頭辞（`glpat-`、`hf_`、`sk_live_` など）がなく、区切り文字で 32 文字未満に分かれるトークン。接頭辞があっても数字を含まないもの
 - 第三者の氏名や社名（自動の氏名検出は行いません）
 
 ## storage と直接編集
