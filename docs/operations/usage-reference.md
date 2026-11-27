@@ -691,7 +691,12 @@ symlink は拒否します。group や others に何らかの権限（読み・�
 マスクは漏れを防ぐことを優先するため、秘密情報でないものも置換されることがあります。
 
 - `password`、`token`、`secret` などを含むキー名への代入は、短い値でも置換します。会話に貼ったコードの `const token = getToken()` や `password: string` も、値の部分が `[REDACTED]` になります。
+  `PWD=/tmp/work` や `token_count: 5` のように、秘密でない値を持つキー名も対象です。比較や矢印（`token == null`、`token := f()`、`password => …`）と、次の行に続く YAML の入れ子（`secret:` の下のキー）は対象外です。
+- コマンド引数の規則は、同じ形の別の意味の引数も置換します。`docker run -u 1000:1000` や `sort -u a:b` の `:` より後、`mysql -h host -port 3306` の `-p` より後が `[REDACTED]` になります。
+- `npm-`、`hf_`、`pypi-` などの接頭辞で始まり、数字を含む 8 文字以上の名前（`npm-run-all2`、`hf_hub_download_v2`、`pypi-publish1`）はトークンとして置換します。
 - `/users/42` のように `/users/` や `/home/` で始まる Web のパスも、ホームディレクトリと区別できないため `~` に置き換えます。
+- 符号化ディレクトリ名の規則は大文字小文字を区別しないため、`-Users-are-happy` のような箇条書きや `-home-dir` のようなフラグも、`-Users-` や `-home-` の後の語が `[REDACTED]` になります。
+- 秘密鍵ブロックの BEGIN 行（`-----BEGIN PGP PRIVATE KEY BLOCK-----` など）に対応する END 行がない場合、BEGIN 行から本文の最後までを置換します。BEGIN 行に触れただけの文でも、それ以降は残りません。
 - `redactTerms` の照合は大文字小文字の差を畳み込むため、トルコ語の点のない `ı` と `I` のように、通常は区別する文字どうしも一致します。
 
 ### マスクされないもの
@@ -704,6 +709,7 @@ symlink は拒否します。group や others に何らかの権限（読み・�
 - 既知の接頭辞（`glpat-`、`hf_`、`sk_live_` など）がなく、区切り文字で 32 文字未満に分かれるトークン。接頭辞があっても数字を含まないもの
 - `Authorization` header の外にある `Bearer` の後の、8 文字未満の値や英字だけの値
 - `/Users`、`/home`、`/usr/home`、`/var/home`、`/mnt/<drive>/Users`、`/Volumes/<disk>/Users`、`C:\Users` など、既知の置き場所以外にあるホームディレクトリのパス
+- 符号化ディレクトリ名で、アカウント名に `-` や `.` を含む場合の後半（`-Users-john-doe-repo` は `-Users-[REDACTED]-doe-repo` になります）。符号化した後は名前とパスの境目を区別できないためです
 - 第三者の氏名や社名（自動の氏名検出は行いません）
 
 ## storage と直接編集

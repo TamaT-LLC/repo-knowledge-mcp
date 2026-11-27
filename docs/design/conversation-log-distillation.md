@@ -903,9 +903,9 @@ history にだけある情報（プロジェクトのパス）は会話ファイ
 | JWT | 会話だけ | 該当部分を `[REDACTED]` |
 | 英字と数字を両方含む 32 文字以上の連続 | 会話だけ | 該当部分を `[REDACTED]`。パスの一部は除く |
 | ホームディレクトリの絶対パス | 会話だけ | `/Users/<name>/`、`/home/<name>/`（`/usr/home`、`/var/home`、`/mnt/<drive>`、`/Volumes/<disk>` などの下と Windows の `C:\Users\<name>` を含む）を `~/` |
-| Claude Code の符号化ディレクトリ名 | 会話だけ | `-Users-<name>-…`、`-home-<name>-…`（`/` と `.` を `-` にしたプロジェクトのディレクトリ名）の `<name>` を `[REDACTED]` |
+| Claude Code の符号化ディレクトリ名 | 会話だけ | `-Users-<name>-…`、`-home-<name>-…`（`/` と `.` を `-` にしたプロジェクトのディレクトリ名）の `<name>` を `[REDACTED]`。`-Volumes-<disk>-`、`-mnt-<drive>-`、`-var-`、`-usr-`、`C-` などの接頭辞が付く形も含み、大文字小文字は区別しない |
 | 秘密鍵ブロックの本文 | 会話だけ | 共有の検出は BEGIN 行だけを見るため、END 行まで（END がなければ末尾まで）をまとめて `[REDACTED]`。PGP の秘密鍵ブロックも同じ |
-| よく知られたキー名への短い秘密代入 | 会話だけ | キー名に `password`、`passwd`、`passphrase`、`pwd`、`secret`、`token`、`private_key`、`api_key` を含む代入（語の後に続ける場合は `_` か `-` で区切ったもの。`SECRET_KEY`、`DB_PASSWORD` など。`pass=` も）は、16 文字未満や空白入りの引用値でもキー名と引用符を残して値を `[REDACTED]` |
+| よく知られたキー名への短い秘密代入 | 会話だけ | キー名に `password`、`passwd`、`passphrase`、`pwd`、`secret`、`token`、`private_key`、`api_key` を含む代入（語の後に続ける場合は `_` か `-` で区切ったもの。`SECRET_KEY`、`DB_PASSWORD` など。`pass=` も）は、16 文字未満や空白入りの引用値でもキー名と引用符を残して値を `[REDACTED]`。区切りの直後が `=` か `>` の比較や矢印（`==`、`:=`、`=>`）と、区切りと違う行にある値は対象外 |
 | コマンド引数の認証情報 | 会話だけ | `-u user:pass` / `--user user:pass` の `pass` と、MySQL の `-p<pass>` を `[REDACTED]` |
 | 接頭辞付きのトークン | 会話だけ | `glpat-`、`hf_`、`sk_live_` などで始まり数字を含む、区切り文字で 32 文字未満に分かれるトークンを `[REDACTED]` |
 | 接続文字列の資格情報 | 会話だけ | `scheme://user:pass@host` 形式の `user:pass` を置換し、`scheme://[REDACTED]@host` とする |
