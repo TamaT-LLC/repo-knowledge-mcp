@@ -28,10 +28,12 @@ describe("compileWhenHot", () => {
     const compile = vi.fn(() => compiled);
     enableCompileWhenHot({ afterUses: 2, compile });
 
+    // afterUses uses stay on the runtime parser; the next one compiles.
     schema.parse({ id: "a" });
     schema.safeParse({ id: "b" });
     expect(compile).not.toHaveBeenCalled();
     expect(schema.validate({ id: "c" })).toBe(true);
+    expect(compile).toHaveBeenCalledTimes(1);
     schema.parse({ id: "d" });
     expect(compile).toHaveBeenCalledTimes(1);
     // The second argument is the schema's own parsers, not the counting ones.

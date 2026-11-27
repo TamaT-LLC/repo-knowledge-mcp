@@ -13,7 +13,13 @@ import {
 } from "../../src/zod-compile-when-hot.js";
 
 type SafeParseResult = ReturnType<z.ZodType["safeParse"]>;
-const DEPTH = { depth: Number.POSITIVE_INFINITY };
+// Nothing is cut short: inspect otherwise stops at 100 array items and 10,000
+// characters, past which a difference in key order would go unseen.
+const DEPTH = {
+  depth: Number.POSITIVE_INFINITY,
+  maxArrayLength: null,
+  maxStringLength: null,
+};
 
 /** What a caller can observe of one call: its value, or what it threw. */
 function settle<T>(
