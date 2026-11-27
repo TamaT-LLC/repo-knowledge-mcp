@@ -311,9 +311,10 @@ export const SkipReasonSchema = z.enum([
  * model may classify review content with a public skip reason, but may never
  * claim that canonical context changed or disappeared.
  */
-export const DistillJobSkipReasonSchema = z.union([
-  SkipReasonSchema,
-  z.enum(["superseded_context", "source_removed"]),
+export const DistillJobSkipReasonSchema = z.enum([
+  ...SkipReasonSchema.options,
+  "superseded_context",
+  "source_removed",
 ]);
 
 export const ScopePatternSchema = NonEmptyStringSchema.max(512).refine(

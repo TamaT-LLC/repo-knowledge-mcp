@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CandidateIdSchema,
   DistillJobSchema,
+  DistillJobSkipReasonSchema,
   DistillationOutputSchema,
   EvidenceIdSchema,
   ExtractSubmissionReceiptSchema,
@@ -17,6 +18,7 @@ import {
   RepositoryReadinessSchema,
   RepositoryReadinessStateSchema,
   ReviewerIdentitySchema,
+  SkipReasonSchema,
   SnapshotIdSchema,
   TransactionIdSchema,
   createDomainId,
@@ -282,6 +284,15 @@ describe("distillation schemas", () => {
         lease_token_hash: SHA_B,
       }),
     ).toMatchObject({ state: "processing" });
+  });
+
+  it("accepts every public skip reason plus the server-only ones", () => {
+    expect(DistillJobSkipReasonSchema.options).toEqual([
+      ...SkipReasonSchema.options,
+      "superseded_context",
+      "source_removed",
+    ]);
+    expect(DistillJobSkipReasonSchema.validate("not_a_reason")).toBe(false);
   });
 
   it.each(["superseded_context", "source_removed"] as const)(
