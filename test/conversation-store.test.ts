@@ -1024,6 +1024,36 @@ describe("purge", () => {
     expect(await readFile(episodes, "utf8")).toBe("");
   });
 
+  it("removes a copy linked after an interrupted purge finished compaction", async () => {
+    await store().saveUtterances([draft({ session_id: "doomed" })], config());
+    const [doomed] = await utterances();
+    await expect(
+      crashingStore("purge:compacted").purge({ session_id: "doomed" }),
+    ).rejects.toBeInstanceOf(Crash);
+    expect(await utterances()).toEqual([]);
+
+    const copyDraft = draft({
+      session_id: "pseudo-3",
+      source_origin: "history",
+    });
+    await store().saveUtterances([copyDraft], config());
+    const [copy] = await utterances();
+    await store().saveSuperseded([
+      { superseded_by: doomed!.utterance_id, utterance_id: copy!.utterance_id },
+    ]);
+
+    await expect(store().purge(null)).resolves.toMatchObject({
+      removed_utterances: 1,
+      resumed_from: "compacted",
+    });
+    expect(await utterances()).toEqual([]);
+    // Its identity is kept, so a re-read after reset-key is refused.
+    await store().resetKey();
+    await expect(
+      store().saveUtterances([copyDraft], config()),
+    ).resolves.toMatchObject({ saved: 0, skipped: { purged: 1 } });
+  });
+
   it("purges by session without reading an unreadable key", async () => {
     await store().saveUtterances([draft({ session_id: "doomed" })], config());
     const target = store();

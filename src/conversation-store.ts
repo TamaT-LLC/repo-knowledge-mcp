@@ -1138,26 +1138,29 @@ export class ConversationStore {
       await this.#writeJsonFile(FILES.purgeProgress, current);
       await this.#checkpoint("purge:ids-recorded");
     }
-    if (current.stage === "ids_recorded") {
-      if (progress !== null) {
-        // Resumed: a link saved since the IDs were recorded may tie another
-        // copy to one of them. Nothing is removed yet, so it can be found.
-        const state = await this.#readPurgeState();
-        const { ids, linked } = await this.#matchRecords({
-          ids: current.utterance_ids,
-        });
-        await this.#keepLinkedCopies(state, linked);
-        // A recorded ID may already be gone from utterances.jsonl (the
-        // compaction stopped between files): keep it for the other files.
-        const all = new Set([...current.utterance_ids, ...ids]);
-        if (all.size !== current.utterance_ids.length) {
-          current = {
-            ...current,
-            utterance_ids: [...all].sort(compareCodeUnits),
-          };
-          await this.#writeJsonFile(FILES.purgeProgress, current);
-        }
+    if (progress !== null) {
+      // Resumed: a link saved since the IDs were recorded may tie another
+      // copy to one of them. Recorded IDs seed the walk even when already
+      // compacted away. A copy found after compaction sends the purge back
+      // to compaction; the later stages are safe to repeat.
+      const state = await this.#readPurgeState();
+      const { ids, linked } = await this.#matchRecords({
+        ids: current.utterance_ids,
+      });
+      await this.#keepLinkedCopies(state, linked);
+      // Recorded IDs stay even when gone from utterances.jsonl (the
+      // compaction stopped between files): the other files still need them.
+      const all = new Set([...current.utterance_ids, ...ids]);
+      if (all.size !== current.utterance_ids.length) {
+        current = {
+          ...current,
+          stage: "ids_recorded",
+          utterance_ids: [...all].sort(compareCodeUnits),
+        };
+        await this.#writeJsonFile(FILES.purgeProgress, current);
       }
+    }
+    if (current.stage === "ids_recorded") {
       counts = await this.#compact(new Set(current.utterance_ids), null);
       current = await this.#writePurgeStage(current, "compacted");
       await this.#checkpoint("purge:compacted");
