@@ -16,6 +16,12 @@ import type {
   CliRepositorySelection,
   ParsedCliCommand,
 } from "./cli-types.js";
+import { ProjectPathSchema } from "./conversation-paths.js";
+import {
+  ConversationSourceSchema,
+  purgeBoundMilliseconds,
+  type PurgeCriteria,
+} from "./conversation-records.js";
 import { parseRepositoryName } from "./repository-resolver.js";
 import { StatsBucketSchema } from "./stats-read-service.js";
 import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
@@ -93,6 +99,8 @@ function parseNamedCommand(
       return parseAlwaysReturn(args);
     case "add":
       return parseAddActive(args);
+    case "conversations":
+      return parseConversations(args);
     default:
       throw usage(`unknown command ${name}`);
   }
@@ -578,6 +586,92 @@ function parseAddActive(args: readonly string[]): ParsedCliCommand {
       ? { kind: "add-global" as const }
       : { kind: "add-active" as const, selection: selection(parsed) }),
   };
+}
+
+const PURGE_SELECTORS = ["session", "before", "source", "project"] as const;
+
+function parseConversations(args: readonly string[]): ParsedCliCommand {
+  const [action, ...rest] = args;
+  switch (action) {
+    case "status": {
+      // Output is always JSON; --json is accepted for symmetry with setup.
+      const parsed = parseOptions(rest, { booleans: ["json"] });
+      assertPositionalCount(parsed, 0, 0, "conversations status");
+      return { kind: "conversations-status" };
+    }
+    case "purge": {
+      const parsed = parseOptions(rest, {
+        booleans: ["yes", "resume"],
+        values: [...PURGE_SELECTORS],
+      });
+      assertPositionalCount(parsed, 0, 0, "conversations purge");
+      const selected = PURGE_SELECTORS.filter((name) =>
+        parsed.values.has(name),
+      );
+      const resume = parsed.booleans.has("resume");
+      if (selected.length + (resume ? 1 : 0) !== 1) {
+        throw usage(
+          "conversations purge requires exactly one of --session, --before, --source, --project, or --resume",
+        );
+      }
+      return {
+        criteria: resume
+          ? null
+          : parsePurgeCriteria(selected[0]!, parsed.values.get(selected[0]!)!),
+        kind: "conversations-purge",
+        yes: parsed.booleans.has("yes"),
+      };
+    }
+    case "reset-key": {
+      const parsed = parseOptions(rest, { booleans: ["yes", "restart"] });
+      assertPositionalCount(parsed, 0, 0, "conversations reset-key");
+      return {
+        kind: "conversations-reset-key",
+        restart: parsed.booleans.has("restart"),
+        yes: parsed.booleans.has("yes"),
+      };
+    }
+    default:
+      throw usage("conversations requires one of status, purge, or reset-key");
+  }
+}
+
+function parsePurgeCriteria(
+  selector: (typeof PURGE_SELECTORS)[number],
+  value: string,
+): PurgeCriteria {
+  switch (selector) {
+    case "session":
+      return { session_id: parseNonEmpty(value, "session") };
+    case "before": {
+      const before = parseSchema(IsoDateTimeSchema, value, "before");
+      // Exactly the bounds the store accepts, so a bad one is a usage error.
+      if (purgeBoundMilliseconds(before, "up") === null) {
+        throw usage("before must fall in the years 1970-9999 (UTC)");
+      }
+      return { before };
+    }
+    case "source":
+      return { source: parseSchema(ConversationSourceSchema, value, "source") };
+    case "project":
+      if (value.startsWith("/")) {
+        return {
+          project_path_prefix: parseSchema(
+            ProjectPathSchema,
+            value,
+            "project path",
+          ),
+        };
+      }
+      try {
+        return { name_with_owner: parseRepositoryName(value) };
+      } catch (error) {
+        throw usage(
+          "project must be an owner/name repository or an absolute path",
+          error,
+        );
+      }
+  }
 }
 
 interface CollectedOptions {

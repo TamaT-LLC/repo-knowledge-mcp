@@ -3,6 +3,8 @@ import type {
   KnowledgeStatus,
 } from "./domain-schemas.js";
 import type { AdminPlaneService } from "./admin-plane-service.js";
+import type { ConversationAdminOperations } from "./conversation-admin-service.js";
+import type { PurgeCriteria } from "./conversation-records.js";
 import type { RepoKnowledgeDoctorLike } from "./doctor-service.js";
 import type {
   KnowledgeMutationServiceResolutionInput,
@@ -145,6 +147,8 @@ export interface RunRepoKnowledgeCliOptions {
     "addActive" | "listAlwaysReturn" | "setAlwaysReturn" | "reindex"
   >;
   readonly argv: readonly string[];
+  /** `conversations` subcommands; unavailable when omitted. */
+  readonly conversations?: ConversationAdminOperations;
   readonly doctor: RepoKnowledgeDoctorLike;
   readonly io: RepoKnowledgeCliIo;
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
@@ -160,6 +164,18 @@ export interface RunRepoKnowledgeCliOptions {
 
 export type ParsedCliCommand =
   | { readonly kind: "reindex-global" | "always-return-list" }
+  | { readonly kind: "conversations-status" }
+  | {
+      /** `null` for `--resume`: finish an interrupted purge only. */
+      readonly criteria: PurgeCriteria | null;
+      readonly kind: "conversations-purge";
+      readonly yes: boolean;
+    }
+  | {
+      readonly kind: "conversations-reset-key";
+      readonly restart: boolean;
+      readonly yes: boolean;
+    }
   | {
       readonly kind: "always-return-change";
       readonly id: string;
