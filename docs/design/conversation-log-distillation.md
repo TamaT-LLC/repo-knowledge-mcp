@@ -460,7 +460,7 @@ canonical は生のセッション ID を持たないため、削除条件の照
 
 削除条件の `project_path_prefix` は、取り込み時はソースから読んだマスク前のパスに直接照合する。前方一致は文字列ではなくパス区切り（`/`）の単位で判定し、`/Users/alice/re` は `/Users/alice/repo` に一致しない。取り込み時の照合と保存後の HMAC による照合は、この同じ規則で判定する。
 保存済みの発言と tombstone に対しては、`project_path_prefix` を正規化して現在の鍵で HMAC を取り、その値が `path_prefix_hmacs` に含まれるかで照合する。
-`path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/`、`/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ。階層の数に上限は設けず、ルート `/` を含むすべての階層を持つ。そのため削除条件や `excludeProjects` に `/` を指定した場合も、取り込み時と保存後の照合が同じ結果（すべてに一致）になる。上限を設けると、それより深いパスを削除条件や `excludeProjects` に指定したときに照合が漏れるためである。
+`path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/`、`/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ。階層の数に上限は設けず、ルート `/` を含むすべての階層を持つ。そのため削除条件や `excludeProjects` に `/` を指定した場合も、取り込み時と保存後の照合が同じ結果（プロジェクトのパスを持つ発言のすべてに一致）になる。パスを持たない発言は、パスの条件には一致しない。上限を設けると、それより深いパスを削除条件や `excludeProjects` に指定したときに照合が漏れるためである。
 前方一致を HMAC の集合の包含で表すため、生のパスを保存せずに、`/Users/alice/repo` と `/Users/bob/repo` を区別できる。
 パスの正規化（NFC、区切りの正規化、末尾の `/` の除去、大文字小文字の畳み込み）は、`path_prefix_hmacs` を作る側と照合する側で同じ関数（[conversation paths](../../src/conversation-paths.ts)）を使う。大文字小文字を畳み込むのは、macOS の既定のファイルシステムが区別しないためで、区別するファイルシステムでは一致が広がる（削除と除外が多めに効く）方向にだけ働く。
 マスク後のパスは区別できないため、照合には使わない。
@@ -898,14 +898,14 @@ history にだけある情報（プロジェクトのパス）は会話ファイ
 | --- | --- | --- |
 | 既存の検出種別（API key、GitHub token、Slack token、AWS key、Google API key、秘密鍵ブロック、汎用の秘密代入、メールアドレス） | 共有 | 該当部分を `[REDACTED]` |
 | Authorization header | 共有 | header の値全体を `[REDACTED]` にし、`Authorization: [REDACTED]` とする |
-| Bearer token | 会話だけ | `bearer <token>` 全体を `[REDACTED]` |
+| Bearer token | 会話だけ | `bearer <token>` 全体を `[REDACTED]`。token は 8 文字以上で、数字か記号を含むものとし、`the bearer token` のような文は残す |
 | `Basic` の資格情報（header の外） | 会話だけ | `Basic <base64>` の base64 部分を含めて `[REDACTED]`。`Basic JavaScript` のような文は残す |
 | JWT | 会話だけ | 該当部分を `[REDACTED]` |
 | 英字と数字を両方含む 32 文字以上の連続 | 会話だけ | 該当部分を `[REDACTED]`。パスの一部は除く |
 | ホームディレクトリの絶対パス | 会話だけ | `/Users/<name>/`、`/home/<name>/` を `~/` |
 | Claude Code の符号化ディレクトリ名 | 会話だけ | `-Users-<name>-…`、`-home-<name>-…`（`/` と `.` を `-` にしたプロジェクトのディレクトリ名）の `<name>` を `[REDACTED]` |
 | 秘密鍵ブロックの本文 | 会話だけ | 共有の検出は BEGIN 行だけを見るため、END 行まで（END がなければ末尾まで）をまとめて `[REDACTED]`。PGP の秘密鍵ブロックも同じ |
-| よく知られたキー名への短い秘密代入 | 会話だけ | キー名に `password`、`passwd`、`passphrase`、`pwd`、`secret`、`token`、`private_key`、`api_key` を含む代入（`pass=` も）は、16 文字未満や空白入りの引用値でもキー名と引用符を残して値を `[REDACTED]` |
+| よく知られたキー名への短い秘密代入 | 会話だけ | キー名に `password`、`passwd`、`passphrase`、`pwd`、`secret`、`token`、`private_key`、`api_key` を含む代入（語の後に続ける場合は `_` か `-` で区切ったもの。`SECRET_KEY`、`DB_PASSWORD` など。`pass=` も）は、16 文字未満や空白入りの引用値でもキー名と引用符を残して値を `[REDACTED]` |
 | コマンド引数の認証情報 | 会話だけ | `-u user:pass` / `--user user:pass` の `pass` と、MySQL の `-p<pass>` を `[REDACTED]` |
 | 接頭辞付きのトークン | 会話だけ | `glpat-`、`hf_`、`sk_live_` などで始まり数字を含む、区切り文字で 32 文字未満に分かれるトークンを `[REDACTED]` |
 | 接続文字列の資格情報 | 会話だけ | `scheme://user:pass@host` 形式の `user:pass` を置換し、`scheme://[REDACTED]@host` とする |

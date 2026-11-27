@@ -664,8 +664,9 @@ symlink は拒否します。group や others から読める権限は、取り�
 `reset-key` の後に戻るのは、元のログがまだ残っている発言だけです。ログが消えた期間の発言は戻りません。
 
 削除条件を取り消すコマンドはありません。
-未来の時刻を `--before` に指定したり、`--project /` を指定したりすると、以後の取り込みがすべて止まります。
-条件は `~/.repo-knowledge/conversations/purge-filters.json` の `filters` に、指定した値のまま並んでいます（`conversations status` は件数だけを表示します）。
+未来の時刻を `--before` に指定すると以後の取り込みがすべて止まり、`--project /` を指定するとプロジェクトのパスを持つ発言の取り込みがすべて止まります。
+条件は `~/.repo-knowledge/conversations/purge-filters.json` の `filters` に並んでいます（`conversations status` は件数だけを表示します）。
+保存するときに正規化するので、時刻は UTC のミリ秒（`2026-01-01T00:00:00.000Z`）、`owner/name` は小文字、パスは `..` や末尾の `/` を除いた形で記録されます。
 取り消す場合は、取り込みや purge を実行していないときに、そのファイルから該当する要素を消します。
 `copies` の要素は、リンク経由で消したコピーの記録なので消さないでください。
 
@@ -693,6 +694,7 @@ symlink は拒否します。group や others から読める権限は、取り�
 - `password`、`token`、`secret`、`pwd`、`api_key`、`private_key` などを含まないキー名への代入（`pin=1234` など）
 - `-u user:pass` と MySQL の `-p<pass>` 以外の形でコマンド引数に書いた認証情報
 - 既知の接頭辞（`glpat-`、`hf_`、`sk_live_` など）がなく、区切り文字で 32 文字未満に分かれるトークン。接頭辞があっても数字を含まないもの
+- `Authorization` header の外にある `Bearer` の後の、8 文字未満の値や英字だけの値
 - 第三者の氏名や社名（自動の氏名検出は行いません）
 
 ## storage と直接編集
