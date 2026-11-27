@@ -11,7 +11,9 @@ export function compareCodeUnits(a: string, b: string): number {
 }
 
 /** Returns a new, code-unit-sorted array with duplicate strings removed. */
-export function sortAndDedupeStrings(values: readonly string[]): string[] {
+export function sortAndDedupeStrings<T extends string>(
+  values: readonly T[],
+): T[] {
   const sorted = [...values].sort(compareCodeUnits);
 
   return sorted.filter(

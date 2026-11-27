@@ -19,6 +19,7 @@ import {
 import type { CanonicalKnowledgeReadView } from "./sqlite-projection.js";
 import type { SyncCheckpoint } from "./sync-checkpoint-store.js";
 import type { SyncRunOutcome, SyncStatus } from "./sync-status-store.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const STATS_SCHEMA_VERSION = 1;
 export const STATS_TIMEZONE = "UTC";
@@ -27,6 +28,7 @@ export const MAX_STATS_DAY_BUCKET_COUNT = 366;
 const MS_PER_UTC_DAY = 24 * 60 * 60 * 1000;
 const UTC_DAY_KEY_LENGTH = "YYYY-MM-DD".length;
 
+// Not compileWhenHot: parsed once per run, and compiling measured no faster.
 export const StatsBucketSchema = z.enum(["total", "day"]);
 
 export type StatsBucketMode = z.infer<typeof StatsBucketSchema>;
@@ -37,11 +39,13 @@ export type StatsBucketMode = z.infer<typeof StatsBucketSchema>;
  * window `[since, until)`; both are optional for `bucket: "total"` and both
  * are required for `bucket: "day"`.
  */
-export const RepositoryStatsRequestSchema = z.strictObject({
-  bucket: StatsBucketSchema.optional(),
-  since: IsoDateTimeSchema.optional(),
-  until: IsoDateTimeSchema.optional(),
-});
+export const RepositoryStatsRequestSchema = compileWhenHot(
+  z.strictObject({
+    bucket: StatsBucketSchema.optional(),
+    since: IsoDateTimeSchema.optional(),
+    until: IsoDateTimeSchema.optional(),
+  }),
+);
 
 export interface RepositoryStatsRequest {
   readonly bucket?: StatsBucketMode;

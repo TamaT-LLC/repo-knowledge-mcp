@@ -24,6 +24,7 @@ import {
 } from "./knowledge-read-service.js";
 import type { CanonicalProjectionSnapshot } from "./sqlite-projection.js";
 import { addCustomIssue } from "./zod-issues.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const OUTCOME_EVENT_PATH = "events/outcomes.jsonl";
 export const OUTCOME_RECORDED_RECORD_TYPE = "OutcomeRecorded";
@@ -42,10 +43,12 @@ export const OutcomeKindSchema = z.enum([
 ]);
 export type OutcomeKind = z.infer<typeof OutcomeKindSchema>;
 
-export const OutcomeEventKeySchema = z
-  .string()
-  .transform((value) => value.normalize("NFKC").trim())
-  .pipe(NonEmptyStringSchema.max(MAX_OUTCOME_EVENT_KEY_LENGTH));
+export const OutcomeEventKeySchema = compileWhenHot(
+  z
+    .string()
+    .transform((value) => value.normalize("NFKC").trim())
+    .pipe(NonEmptyStringSchema.max(MAX_OUTCOME_EVENT_KEY_LENGTH)),
+);
 
 const RecordOutcomeContextSchema = z
   .strictObject({
@@ -61,56 +64,58 @@ const RecordOutcomeContextSchema = z
     error: "context must contain at least one field",
   });
 
-export const RecordOutcomeRequestSchema = z
-  .strictObject({
-    at: IsoDateTimeSchema,
-    context: RecordOutcomeContextSchema.optional(),
-    event_id: EventIdSchema.optional().meta({
-      description:
-        "Compatibility path for a caller-generated idempotency key. Supply exactly one of event_id or event_key.",
+export const RecordOutcomeRequestSchema = compileWhenHot(
+  z
+    .strictObject({
+      at: IsoDateTimeSchema,
+      context: RecordOutcomeContextSchema.optional(),
+      event_id: EventIdSchema.optional().meta({
+        description:
+          "Compatibility path for a caller-generated idempotency key. Supply exactly one of event_id or event_key.",
+      }),
+      event_key: OutcomeEventKeySchema.optional().meta({
+        description:
+          "Stable host work-result key used to derive event_id deterministically. Reuse the exact request for retries.",
+      }),
+      knowledge_id: KnowledgeIdSchema,
+      note: NonEmptyStringSchema.max(MAX_OUTCOME_NOTE_LENGTH).optional(),
+      outcome: OutcomeKindSchema,
+      result_observed: z.literal(true).optional().meta({
+        description:
+          "Required with event_key. Assert only after the host observes applicability or a real work result; get_rules retrieval alone is not an outcome.",
+      }),
+    })
+    .check((context) => {
+      const request = context.value;
+      const hasEventId = request.event_id !== undefined;
+      const hasEventKey = request.event_key !== undefined;
+      if (hasEventId === hasEventKey) {
+        addCustomIssue(context, {
+          message: "supply exactly one of event_id or event_key",
+          path: ["event_key"],
+        });
+      }
+      if (!hasEventKey) return;
+      if (request.result_observed !== true) {
+        addCustomIssue(context, {
+          message: "event_key requires result_observed: true",
+          path: ["result_observed"],
+        });
+      }
+      if (request.context === undefined) {
+        addCustomIssue(context, {
+          message: "event_key requires observable task context",
+          path: ["context"],
+        });
+      }
+      if (request.note === undefined) {
+        addCustomIssue(context, {
+          message: "event_key requires a note describing the observed result",
+          path: ["note"],
+        });
+      }
     }),
-    event_key: OutcomeEventKeySchema.optional().meta({
-      description:
-        "Stable host work-result key used to derive event_id deterministically. Reuse the exact request for retries.",
-    }),
-    knowledge_id: KnowledgeIdSchema,
-    note: NonEmptyStringSchema.max(MAX_OUTCOME_NOTE_LENGTH).optional(),
-    outcome: OutcomeKindSchema,
-    result_observed: z.literal(true).optional().meta({
-      description:
-        "Required with event_key. Assert only after the host observes applicability or a real work result; get_rules retrieval alone is not an outcome.",
-    }),
-  })
-  .check((context) => {
-    const request = context.value;
-    const hasEventId = request.event_id !== undefined;
-    const hasEventKey = request.event_key !== undefined;
-    if (hasEventId === hasEventKey) {
-      addCustomIssue(context, {
-        message: "supply exactly one of event_id or event_key",
-        path: ["event_key"],
-      });
-    }
-    if (!hasEventKey) return;
-    if (request.result_observed !== true) {
-      addCustomIssue(context, {
-        message: "event_key requires result_observed: true",
-        path: ["result_observed"],
-      });
-    }
-    if (request.context === undefined) {
-      addCustomIssue(context, {
-        message: "event_key requires observable task context",
-        path: ["context"],
-      });
-    }
-    if (request.note === undefined) {
-      addCustomIssue(context, {
-        message: "event_key requires a note describing the observed result",
-        path: ["note"],
-      });
-    }
-  });
+);
 
 export type RecordOutcomeRequest = z.infer<typeof RecordOutcomeRequestSchema>;
 

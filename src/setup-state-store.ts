@@ -19,6 +19,7 @@ export const SetupPhaseSchema = z.enum([
   "complete",
 ]);
 
+// Not compileWhenHot: read and written a few times per setup run.
 export const SetupStateSchema = z.strictObject({
   created_at: IsoDateTimeSchema,
   initial_since: IsoDateTimeSchema.nullable(),

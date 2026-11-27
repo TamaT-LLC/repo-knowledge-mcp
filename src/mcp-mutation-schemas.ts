@@ -29,10 +29,11 @@ import {
   OutcomeKindSchema,
   RecordOutcomeRequestSchema,
 } from "./record-outcome-mutation-service.js";
-import { SensitiveContentFindingSchema } from "./sensitive-content.js";
+import { SensitiveContentFindingsSchema } from "./sensitive-content.js";
 import { SyncCursorSchema } from "./sync-cursor.js";
 import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
 import { addCustomIssue } from "./zod-issues.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 const RawSha256Schema = z
   .string()
@@ -93,17 +94,20 @@ const MutationToolErrorPayloadSchema = z.strictObject({
   retryable: z.boolean(),
 });
 
-export const MutationToolSummarySchema = z.strictObject({
-  counts: z.record(
-    NonEmptyStringSchema,
-    z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  ),
-  next_action: NonEmptyStringSchema.nullable(),
-  retryable: z.boolean(),
-});
+export const MutationToolSummarySchema = compileWhenHot(
+  z.strictObject({
+    counts: z.record(
+      NonEmptyStringSchema,
+      z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    ),
+    next_action: NonEmptyStringSchema.nullable(),
+    retryable: z.boolean(),
+  }),
+);
 
+/** A mutation tool's output schema; every one is passed to the MCP SDK. */
 function mutationOutputSchema<T extends z.ZodType>(resultSchema: T) {
-  return z
+  const schema = z
     .strictObject({
       error: MutationToolErrorPayloadSchema.optional(),
       ok: z.boolean(),
@@ -129,12 +133,15 @@ function mutationOutputSchema<T extends z.ZodType>(resultSchema: T) {
         });
       }
     });
+  return compileWhenHot(schema);
 }
 
-export const IngestPrInputSchema = z.strictObject({
-  ...RepositorySelectionShape,
-  pr_number: PositiveSafeIntegerSchema,
-});
+export const IngestPrInputSchema = compileWhenHot(
+  z.strictObject({
+    ...RepositorySelectionShape,
+    pr_number: PositiveSafeIntegerSchema,
+  }),
+);
 
 const UnknownBotWarningMcpSchema = z.strictObject({
   actorId: NonEmptyStringSchema.nullable(),
@@ -145,66 +152,74 @@ const UnknownBotWarningMcpSchema = z.strictObject({
   threadIds: z.array(NonEmptyStringSchema),
 });
 
-export const IngestPrResultSchema = z.strictObject({
-  changed_threads: z.number().int().nonnegative(),
-  distilled: z.number().int().nonnegative(),
-  jobs_created: z.number().int().nonnegative(),
-  new_threads: z.number().int().nonnegative(),
-  pending: z.number().int().nonnegative(),
-  repo_id: RepositoryIdSchema,
-  snapshot_id: SnapshotIdSchema,
-  unchanged: z.number().int().nonnegative(),
-  warnings: z.array(UnknownBotWarningMcpSchema),
-});
+export const IngestPrResultSchema = compileWhenHot(
+  z.strictObject({
+    changed_threads: z.number().int().nonnegative(),
+    distilled: z.number().int().nonnegative(),
+    jobs_created: z.number().int().nonnegative(),
+    new_threads: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative(),
+    repo_id: RepositoryIdSchema,
+    snapshot_id: SnapshotIdSchema,
+    unchanged: z.number().int().nonnegative(),
+    warnings: z.array(UnknownBotWarningMcpSchema),
+  }),
+);
 
 export const IngestPrOutputSchema = mutationOutputSchema(IngestPrResultSchema);
 
-export const SyncRepoInputSchema = z.strictObject({
-  ...RepositorySelectionShape,
-  max_pull_requests: z
-    .number()
-    .int()
-    .positive()
-    .max(MAX_SYNC_PULL_REQUESTS_PER_RUN)
-    .optional()
-    .meta({
+export const SyncRepoInputSchema = compileWhenHot(
+  z.strictObject({
+    ...RepositorySelectionShape,
+    max_pull_requests: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_SYNC_PULL_REQUESTS_PER_RUN)
+      .optional()
+      .meta({
+        description:
+          "Process at most this many pull requests in this run, oldest first. The checkpoint advances past each one, so call sync_repo again while has_more is true to converge on a large backlog.",
+      }),
+    since: IsoDateTimeSchema.optional().meta({
       description:
-        "Process at most this many pull requests in this run, oldest first. The checkpoint advances past each one, so call sync_repo again while has_more is true to converge on a large backlog.",
+        "Initial ISO-8601 boundary; only pull requests updated strictly after it are synced. With a stored checkpoint it must be strictly older than the checkpoint boundary.",
     }),
-  since: IsoDateTimeSchema.optional().meta({
-    description:
-      "Initial ISO-8601 boundary; only pull requests updated strictly after it are synced. With a stored checkpoint it must be strictly older than the checkpoint boundary.",
   }),
-});
+);
 
 const SyncPullRequestFailureMcpSchema = z.strictObject({
   message: z.string(),
   pr_number: PositiveSafeIntegerSchema,
 });
 
-export const SyncRepoResultSchema = z.strictObject({
-  deferred: z.number().int().nonnegative(),
-  discovered: z.number().int().nonnegative(),
-  failed: z.number().int().nonnegative(),
-  failures: z.array(SyncPullRequestFailureMcpSchema),
-  has_more: z.boolean(),
-  ingested: z.number().int().nonnegative(),
-  jobs_created: z.number().int().nonnegative(),
-  next_cursor: SyncCursorSchema.nullable(),
-  unchanged: z.number().int().nonnegative(),
-});
+export const SyncRepoResultSchema = compileWhenHot(
+  z.strictObject({
+    deferred: z.number().int().nonnegative(),
+    discovered: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    failures: z.array(SyncPullRequestFailureMcpSchema),
+    has_more: z.boolean(),
+    ingested: z.number().int().nonnegative(),
+    jobs_created: z.number().int().nonnegative(),
+    next_cursor: SyncCursorSchema.nullable(),
+    unchanged: z.number().int().nonnegative(),
+  }),
+);
 
 export const SyncRepoOutputSchema = mutationOutputSchema(SyncRepoResultSchema);
 
-export const PrepareDistillationInputSchema = z.strictObject({
-  ...RepositorySelectionShape,
-  limit: z
-    .number()
-    .int()
-    .positive()
-    .max(MAX_PREPARE_DISTILLATION_LIMIT)
-    .optional(),
-});
+export const PrepareDistillationInputSchema = compileWhenHot(
+  z.strictObject({
+    ...RepositorySelectionShape,
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_PREPARE_DISTILLATION_LIMIT)
+      .optional(),
+  }),
+);
 
 const PreparedJobMetadataMcpSchema = z.strictObject({
   available_at: IsoDateTimeSchema.optional(),
@@ -272,10 +287,7 @@ const PrepareBlockedJobMcpSchema = z.strictObject({
     "source_unavailable",
   ]),
   review_content_characters: z.number().int().nonnegative().optional(),
-  sensitive_content_findings: z
-    .array(SensitiveContentFindingSchema)
-    .min(1)
-    .optional(),
+  sensitive_content_findings: SensitiveContentFindingsSchema.optional(),
 });
 
 const PrepareDisabledResultMcpSchema = z.strictObject({
@@ -305,10 +317,12 @@ const PrepareReadyResultMcpSchema = z.strictObject({
   state: z.literal("prepared"),
 });
 
-export const PrepareDistillationResultSchema = z.discriminatedUnion("state", [
-  PrepareDisabledResultMcpSchema,
-  PrepareReadyResultMcpSchema,
-]);
+export const PrepareDistillationResultSchema = compileWhenHot(
+  z.discriminatedUnion("state", [
+    PrepareDisabledResultMcpSchema,
+    PrepareReadyResultMcpSchema,
+  ]),
+);
 
 export const PrepareDistillationOutputSchema = mutationOutputSchema(
   PrepareDistillationResultSchema,
@@ -378,10 +392,12 @@ const SubmitFinalizeInputSchema = z.strictObject({
   submission_id: NonEmptyStringSchema,
 });
 
-export const SubmitDistillationInputSchema = z.discriminatedUnion("phase", [
-  SubmitExtractInputSchema,
-  SubmitFinalizeInputSchema,
-]);
+export const SubmitDistillationInputSchema = compileWhenHot(
+  z.discriminatedUnion("phase", [
+    SubmitExtractInputSchema,
+    SubmitFinalizeInputSchema,
+  ]),
+);
 
 const SubmitSkippedResultMcpSchema = z.strictObject({
   skip_reason: SkipReasonSchema,
@@ -408,16 +424,19 @@ export const SubmitFinalizedResultMcpSchema = z.strictObject({
   revision_proposals: z.array(NonEmptyStringSchema),
 });
 
-export const SubmitDistillationResultSchema = z.union([
-  SubmitSkippedResultMcpSchema,
-  SubmitMergeResultMcpSchema,
-  SubmitFinalizedResultMcpSchema,
-]);
+export const SubmitDistillationResultSchema = compileWhenHot(
+  z.union([
+    SubmitSkippedResultMcpSchema,
+    SubmitMergeResultMcpSchema,
+    SubmitFinalizedResultMcpSchema,
+  ]),
+);
 
 export const SubmitDistillationOutputSchema = mutationOutputSchema(
   SubmitDistillationResultSchema,
 );
 
+// Not compileWhenHot: compiling measured slower (0.7×).
 export const AddKnowledgeInputSchema = z.strictObject({
   ...RepositorySelectionShape,
   category: KnowledgeCategorySchema,
@@ -428,14 +447,16 @@ export const AddKnowledgeInputSchema = z.strictObject({
   severity: SeveritySchema,
 });
 
-export const AddKnowledgeResultSchema = z.strictObject({
-  etag: RawSha256Schema,
-  id: KnowledgeIdSchema,
-  origin: z.literal("manual"),
-  repo: RepositoryNameSchema,
-  revision: PositiveSafeIntegerSchema,
-  status: z.literal("proposed"),
-});
+export const AddKnowledgeResultSchema = compileWhenHot(
+  z.strictObject({
+    etag: RawSha256Schema,
+    id: KnowledgeIdSchema,
+    origin: z.literal("manual"),
+    repo: RepositoryNameSchema,
+    revision: PositiveSafeIntegerSchema,
+    status: z.literal("proposed"),
+  }),
+);
 
 export const AddKnowledgeOutputSchema = mutationOutputSchema(
   AddKnowledgeResultSchema,
@@ -453,22 +474,26 @@ const ModelPlanePatchMcpSchema = z
     error: "patch must not be empty",
   });
 
-export const UpdateKnowledgeInputSchema = z.strictObject({
-  ...RepositorySelectionShape,
-  expected_etag: RawSha256Schema,
-  expected_revision: PositiveSafeIntegerSchema,
-  id: KnowledgeIdSchema,
-  patch: ModelPlanePatchMcpSchema,
-});
+export const UpdateKnowledgeInputSchema = compileWhenHot(
+  z.strictObject({
+    ...RepositorySelectionShape,
+    expected_etag: RawSha256Schema,
+    expected_revision: PositiveSafeIntegerSchema,
+    id: KnowledgeIdSchema,
+    patch: ModelPlanePatchMcpSchema,
+  }),
+);
 
-export const UpdateKnowledgeResultSchema = z.strictObject({
-  current_etag: RawSha256Schema,
-  current_revision: PositiveSafeIntegerSchema,
-  knowledge_id: KnowledgeIdSchema,
-  proposal_id: NonEmptyStringSchema,
-  repo: RepositoryNameSchema,
-  status: z.literal("pending"),
-});
+export const UpdateKnowledgeResultSchema = compileWhenHot(
+  z.strictObject({
+    current_etag: RawSha256Schema,
+    current_revision: PositiveSafeIntegerSchema,
+    knowledge_id: KnowledgeIdSchema,
+    proposal_id: NonEmptyStringSchema,
+    repo: RepositoryNameSchema,
+    status: z.literal("pending"),
+  }),
+);
 
 export const UpdateKnowledgeOutputSchema = mutationOutputSchema(
   UpdateKnowledgeResultSchema,
@@ -476,6 +501,7 @@ export const UpdateKnowledgeOutputSchema = mutationOutputSchema(
 
 // The canonical request schema is extended, not redefined, so the MCP surface
 // can never accept fields the outcome mutation service would reject.
+// Not compileWhenHot: compiling measured 0.9–1.6×, not reliably faster.
 export const RecordOutcomeInputSchema = RecordOutcomeRequestSchema.safeExtend(
   RepositorySelectionShape,
 ).check((context) => {
@@ -500,14 +526,16 @@ export const RecordOutcomeInputSchema = RecordOutcomeRequestSchema.safeExtend(
   }
 });
 
-export const RecordOutcomeResultSchema = z.strictObject({
-  applied_count: z.number().int().nonnegative(),
-  event_id: EventIdSchema,
-  knowledge_id: KnowledgeIdSchema,
-  outcome: OutcomeKindSchema,
-  replayed: z.boolean(),
-  violation_count: z.number().int().nonnegative(),
-});
+export const RecordOutcomeResultSchema = compileWhenHot(
+  z.strictObject({
+    applied_count: z.number().int().nonnegative(),
+    event_id: EventIdSchema,
+    knowledge_id: KnowledgeIdSchema,
+    outcome: OutcomeKindSchema,
+    replayed: z.boolean(),
+    violation_count: z.number().int().nonnegative(),
+  }),
+);
 
 export const RecordOutcomeOutputSchema = mutationOutputSchema(
   RecordOutcomeResultSchema,

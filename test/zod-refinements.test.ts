@@ -10,6 +10,7 @@ import {
   GeneratedCodeExampleSchema,
   GoldenFixtureSchema,
   IngestPrOutputSchema,
+  KnowledgeEvidenceSchema,
   KnowledgeRevisionPatchSchema,
   ObservedPilotDailyRecordSchema,
   OutcomeRankingFixtureSchema,
@@ -678,5 +679,25 @@ describe("refine error messages", () => {
         runs_total: 1,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("sorted string sets", () => {
+  const commentIds = KnowledgeEvidenceSchema.shape.comment_ids;
+
+  it("sorts and removes duplicates", () => {
+    expect(commentIds.parse(["C_b", "C_a", "C_b"])).toEqual(["C_a", "C_b"]);
+  });
+
+  it.each([
+    { expected: [{ code: "too_small", path: [] }], input: [] },
+    { expected: [{ code: "invalid_type", path: [0] }], input: [1, "C_a"] },
+    { expected: [{ code: "invalid_type", path: [] }], input: "C_a" },
+  ])("rejects $input with $expected", ({ expected, input }) => {
+    expect(
+      commentIds
+        .safeParse(input)
+        .error?.issues.map(({ code, path }) => ({ code, path })),
+    ).toEqual(expected);
   });
 });

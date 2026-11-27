@@ -10,6 +10,8 @@ import type { ProjectedCanonicalRecord } from "./sqlite-projection.js";
 export const GLOBAL_STORE_ID = "rk:global";
 export const ALWAYS_RETURN_PATH = "events/always_return.jsonl";
 export const ALWAYS_RETURN_LIMIT = 3;
+// Not compileWhenHot: the suite never validates it in-process, so the
+// benchmark cannot measure it.
 export const AlwaysReturnChangeSchema = z
   .strictObject({
     actor: z.enum(["cli", "mcp"]),
@@ -21,6 +23,8 @@ export const AlwaysReturnChangeSchema = z
   })
   .refine((e) => (e.actor === "mcp") === (e.caller_repo_id !== undefined));
 
+// Not compileWhenHot: the suite never validates a valid result in-process,
+// so the benchmark cannot measure it.
 export const AlwaysReturnResultSchema = z.strictObject({
   state: z.enum(["changed", "unchanged", "rejected"]),
   knowledge_id: KnowledgeIdSchema,

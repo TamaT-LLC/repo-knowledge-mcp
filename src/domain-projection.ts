@@ -38,6 +38,7 @@ import {
   KnowledgeStoreInvalidError,
   type KnowledgeDocument,
 } from "./knowledge-document.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 const EVIDENCE_RECORD_TYPES = new Set([
   "EvidenceCreated",
@@ -52,18 +53,20 @@ const PROPOSAL_RECORD_TYPES = new Set([
   "KnowledgeRevisionProposalRejected",
 ]);
 
-const KnowledgeProjectionFrontmatterSchema = z.looseObject({
-  category: KnowledgeCategorySchema,
-  created_at: z.iso.datetime({ offset: true }),
-  id: KnowledgeIdSchema,
-  repo_id: RepositoryIdSchema,
-  revision: z.number().int().positive(),
-  rule: z.string().min(1),
-  scope: z.array(ScopePatternSchema),
-  severity: SeveritySchema,
-  status: KnowledgeStatusSchema,
-  updated_at: z.iso.datetime({ offset: true }),
-});
+const KnowledgeProjectionFrontmatterSchema = compileWhenHot(
+  z.looseObject({
+    category: KnowledgeCategorySchema,
+    created_at: z.iso.datetime({ offset: true }),
+    id: KnowledgeIdSchema,
+    repo_id: RepositoryIdSchema,
+    revision: z.number().int().positive(),
+    rule: z.string().min(1),
+    scope: z.array(ScopePatternSchema),
+    severity: SeveritySchema,
+    status: KnowledgeStatusSchema,
+    updated_at: z.iso.datetime({ offset: true }),
+  }),
+);
 
 export type DomainProjectionErrorCode = "INVALID_DOMAIN_RECORD";
 

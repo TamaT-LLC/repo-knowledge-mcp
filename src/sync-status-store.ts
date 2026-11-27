@@ -7,6 +7,7 @@ import { canonicalizeJson } from "./canonical.js";
 import { IsoDateTimeSchema, RepositoryIdSchema } from "./domain-schemas.js";
 import { fsyncDirectory, writeDurable } from "./durable-fs.js";
 import { SYNC_CHECKPOINT_DIRECTORY } from "./sync-checkpoint-store.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const SYNC_STATUS_SCHEMA_VERSION = 1;
 export const SYNC_STATUS_FILE_NAME = "status.json";
@@ -33,17 +34,19 @@ export type SyncRunOutcome = z.infer<typeof SyncRunOutcomeSchema>;
  * it cannot answer "did the scheduled sync run, and did it succeed?" on a
  * quiet repository; this record can.
  */
-export const SyncStatusSchema = z.strictObject({
-  consecutive_failures: z.number().int().nonnegative(),
-  last_attempt_finished_at: IsoDateTimeSchema,
-  last_attempt_started_at: IsoDateTimeSchema,
-  last_error_code: z.string().min(1).nullable(),
-  last_has_more: z.boolean().nullable(),
-  last_outcome: SyncRunOutcomeSchema,
-  last_success_at: IsoDateTimeSchema.nullable(),
-  repo_id: RepositoryIdSchema,
-  schema_version: z.literal(SYNC_STATUS_SCHEMA_VERSION),
-});
+export const SyncStatusSchema = compileWhenHot(
+  z.strictObject({
+    consecutive_failures: z.number().int().nonnegative(),
+    last_attempt_finished_at: IsoDateTimeSchema,
+    last_attempt_started_at: IsoDateTimeSchema,
+    last_error_code: z.string().min(1).nullable(),
+    last_has_more: z.boolean().nullable(),
+    last_outcome: SyncRunOutcomeSchema,
+    last_success_at: IsoDateTimeSchema.nullable(),
+    repo_id: RepositoryIdSchema,
+    schema_version: z.literal(SYNC_STATUS_SCHEMA_VERSION),
+  }),
+);
 
 export type SyncStatus = z.infer<typeof SyncStatusSchema>;
 

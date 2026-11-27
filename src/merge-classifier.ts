@@ -25,6 +25,7 @@ import {
 import { evaluateProviderTransmission } from "./provider-transmission.js";
 import type { RepositoryResolution } from "./repository-resolver.js";
 import { assertNoSensitiveContent } from "./sensitive-content.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const MERGE_CLASSIFIER_OUTPUT_SCHEMA_VERSION = "merge-decisions-v1";
 
@@ -70,15 +71,19 @@ const ProviderMergeDecisionSchema = z.strictObject({
   target_id: KnowledgeIdSchema.nullable(),
 });
 
-const MergeDecisionInputSchema = z.strictObject({
-  candidate_id: CandidateIdSchema,
-  relation: MergeRelationSchema,
-  target_id: KnowledgeIdSchema.nullable().optional(),
-});
+const MergeDecisionInputSchema = compileWhenHot(
+  z.strictObject({
+    candidate_id: CandidateIdSchema,
+    relation: MergeRelationSchema,
+    target_id: KnowledgeIdSchema.nullable().optional(),
+  }),
+);
 
-const ProviderMergeOutputSchema = z.strictObject({
-  decisions: z.array(ProviderMergeDecisionSchema),
-});
+const ProviderMergeOutputSchema = compileWhenHot(
+  z.strictObject({
+    decisions: z.array(ProviderMergeDecisionSchema),
+  }),
+);
 
 export type MergeClassifierErrorCode =
   | "JEV_API_KEY_MISSING"
@@ -529,10 +534,10 @@ function validateProviderResponse(
 ): StructuredCompletionResponse {
   if (
     response.provider !== expectedProvider ||
-    NonEmptyStringSchema.safeParse(response.model).success === false ||
+    NonEmptyStringSchema.validate(response.model) === false ||
     typeof response.outputText !== "string" ||
     (response.responseId !== undefined &&
-      NonEmptyStringSchema.safeParse(response.responseId).success === false)
+      NonEmptyStringSchema.validate(response.responseId) === false)
   ) {
     throw new MergeClassifierError(
       "PROVIDER_RESPONSE_INVALID",

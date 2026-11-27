@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { GhCommandResult, GhRunnerLike } from "./gh-runner.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const MAX_GRAPHQL_PAGE_SIZE = 100;
 export const MAX_GRAPHQL_CONNECTION_PAGES = 10_000;
@@ -13,10 +14,12 @@ export const GraphqlPageInfoSchema = z.strictObject({
 
 export type GraphqlPageInfo = z.infer<typeof GraphqlPageInfoSchema>;
 
-const GraphqlEnvelopeSchema = z.looseObject({
-  data: z.unknown().nullable().optional(),
-  errors: z.array(z.unknown()).optional(),
-});
+const GraphqlEnvelopeSchema = compileWhenHot(
+  z.looseObject({
+    data: z.unknown().nullable().optional(),
+    errors: z.array(z.unknown()).optional(),
+  }),
+);
 
 export type GitHubSnapshotErrorCode =
   | "DUPLICATE_GRAPHQL_NODE"

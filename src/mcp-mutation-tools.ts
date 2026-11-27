@@ -48,6 +48,7 @@ import {
   summarizeUpdate,
   type MutationToolPresentation,
 } from "./mcp-mutation-summaries.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export type { MutationToolErrorPayload } from "./mcp-mutation-error-mapping.js";
 export { mapMutationError } from "./mcp-mutation-error-mapping.js";
@@ -95,6 +96,13 @@ export interface RegisterMutationToolsOptions {
   readonly startupWorkspace?: string;
 }
 
+const SetGlobalAlwaysReturnInputSchema = compileWhenHot(
+  z.strictObject({
+    knowledge_id: KnowledgeIdSchema,
+    enabled: z.boolean(),
+  }),
+);
+
 /** Registers model-plane tools; all authorization remains in application services. */
 export function registerMutationTools(
   server: McpServer,
@@ -106,10 +114,7 @@ export function registerMutationTools(
       {
         description:
           "Set or clear always-return on an existing active personal rule.",
-        inputSchema: z.strictObject({
-          knowledge_id: KnowledgeIdSchema,
-          enabled: z.boolean(),
-        }),
+        inputSchema: SetGlobalAlwaysReturnInputSchema,
         outputSchema: AlwaysReturnResultSchema,
         annotations: {
           readOnlyHint: false,

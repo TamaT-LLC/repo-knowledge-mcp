@@ -37,6 +37,7 @@ import type {
   CanonicalKnowledgeReadView,
   CanonicalProjectionSnapshot,
 } from "./sqlite-projection.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const DEFAULT_REVIEW_INBOX_LIMIT = 20;
 export const MAX_REVIEW_INBOX_LIMIT = 100;
@@ -86,6 +87,7 @@ const ReviewInboxItemBaseShape = {
   updated_at: IsoDateTimeSchema,
 };
 
+// Not compileWhenHot: compiling measured only 1.3× faster.
 export const ReviewInboxItemSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     ...ReviewInboxItemBaseShape,
@@ -105,14 +107,17 @@ export const ReviewInboxItemSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export const ReviewInboxRequestSchema = z.strictObject({
-  cursor: NonEmptyStringSchema.optional(),
-  kind: ReviewInboxKindSchema.optional(),
-  limit: z.number().int().positive().max(MAX_REVIEW_INBOX_LIMIT).optional(),
-  severity: SeveritySchema.optional(),
-  source: SourceProviderSchema.optional(),
-});
+export const ReviewInboxRequestSchema = compileWhenHot(
+  z.strictObject({
+    cursor: NonEmptyStringSchema.optional(),
+    kind: ReviewInboxKindSchema.optional(),
+    limit: z.number().int().positive().max(MAX_REVIEW_INBOX_LIMIT).optional(),
+    severity: SeveritySchema.optional(),
+    source: SourceProviderSchema.optional(),
+  }),
+);
 
+// Not compileWhenHot: compiling measured no faster.
 export const ReviewInboxResultSchema = z.strictObject({
   items: z.array(ReviewInboxItemSchema),
   next_cursor: z.string().nullable(),
@@ -120,15 +125,17 @@ export const ReviewInboxResultSchema = z.strictObject({
   total_count: z.number().int().nonnegative(),
 });
 
-const ReviewInboxCursorSchema = z.strictObject({
-  canonical_digest: z.string().regex(/^[a-f0-9]{64}$/u),
-  created_at: IsoDateTimeSchema,
-  filter_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  item_id: NonEmptyStringSchema,
-  kind: ReviewInboxKindSchema,
-  repo_id: RepositoryIdSchema,
-  version: z.literal(1),
-});
+const ReviewInboxCursorSchema = compileWhenHot(
+  z.strictObject({
+    canonical_digest: z.string().regex(/^[a-f0-9]{64}$/u),
+    created_at: IsoDateTimeSchema,
+    filter_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    item_id: NonEmptyStringSchema,
+    kind: ReviewInboxKindSchema,
+    repo_id: RepositoryIdSchema,
+    version: z.literal(1),
+  }),
+);
 
 export type ReviewInboxKind = z.infer<typeof ReviewInboxKindSchema>;
 export type ReviewInboxItem = z.infer<typeof ReviewInboxItemSchema>;

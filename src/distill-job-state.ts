@@ -15,6 +15,7 @@ import {
   TransactionIdSchema,
   type DistillJob,
 } from "./domain-schemas.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const DISTILLATION_JOB_CREATED = "DistillationJobCreated";
 export const DISTILLATION_JOB_LEASED = "DistillationJobLeased";
@@ -45,35 +46,45 @@ export const DISTILLATION_JOB_RECORD_TYPES = new Set<string>([
   DISTILLATION_JOB_REDISTILL_REQUESTED,
 ]);
 
-const CreatedPayloadSchema = z.strictObject({
-  distillation_key: Sha256DigestSchema,
-  job_id: JobIdSchema,
-  repo_id: RepositoryIdSchema,
-  thread_id: NonEmptyStringSchema,
-});
+const CreatedPayloadSchema = compileWhenHot(
+  z.strictObject({
+    distillation_key: Sha256DigestSchema,
+    job_id: JobIdSchema,
+    repo_id: RepositoryIdSchema,
+    thread_id: NonEmptyStringSchema,
+  }),
+);
 
-const LeasedPayloadSchema = z.strictObject({
-  job_id: JobIdSchema,
-  lease_expires_at: IsoDateTimeSchema,
-  lease_generation: z.number().int().positive(),
-  lease_token_hash: Sha256DigestSchema,
-});
+const LeasedPayloadSchema = compileWhenHot(
+  z.strictObject({
+    job_id: JobIdSchema,
+    lease_expires_at: IsoDateTimeSchema,
+    lease_generation: z.number().int().positive(),
+    lease_token_hash: Sha256DigestSchema,
+  }),
+);
 
-const LeaseRenewedPayloadSchema = z.strictObject({
-  job_id: JobIdSchema,
-  lease_expires_at: IsoDateTimeSchema,
-  lease_generation: z.number().int().positive(),
-});
+const LeaseRenewedPayloadSchema = compileWhenHot(
+  z.strictObject({
+    job_id: JobIdSchema,
+    lease_expires_at: IsoDateTimeSchema,
+    lease_generation: z.number().int().positive(),
+  }),
+);
 
-const GenerationPayloadSchema = z.strictObject({
-  job_id: JobIdSchema,
-  lease_generation: z.number().int().positive(),
-});
+const GenerationPayloadSchema = compileWhenHot(
+  z.strictObject({
+    job_id: JobIdSchema,
+    lease_generation: z.number().int().positive(),
+  }),
+);
 
-const SkippedPayloadSchema = z.strictObject({
-  ...GenerationPayloadSchema.shape,
-  skip_reason: SkipReasonSchema,
-});
+const SkippedPayloadSchema = compileWhenHot(
+  z.strictObject({
+    ...GenerationPayloadSchema.shape,
+    skip_reason: SkipReasonSchema,
+  }),
+);
 
 export const DistillationFailureKindSchema = z.enum([
   "json_validation",
@@ -81,29 +92,35 @@ export const DistillationFailureKindSchema = z.enum([
   "system",
 ]);
 
-const FailedPayloadSchema = z.strictObject({
-  ...GenerationPayloadSchema.shape,
-  failure_kind: DistillationFailureKindSchema,
-  last_error: NonEmptyStringSchema,
-  next_retry_at: IsoDateTimeSchema.nullable(),
-});
-
-const ObsoletedPayloadSchema = z.discriminatedUnion("reason", [
+const FailedPayloadSchema = compileWhenHot(
   z.strictObject({
-    job_id: JobIdSchema,
-    reason: z.literal("superseded_context"),
-    superseded_by_distillation_key: Sha256DigestSchema,
+    ...GenerationPayloadSchema.shape,
+    failure_kind: DistillationFailureKindSchema,
+    last_error: NonEmptyStringSchema,
+    next_retry_at: IsoDateTimeSchema.nullable(),
   }),
-  z.strictObject({
-    job_id: JobIdSchema,
-    reason: z.literal("source_removed"),
-  }),
-]);
+);
 
-const RedistillRequestedPayloadSchema = z.strictObject({
-  ...GenerationPayloadSchema.shape,
-  distillation_key: Sha256DigestSchema,
-});
+const ObsoletedPayloadSchema = compileWhenHot(
+  z.discriminatedUnion("reason", [
+    z.strictObject({
+      job_id: JobIdSchema,
+      reason: z.literal("superseded_context"),
+      superseded_by_distillation_key: Sha256DigestSchema,
+    }),
+    z.strictObject({
+      job_id: JobIdSchema,
+      reason: z.literal("source_removed"),
+    }),
+  ]),
+);
+
+const RedistillRequestedPayloadSchema = compileWhenHot(
+  z.strictObject({
+    ...GenerationPayloadSchema.shape,
+    distillation_key: Sha256DigestSchema,
+  }),
+);
 
 export interface DistillationJobEventPayloadByType {
   readonly DistillationJobAwaitingFinalize: z.infer<

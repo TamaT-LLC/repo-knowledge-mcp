@@ -141,7 +141,7 @@ export class RepositoryRegistry {
   }
 
   async resolveByName(name: string): Promise<ResolvedRepository | null> {
-    if (!RepositoryNameSchema.safeParse(name).success) {
+    if (!RepositoryNameSchema.validate(name)) {
       throw new RepositoryRegistryError(
         "INVALID_REPOSITORY_REGISTRY",
         "Repository name must use owner/name form",
@@ -301,7 +301,7 @@ function parseRegistryDocument(bytes: Buffer): RepositoryRegistryDocument {
 
 function validateRepositoryIdentity(repoId: string, currentName: string): void {
   validateRepositoryId(repoId);
-  if (!RepositoryNameSchema.safeParse(currentName).success) {
+  if (!RepositoryNameSchema.validate(currentName)) {
     throw new RepositoryRegistryError(
       "INVALID_REPOSITORY_REGISTRY",
       "Repository current name must use owner/name form",
@@ -319,7 +319,7 @@ function validateRepositoryId(repoId: string): void {
 }
 
 function validateRepositoryAliases(aliases: readonly string[]): void {
-  if (aliases.some((alias) => !RepositoryNameSchema.safeParse(alias).success)) {
+  if (aliases.some((alias) => !RepositoryNameSchema.validate(alias))) {
     throw new RepositoryRegistryError(
       "INVALID_REPOSITORY_REGISTRY",
       "Repository aliases must use owner/name form",

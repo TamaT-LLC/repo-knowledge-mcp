@@ -351,7 +351,7 @@ function discountedGain(grades: readonly number[]): number {
 }
 
 function isValidGlob(pattern: string): boolean {
-  if (!ScopePatternSchema.safeParse(pattern).success) return false;
+  if (!ScopePatternSchema.validate(pattern)) return false;
   try {
     picomatch(pattern, scopeGlobOptions());
     return true;

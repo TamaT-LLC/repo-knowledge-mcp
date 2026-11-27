@@ -42,6 +42,7 @@ import type {
   CanonicalKnowledgeReadView,
   CanonicalProjectionSnapshot,
 } from "./sqlite-projection.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const DEFAULT_GET_RULES_LIMIT = 20;
 export const DEFAULT_SEARCH_KNOWLEDGE_LIMIT = 20;
@@ -199,13 +200,15 @@ interface RuleMatchAccumulator {
   taskScore: number | undefined;
 }
 
-const EvidenceCursorSchema = z.strictObject({
-  evidence_id: EvidenceIdSchema,
-  knowledge_id: KnowledgeIdSchema,
-  observed_at: IsoDateTimeSchema,
-  repo_id: RepositoryIdSchema,
-  version: z.literal(1),
-});
+const EvidenceCursorSchema = compileWhenHot(
+  z.strictObject({
+    evidence_id: EvidenceIdSchema,
+    knowledge_id: KnowledgeIdSchema,
+    observed_at: IsoDateTimeSchema,
+    repo_id: RepositoryIdSchema,
+    version: z.literal(1),
+  }),
+);
 
 type EvidenceCursor = z.infer<typeof EvidenceCursorSchema>;
 
