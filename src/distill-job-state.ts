@@ -45,42 +45,35 @@ export const DISTILLATION_JOB_RECORD_TYPES = new Set<string>([
   DISTILLATION_JOB_REDISTILL_REQUESTED,
 ]);
 
-const CreatedPayloadSchema = z
-  .object({
-    distillation_key: Sha256DigestSchema,
-    job_id: JobIdSchema,
-    repo_id: RepositoryIdSchema,
-    thread_id: NonEmptyStringSchema,
-  })
-  .strict();
+const CreatedPayloadSchema = z.strictObject({
+  distillation_key: Sha256DigestSchema,
+  job_id: JobIdSchema,
+  repo_id: RepositoryIdSchema,
+  thread_id: NonEmptyStringSchema,
+});
 
-const LeasedPayloadSchema = z
-  .object({
-    job_id: JobIdSchema,
-    lease_expires_at: IsoDateTimeSchema,
-    lease_generation: z.number().int().positive(),
-    lease_token_hash: Sha256DigestSchema,
-  })
-  .strict();
+const LeasedPayloadSchema = z.strictObject({
+  job_id: JobIdSchema,
+  lease_expires_at: IsoDateTimeSchema,
+  lease_generation: z.number().int().positive(),
+  lease_token_hash: Sha256DigestSchema,
+});
 
-const LeaseRenewedPayloadSchema = z
-  .object({
-    job_id: JobIdSchema,
-    lease_expires_at: IsoDateTimeSchema,
-    lease_generation: z.number().int().positive(),
-  })
-  .strict();
+const LeaseRenewedPayloadSchema = z.strictObject({
+  job_id: JobIdSchema,
+  lease_expires_at: IsoDateTimeSchema,
+  lease_generation: z.number().int().positive(),
+});
 
-const GenerationPayloadSchema = z
-  .object({
-    job_id: JobIdSchema,
-    lease_generation: z.number().int().positive(),
-  })
-  .strict();
+const GenerationPayloadSchema = z.strictObject({
+  job_id: JobIdSchema,
+  lease_generation: z.number().int().positive(),
+});
 
-const SkippedPayloadSchema = GenerationPayloadSchema.extend({
+const SkippedPayloadSchema = z.strictObject({
+  ...GenerationPayloadSchema.shape,
   skip_reason: SkipReasonSchema,
-}).strict();
+});
 
 export const DistillationFailureKindSchema = z.enum([
   "json_validation",
@@ -88,31 +81,29 @@ export const DistillationFailureKindSchema = z.enum([
   "system",
 ]);
 
-const FailedPayloadSchema = GenerationPayloadSchema.extend({
+const FailedPayloadSchema = z.strictObject({
+  ...GenerationPayloadSchema.shape,
   failure_kind: DistillationFailureKindSchema,
   last_error: NonEmptyStringSchema,
   next_retry_at: IsoDateTimeSchema.nullable(),
-}).strict();
+});
 
 const ObsoletedPayloadSchema = z.discriminatedUnion("reason", [
-  z
-    .object({
-      job_id: JobIdSchema,
-      reason: z.literal("superseded_context"),
-      superseded_by_distillation_key: Sha256DigestSchema,
-    })
-    .strict(),
-  z
-    .object({
-      job_id: JobIdSchema,
-      reason: z.literal("source_removed"),
-    })
-    .strict(),
+  z.strictObject({
+    job_id: JobIdSchema,
+    reason: z.literal("superseded_context"),
+    superseded_by_distillation_key: Sha256DigestSchema,
+  }),
+  z.strictObject({
+    job_id: JobIdSchema,
+    reason: z.literal("source_removed"),
+  }),
 ]);
 
-const RedistillRequestedPayloadSchema = GenerationPayloadSchema.extend({
+const RedistillRequestedPayloadSchema = z.strictObject({
+  ...GenerationPayloadSchema.shape,
   distillation_key: Sha256DigestSchema,
-}).strict();
+});
 
 export interface DistillationJobEventPayloadByType {
   readonly DistillationJobAwaitingFinalize: z.infer<

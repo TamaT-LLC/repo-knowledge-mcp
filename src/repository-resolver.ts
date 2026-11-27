@@ -29,24 +29,20 @@ export const RESOLVE_REPOSITORY_GRAPHQL = `query ResolveRepository($owner: Strin
   }
 }`;
 
-const GitHubRepositoryResponseSchema = z
-  .object({
-    data: z
-      .object({
-        repository: z
-          .object({
-            id: GitHubNodeIdSchema,
-            nameWithOwner: RepositoryNameSchema,
-          })
-          .strict()
-          .nullable(),
-      })
-      .strict()
-      .nullable()
-      .optional(),
-    errors: z.array(z.unknown()).optional(),
-  })
-  .passthrough();
+const GitHubRepositoryResponseSchema = z.looseObject({
+  data: z
+    .strictObject({
+      repository: z
+        .strictObject({
+          id: GitHubNodeIdSchema,
+          nameWithOwner: RepositoryNameSchema,
+        })
+        .nullable(),
+    })
+    .nullable()
+    .optional(),
+  errors: z.array(z.unknown()).optional(),
+});
 
 export type RepositoryResolutionSource =
   | "config-default-repo"

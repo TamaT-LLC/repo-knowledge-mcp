@@ -26,6 +26,7 @@ import {
   type Severity,
   type SyncCheckpoint,
 } from "../src/experimental.js";
+import { addCustomIssue } from "../src/zod-issues.js";
 
 const NOW = "2026-08-06T00:00:00.000Z";
 const HASH_A = `sha256:${"a".repeat(64)}`;
@@ -35,36 +36,31 @@ const REPO_NAME = "owner/repository";
 const temporaryRepositories: string[] = [];
 
 const RankingRegressionFixtureSchema = z
-  .object({
+  .strictObject({
     knowledge: z.array(
-      z
-        .object({
-          detail: z.string().min(1),
-          key: z.string().min(1),
-          rule: z.string().min(1),
-          scope: z.array(z.string().min(1)),
-          severity: SeveritySchema,
-        })
-        .strict(),
+      z.strictObject({
+        detail: z.string().min(1),
+        key: z.string().min(1),
+        rule: z.string().min(1),
+        scope: z.array(z.string().min(1)),
+        severity: SeveritySchema,
+      }),
     ),
     queries: z.array(
-      z
-        .object({
-          id: z.string().min(1),
-          query: z.string().min(1),
-          relevant: z.array(z.string().min(1)).min(1),
-        })
-        .strict(),
+      z.strictObject({
+        id: z.string().min(1),
+        query: z.string().min(1),
+        relevant: z.array(z.string().min(1)).min(1),
+      }),
     ),
     schema_version: z.literal(1),
   })
-  .strict()
-  .superRefine((fixture, context) => {
+  .check((context) => {
+    const fixture = context.value;
     const knowledgeKeys = new Set<string>();
     for (const [index, item] of fixture.knowledge.entries()) {
       if (knowledgeKeys.has(item.key)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate knowledge key: ${item.key}`,
           path: ["knowledge", index, "key"],
         });
@@ -75,8 +71,7 @@ const RankingRegressionFixtureSchema = z
     const queryIds = new Set<string>();
     for (const [queryIndex, query] of fixture.queries.entries()) {
       if (queryIds.has(query.id)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate query id: ${query.id}`,
           path: ["queries", queryIndex, "id"],
         });
@@ -84,8 +79,7 @@ const RankingRegressionFixtureSchema = z
       queryIds.add(query.id);
       for (const [relevantIndex, relevantKey] of query.relevant.entries()) {
         if (!knowledgeKeys.has(relevantKey)) {
-          context.addIssue({
-            code: "custom",
+          addCustomIssue(context, {
             message: `unknown relevant knowledge key: ${relevantKey}`,
             path: ["queries", queryIndex, "relevant", relevantIndex],
           });

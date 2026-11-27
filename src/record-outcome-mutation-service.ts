@@ -23,6 +23,7 @@ import {
   normalizeRepositoryFilePath,
 } from "./knowledge-read-service.js";
 import type { CanonicalProjectionSnapshot } from "./sqlite-projection.js";
+import { addCustomIssue } from "./zod-issues.js";
 
 export const OUTCOME_EVENT_PATH = "events/outcomes.jsonl";
 export const OUTCOME_RECORDED_RECORD_TYPE = "OutcomeRecorded";
@@ -47,7 +48,7 @@ export const OutcomeEventKeySchema = z
   .pipe(NonEmptyStringSchema.max(MAX_OUTCOME_EVENT_KEY_LENGTH));
 
 const RecordOutcomeContextSchema = z
-  .object({
+  .strictObject({
     file_paths: z
       .array(NonEmptyStringSchema.max(MAX_OUTCOME_FILE_PATH_LENGTH))
       .min(1)
@@ -56,60 +57,55 @@ const RecordOutcomeContextSchema = z
     pr_number: z.number().int().positive().optional(),
     task_id: NonEmptyStringSchema.max(MAX_OUTCOME_TASK_ID_LENGTH).optional(),
   })
-  .strict()
   .refine((value) => Object.keys(value).length > 0, {
-    message: "context must contain at least one field",
+    error: "context must contain at least one field",
   });
 
 export const RecordOutcomeRequestSchema = z
-  .object({
+  .strictObject({
     at: IsoDateTimeSchema,
     context: RecordOutcomeContextSchema.optional(),
-    event_id: EventIdSchema.optional().describe(
-      "Compatibility path for a caller-generated idempotency key. Supply exactly one of event_id or event_key.",
-    ),
-    event_key: OutcomeEventKeySchema.optional().describe(
-      "Stable host work-result key used to derive event_id deterministically. Reuse the exact request for retries.",
-    ),
+    event_id: EventIdSchema.optional().meta({
+      description:
+        "Compatibility path for a caller-generated idempotency key. Supply exactly one of event_id or event_key.",
+    }),
+    event_key: OutcomeEventKeySchema.optional().meta({
+      description:
+        "Stable host work-result key used to derive event_id deterministically. Reuse the exact request for retries.",
+    }),
     knowledge_id: KnowledgeIdSchema,
     note: NonEmptyStringSchema.max(MAX_OUTCOME_NOTE_LENGTH).optional(),
     outcome: OutcomeKindSchema,
-    result_observed: z
-      .literal(true)
-      .optional()
-      .describe(
+    result_observed: z.literal(true).optional().meta({
+      description:
         "Required with event_key. Assert only after the host observes applicability or a real work result; get_rules retrieval alone is not an outcome.",
-      ),
+    }),
   })
-  .strict()
-  .superRefine((request, context) => {
+  .check((context) => {
+    const request = context.value;
     const hasEventId = request.event_id !== undefined;
     const hasEventKey = request.event_key !== undefined;
     if (hasEventId === hasEventKey) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "supply exactly one of event_id or event_key",
         path: ["event_key"],
       });
     }
     if (!hasEventKey) return;
     if (request.result_observed !== true) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "event_key requires result_observed: true",
         path: ["result_observed"],
       });
     }
     if (request.context === undefined) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "event_key requires observable task context",
         path: ["context"],
       });
     }
     if (request.note === undefined) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "event_key requires a note describing the observed result",
         path: ["note"],
       });

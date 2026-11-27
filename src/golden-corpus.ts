@@ -13,6 +13,7 @@ import {
   findSensitiveContent,
   type SensitiveContentFinding,
 } from "./sensitive-content.js";
+import { addCustomIssue } from "./zod-issues.js";
 
 export {
   findSensitiveContent,
@@ -24,79 +25,70 @@ export const MINIMUM_QUALITY_GATE_THREADS = 50;
 
 export const ANONYMIZED_THREAD_CORPUS_KIND = "anonymized_thread_corpus";
 
-const CorpusActorSchema = z
-  .object({
-    actor_kind: ActorKindSchema,
-    provider: SourceProviderSchema,
-    role: NonEmptyStringSchema.regex(
-      /^[a-z][a-z0-9-]*$/u,
-      "role must be an anonymized lowercase label such as reviewer-1",
-    ),
-    trust: TrustLevelSchema,
-  })
-  .strict();
+const CorpusActorSchema = z.strictObject({
+  actor_kind: ActorKindSchema,
+  provider: SourceProviderSchema,
+  role: NonEmptyStringSchema.regex(
+    /^[a-z][a-z0-9-]*$/u,
+    "role must be an anonymized lowercase label such as reviewer-1",
+  ),
+  trust: TrustLevelSchema,
+});
 
-const CorpusCommentSchema = z
-  .object({
-    actor: CorpusActorSchema,
-    body: NonEmptyStringSchema,
-    created_at: IsoDateTimeSchema,
-    diff_hunk: NonEmptyStringSchema.optional(),
-    id: NonEmptyStringSchema,
-    updated_at: IsoDateTimeSchema,
-  })
-  .strict();
+const CorpusCommentSchema = z.strictObject({
+  actor: CorpusActorSchema,
+  body: NonEmptyStringSchema,
+  created_at: IsoDateTimeSchema,
+  diff_hunk: NonEmptyStringSchema.optional(),
+  id: NonEmptyStringSchema,
+  updated_at: IsoDateTimeSchema,
+});
 
 const CorpusExpectedSchema = z
-  .object({
+  .strictObject({
     category: KnowledgeCategorySchema.nullable(),
     is_knowledge: z.boolean(),
     merge_group: NonEmptyStringSchema.nullable(),
     scope: z.array(z.string()),
     severity: SeveritySchema.nullable(),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     if (
       value.is_knowledge &&
       (value.category === null || value.severity === null)
     ) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "knowledge threads require expected category and severity",
       });
     }
     if (!value.is_knowledge && value.merge_group !== null) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "non-knowledge threads cannot belong to a merge group",
       });
     }
   });
 
 const CorpusThreadSchema = z
-  .object({
+  .strictObject({
     comments: z.array(CorpusCommentSchema).min(1),
     expected: CorpusExpectedSchema,
     id: NonEmptyStringSchema,
     path: NonEmptyStringSchema.nullable(),
     scope_checks: z.array(
-      z
-        .object({
-          matches: z.boolean(),
-          path: NonEmptyStringSchema,
-        })
-        .strict(),
+      z.strictObject({
+        matches: z.boolean(),
+        path: NonEmptyStringSchema,
+      }),
     ),
     tags: z.array(NonEmptyStringSchema),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     const seen = new Set<string>();
     for (const [index, comment] of value.comments.entries()) {
       if (seen.has(comment.id)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate comment id ${comment.id}`,
           path: ["comments", index, "id"],
         });
@@ -105,16 +97,14 @@ const CorpusThreadSchema = z
     }
   });
 
-const CorpusSearchSchema = z
-  .object({
-    id: NonEmptyStringSchema,
-    query: NonEmptyStringSchema,
-    relevance: z.record(NonEmptyStringSchema, z.number().int().nonnegative()),
-  })
-  .strict();
+const CorpusSearchSchema = z.strictObject({
+  id: NonEmptyStringSchema,
+  query: NonEmptyStringSchema,
+  relevance: z.record(NonEmptyStringSchema, z.number().int().nonnegative()),
+});
 
 export const AnonymizedThreadCorpusSchema = z
-  .object({
+  .strictObject({
     anonymization_policy_version: NonEmptyStringSchema,
     corpus_id: NonEmptyStringSchema,
     corpus_kind: z.literal(ANONYMIZED_THREAD_CORPUS_KIND),
@@ -122,13 +112,12 @@ export const AnonymizedThreadCorpusSchema = z
     searches: z.array(CorpusSearchSchema).min(1),
     threads: z.array(CorpusThreadSchema).min(MINIMUM_QUALITY_GATE_THREADS),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     const threadIds = new Set<string>();
     for (const [index, thread] of value.threads.entries()) {
       if (threadIds.has(thread.id)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate thread id ${thread.id}`,
           path: ["threads", index, "id"],
         });
@@ -138,8 +127,7 @@ export const AnonymizedThreadCorpusSchema = z
     const searchIds = new Set<string>();
     for (const [index, search] of value.searches.entries()) {
       if (searchIds.has(search.id)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate search id ${search.id}`,
           path: ["searches", index, "id"],
         });
@@ -147,8 +135,7 @@ export const AnonymizedThreadCorpusSchema = z
       searchIds.add(search.id);
       for (const id of Object.keys(search.relevance)) {
         if (!threadIds.has(id)) {
-          context.addIssue({
-            code: "custom",
+          addCustomIssue(context, {
             message: `relevance id ${id} is not a corpus thread`,
             path: ["searches", index, "relevance"],
           });

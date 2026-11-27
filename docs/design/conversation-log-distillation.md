@@ -1163,7 +1163,7 @@ job の入力は、クラスタの発言（マスク後の本文、timestamp、�
 const UtteranceIdSchema = z.string().regex(/^utt_[a-f0-9]{32}$/u);
 const TagSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/u);
 
-const ConversationDistilledCandidateSchema = z.object({
+const ConversationDistilledCandidateSchema = z.strictObject({
   rule: NonEmptyString,
   detail: NonEmptyString,
   category: KnowledgeCategorySchema,          // 既存の enum
@@ -1171,32 +1171,32 @@ const ConversationDistilledCandidateSchema = z.object({
   scope: z.array(ScopePatternSchema),         // 空はストア全体
   severity: SeveritySchema,
   confidence: z.number().min(0).max(1),
-  evidence: z.array(z.object({
+  evidence: z.array(z.strictObject({
     utterance_id: UtteranceIdSchema,
     polarity: z.enum(["supports", "contradicts"]),
-  }).strict()).min(1),
-  enforcement_hint: z.object({
+  })).min(1),
+  enforcement_hint: z.strictObject({
     kind: z.enum(["prose", "hook", "skill", "permission"]),
     rationale: NonEmptyString,
-  }).strict(),
-}).strict();
+  }),
+});
 
-const ConversationDistillationOutputSchema = z.object({
+const ConversationDistillationOutputSchema = z.strictObject({
   candidates: z.array(ConversationDistilledCandidateSchema),
   skip_reason: ConversationSkipReasonSchema.nullable(),
-}).strict();
+});
 
-const ConversationExtractCandidateSchema = z.object({
+const ConversationExtractCandidateSchema = z.strictObject({
   candidate_id: CandidateIdSchema,
   candidate: ConversationDistilledCandidateSchema,
-}).strict();
+});
 
-const ConversationMergeDecisionSchema = z.object({
+const ConversationMergeDecisionSchema = z.strictObject({
   candidate_id: CandidateIdSchema,
   relation: z.enum(["same", "overlaps", "contradicts", "different"]),
   target_id: KnowledgeIdSchema.optional(),     // different 以外で必須
   severity_change: z.enum(["raise"]).optional(), // same のときだけ許す
-}).strict();
+});
 ```
 
 `ConversationSkipReasonSchema` は、`one_off_request`（その場限りの依頼）、`insufficient_context`、`not_about_agent_behavior`、`duplicate_noise`、`unsafe_instruction` とする。

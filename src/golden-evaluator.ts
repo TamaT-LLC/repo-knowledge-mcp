@@ -8,74 +8,66 @@ import {
   type Severity,
 } from "./domain-schemas.js";
 import { scopeGlobOptions } from "./scope-glob.js";
+import { addCustomIssue } from "./zod-issues.js";
 
 const GoldenExpectedSchema = z
-  .object({
+  .strictObject({
     category: KnowledgeCategorySchema.nullable(),
     is_knowledge: z.boolean(),
     merge_group: z.string().min(1).nullable(),
     scope: z.array(z.string()),
     severity: SeveritySchema.nullable(),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     if (
       value.is_knowledge &&
       (value.category === null || value.severity === null)
     ) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "knowledge fixtures require category and severity",
       });
     }
     if (!value.is_knowledge && value.merge_group !== null) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "non-knowledge fixtures cannot belong to a merge group",
       });
     }
   });
 
-const GoldenPredictionSchema = z
-  .object({
-    category: z.string().nullable(),
-    is_knowledge: z.boolean(),
-    merge_group: z.string().min(1).nullable(),
-    scope: z.array(z.string()),
-    severity: z.string().nullable(),
-  })
-  .strict();
+const GoldenPredictionSchema = z.strictObject({
+  category: z.string().nullable(),
+  is_knowledge: z.boolean(),
+  merge_group: z.string().min(1).nullable(),
+  scope: z.array(z.string()),
+  severity: z.string().nullable(),
+});
 
-const GoldenCaseSchema = z
-  .object({
-    expected: GoldenExpectedSchema,
-    id: z.string().min(1),
-    prediction: GoldenPredictionSchema,
-    scope_checks: z.array(
-      z
-        .object({
-          matches: z.boolean(),
-          path: z.string().min(1),
-        })
-        .strict(),
-    ),
-    tags: z.array(z.string().min(1)),
-  })
-  .strict();
+const GoldenCaseSchema = z.strictObject({
+  expected: GoldenExpectedSchema,
+  id: z.string().min(1),
+  prediction: GoldenPredictionSchema,
+  scope_checks: z.array(
+    z.strictObject({
+      matches: z.boolean(),
+      path: z.string().min(1),
+    }),
+  ),
+  tags: z.array(z.string().min(1)),
+});
 
 const GoldenSearchCaseSchema = z
-  .object({
+  .strictObject({
     id: z.string().min(1),
     ranking: z.array(z.string().min(1)),
     relevance: z.record(z.string().min(1), z.number().int().nonnegative()),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     const seen = new Set<string>();
     for (const [index, id] of value.ranking.entries()) {
       if (seen.has(id)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate ranking id ${id}`,
           path: ["ranking", index],
         });
@@ -85,14 +77,14 @@ const GoldenSearchCaseSchema = z
   });
 
 export const GoldenFixtureSchema = z
-  .object({
+  .strictObject({
     cases: z.array(GoldenCaseSchema).min(1),
     fixture_id: z.string().min(1),
     schema_version: z.literal(1),
     searches: z.array(GoldenSearchCaseSchema).min(1),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     addDuplicateIssues(
       value.cases.map((entry) => entry.id),
       "cases",
@@ -409,13 +401,12 @@ function round(value: number): number {
 function addDuplicateIssues(
   values: readonly string[],
   path: string,
-  context: z.RefinementCtx,
+  context: z.core.ParsePayload,
 ): void {
   const seen = new Set<string>();
   for (const [index, value] of values.entries()) {
     if (seen.has(value)) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: `duplicate ${path} id ${value}`,
         path: [path, index, "id"],
       });

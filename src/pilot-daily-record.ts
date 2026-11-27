@@ -22,7 +22,7 @@ export const UtcDaySchema = z
         parsed.toISOString().slice(0, "YYYY-MM-DD".length) === value
       );
     },
-    { message: "must be a valid UTC calendar day" },
+    { error: "must be a valid UTC calendar day" },
   );
 
 /**
@@ -112,7 +112,7 @@ export const PilotGateStatusSchema = z.enum([
 export type PilotGateStatus = z.infer<typeof PilotGateStatusSchema>;
 
 const PilotSyncActivitySchema = z
-  .object({
+  .strictObject({
     discovered: z.number().int().nonnegative(),
     failed_pull_requests: z.array(z.number().int().positive()),
     ingested: z.number().int().nonnegative(),
@@ -122,27 +122,22 @@ const PilotSyncActivitySchema = z
     runs_total: z.number().int().nonnegative(),
     unchanged: z.number().int().nonnegative(),
   })
-  .strict()
   .refine((value) => value.runs_failed <= value.runs_total, {
-    message: "runs_failed must not exceed runs_total",
+    error: "runs_failed must not exceed runs_total",
   });
 
-const PilotBacklogSchema = z
-  .object({
-    failed_jobs: z.number().int().nonnegative(),
-    last_sync_checkpoint_at: z.string().min(1).nullable(),
-    pending_jobs: z.number().int().nonnegative(),
-  })
-  .strict();
+const PilotBacklogSchema = z.strictObject({
+  failed_jobs: z.number().int().nonnegative(),
+  last_sync_checkpoint_at: z.string().min(1).nullable(),
+  pending_jobs: z.number().int().nonnegative(),
+});
 
-const PilotQualitySchema = z
-  .object({
-    canonical_digest: z.string().min(1),
-    gate_status: PilotGateStatusSchema,
-    knowledge_total: z.number().int().nonnegative(),
-    outcomes_total: z.number().int().nonnegative(),
-  })
-  .strict();
+const PilotQualitySchema = z.strictObject({
+  canonical_digest: z.string().min(1),
+  gate_status: PilotGateStatusSchema,
+  knowledge_total: z.number().int().nonnegative(),
+  outcomes_total: z.number().int().nonnegative(),
+});
 
 const dailyRecordBaseShape = {
   date: UtcDaySchema,
@@ -152,26 +147,22 @@ const dailyRecordBaseShape = {
   schema_version: z.literal(PILOT_RECORD_SCHEMA_VERSION),
 } as const;
 
-export const ObservedPilotDailyRecordSchema = z
-  .object({
-    ...dailyRecordBaseShape,
-    backlog: PilotBacklogSchema,
-    notes: z.string().min(1).optional(),
-    quality: PilotQualitySchema,
-    status: z.literal("observed"),
-    sync: PilotSyncActivitySchema,
-  })
-  .strict();
+export const ObservedPilotDailyRecordSchema = z.strictObject({
+  ...dailyRecordBaseShape,
+  backlog: PilotBacklogSchema,
+  notes: z.string().min(1).optional(),
+  quality: PilotQualitySchema,
+  status: z.literal("observed"),
+  sync: PilotSyncActivitySchema,
+});
 
 /** A day without machine observation must carry an explicit reason. */
-export const MissingPilotDailyRecordSchema = z
-  .object({
-    ...dailyRecordBaseShape,
-    notes: z.string().min(1).optional(),
-    reason: z.string().min(1),
-    status: z.literal("missing"),
-  })
-  .strict();
+export const MissingPilotDailyRecordSchema = z.strictObject({
+  ...dailyRecordBaseShape,
+  notes: z.string().min(1).optional(),
+  reason: z.string().min(1),
+  status: z.literal("missing"),
+});
 
 export const PilotDailyRecordSchema = z.discriminatedUnion("status", [
   ObservedPilotDailyRecordSchema,

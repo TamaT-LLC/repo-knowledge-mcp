@@ -199,15 +199,13 @@ interface RuleMatchAccumulator {
   taskScore: number | undefined;
 }
 
-const EvidenceCursorSchema = z
-  .object({
-    evidence_id: EvidenceIdSchema,
-    knowledge_id: KnowledgeIdSchema,
-    observed_at: IsoDateTimeSchema,
-    repo_id: RepositoryIdSchema,
-    version: z.literal(1),
-  })
-  .strict();
+const EvidenceCursorSchema = z.strictObject({
+  evidence_id: EvidenceIdSchema,
+  knowledge_id: KnowledgeIdSchema,
+  observed_at: IsoDateTimeSchema,
+  repo_id: RepositoryIdSchema,
+  version: z.literal(1),
+});
 
 type EvidenceCursor = z.infer<typeof EvidenceCursorSchema>;
 

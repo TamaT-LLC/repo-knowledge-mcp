@@ -70,6 +70,7 @@ Codex、Claude Code、Cursor
 | --- | --- |
 | Node.js | 22.13.0 以上の 22.x、または 24.0.0 以上。CI は 22 / 24 |
 | OS | macOS、Linux |
+| CPU | x64、arm64（better-sqlite3 の同梱 prebuild がある CPU のみ） |
 | storage | ローカル filesystem |
 | transport | stdio |
 | GitHub access | `gh` CLI |
@@ -485,6 +486,7 @@ npm run package:smoke
 ```
 
 CI は Node 22 と Node 24 で同じ gate を実行します。
+開発には Node.js 25 を使えません。テストに使う Vitest 5 が Node.js 25 に対応していないためです。package の実行要件は[対応環境](#supported-environments)のとおりです。
 npm 公開時は tag と commit を検証し、provenance 付き package を公開した後、registry の exact version を再度 smoke します。
 
 - [npm release runbook](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/npm-release-runbook.md)

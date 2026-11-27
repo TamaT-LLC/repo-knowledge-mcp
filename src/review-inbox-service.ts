@@ -44,30 +44,26 @@ export const DEFAULT_REVIEW_INBOX_PROJECTION_RETRIES = 2;
 
 export const ReviewInboxKindSchema = z.enum(["knowledge", "revision_proposal"]);
 
-const ReviewInboxEvidenceSchema = z
-  .object({
-    actors: z.array(EvidenceActorSchema).min(1),
-    comment_ids: z.array(NonEmptyStringSchema).min(1),
-    evidence_id: EvidenceIdSchema,
-    observed_at: IsoDateTimeSchema,
-    originator: EvidenceActorSchema,
-    sources: z.array(SourceProviderSchema).min(1),
-    status: EvidenceStatusSchema,
-    url: z.url().optional(),
-  })
-  .strict();
+const ReviewInboxEvidenceSchema = z.strictObject({
+  actors: z.array(EvidenceActorSchema).min(1),
+  comment_ids: z.array(NonEmptyStringSchema).min(1),
+  evidence_id: EvidenceIdSchema,
+  observed_at: IsoDateTimeSchema,
+  originator: EvidenceActorSchema,
+  sources: z.array(SourceProviderSchema).min(1),
+  status: EvidenceStatusSchema,
+  url: z.url().optional(),
+});
 
-const ReviewInboxPossibleMatchSchema = z
-  .object({
-    etag: NonEmptyStringSchema,
-    id: KnowledgeIdSchema,
-    revision: z.number().int().positive(),
-    rule: NonEmptyStringSchema,
-    scope: z.array(NonEmptyStringSchema),
-    severity: SeveritySchema,
-    status: KnowledgeStatusSchema,
-  })
-  .strict();
+const ReviewInboxPossibleMatchSchema = z.strictObject({
+  etag: NonEmptyStringSchema,
+  id: KnowledgeIdSchema,
+  revision: z.number().int().positive(),
+  rule: NonEmptyStringSchema,
+  scope: z.array(NonEmptyStringSchema),
+  severity: SeveritySchema,
+  status: KnowledgeStatusSchema,
+});
 
 const ReviewInboxItemBaseShape = {
   category: KnowledgeCategorySchema,
@@ -91,58 +87,48 @@ const ReviewInboxItemBaseShape = {
 };
 
 export const ReviewInboxItemSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      ...ReviewInboxItemBaseShape,
-      kind: z.literal("knowledge"),
-      proposal_etag: z.null(),
-      proposal_id: z.null(),
-      proposal_patch: z.null(),
-      status: z.enum(["proposed", "stale"]),
-    })
-    .strict(),
-  z
-    .object({
-      ...ReviewInboxItemBaseShape,
-      kind: z.literal("revision_proposal"),
-      proposal_etag: z.string().regex(/^[a-f0-9]{64}$/u),
-      proposal_id: NonEmptyStringSchema,
-      proposal_patch: KnowledgeRevisionPatchSchema,
-      status: z.literal("pending"),
-    })
-    .strict(),
+  z.strictObject({
+    ...ReviewInboxItemBaseShape,
+    kind: z.literal("knowledge"),
+    proposal_etag: z.null(),
+    proposal_id: z.null(),
+    proposal_patch: z.null(),
+    status: z.enum(["proposed", "stale"]),
+  }),
+  z.strictObject({
+    ...ReviewInboxItemBaseShape,
+    kind: z.literal("revision_proposal"),
+    proposal_etag: z.string().regex(/^[a-f0-9]{64}$/u),
+    proposal_id: NonEmptyStringSchema,
+    proposal_patch: KnowledgeRevisionPatchSchema,
+    status: z.literal("pending"),
+  }),
 ]);
 
-export const ReviewInboxRequestSchema = z
-  .object({
-    cursor: NonEmptyStringSchema.optional(),
-    kind: ReviewInboxKindSchema.optional(),
-    limit: z.number().int().positive().max(MAX_REVIEW_INBOX_LIMIT).optional(),
-    severity: SeveritySchema.optional(),
-    source: SourceProviderSchema.optional(),
-  })
-  .strict();
+export const ReviewInboxRequestSchema = z.strictObject({
+  cursor: NonEmptyStringSchema.optional(),
+  kind: ReviewInboxKindSchema.optional(),
+  limit: z.number().int().positive().max(MAX_REVIEW_INBOX_LIMIT).optional(),
+  severity: SeveritySchema.optional(),
+  source: SourceProviderSchema.optional(),
+});
 
-export const ReviewInboxResultSchema = z
-  .object({
-    items: z.array(ReviewInboxItemSchema),
-    next_cursor: z.string().nullable(),
-    repo: RepositoryNameSchema,
-    total_count: z.number().int().nonnegative(),
-  })
-  .strict();
+export const ReviewInboxResultSchema = z.strictObject({
+  items: z.array(ReviewInboxItemSchema),
+  next_cursor: z.string().nullable(),
+  repo: RepositoryNameSchema,
+  total_count: z.number().int().nonnegative(),
+});
 
-const ReviewInboxCursorSchema = z
-  .object({
-    canonical_digest: z.string().regex(/^[a-f0-9]{64}$/u),
-    created_at: IsoDateTimeSchema,
-    filter_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-    item_id: NonEmptyStringSchema,
-    kind: ReviewInboxKindSchema,
-    repo_id: RepositoryIdSchema,
-    version: z.literal(1),
-  })
-  .strict();
+const ReviewInboxCursorSchema = z.strictObject({
+  canonical_digest: z.string().regex(/^[a-f0-9]{64}$/u),
+  created_at: IsoDateTimeSchema,
+  filter_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  item_id: NonEmptyStringSchema,
+  kind: ReviewInboxKindSchema,
+  repo_id: RepositoryIdSchema,
+  version: z.literal(1),
+});
 
 export type ReviewInboxKind = z.infer<typeof ReviewInboxKindSchema>;
 export type ReviewInboxItem = z.infer<typeof ReviewInboxItemSchema>;
