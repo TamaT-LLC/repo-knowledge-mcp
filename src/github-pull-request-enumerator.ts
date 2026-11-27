@@ -30,6 +30,7 @@ import {
   type SyncBoundary,
   type SyncCursor,
 } from "./sync-cursor.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const DEFAULT_SYNC_PULL_REQUEST_PAGE_SIZE = 50;
 export const DEFAULT_SYNC_PULL_REQUEST_LIST_MAX_ATTEMPTS = 3;
@@ -116,18 +117,20 @@ const PullRequestListNodeSchema = z.strictObject({
   updatedAt: IsoDateTimeSchema,
 });
 
-const PullRequestListPageDataSchema = z.strictObject({
-  repository: z
-    .strictObject({
-      id: GitHubNodeIdSchema,
-      nameWithOwner: RepositoryNameSchema,
-      pullRequests: z.strictObject({
-        nodes: z.array(PullRequestListNodeSchema),
-        pageInfo: GraphqlPageInfoSchema,
-      }),
-    })
-    .nullable(),
-});
+const PullRequestListPageDataSchema = compileWhenHot(
+  z.strictObject({
+    repository: z
+      .strictObject({
+        id: GitHubNodeIdSchema,
+        nameWithOwner: RepositoryNameSchema,
+        pullRequests: z.strictObject({
+          nodes: z.array(PullRequestListNodeSchema),
+          pageInfo: GraphqlPageInfoSchema,
+        }),
+      })
+      .nullable(),
+  }),
+);
 
 type PullRequestListNode = z.infer<typeof PullRequestListNodeSchema>;
 type PullRequestListPageData = z.infer<typeof PullRequestListPageDataSchema>;

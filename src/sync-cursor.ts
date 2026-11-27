@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { GitHubNodeIdSchema, IsoDateTimeSchema } from "./domain-schemas.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const SYNC_CURSOR_VERSION = 1;
 
@@ -9,12 +10,14 @@ export const SYNC_CURSOR_VERSION = 1;
  * (last_updated_at, last_pr_number); resuming enumerates strictly after it,
  * so several PRs sharing one timestamp are never dropped at the boundary.
  */
-export const SyncCursorSchema = z.strictObject({
-  last_pr_number: z.number().int().positive(),
-  last_updated_at: IsoDateTimeSchema,
-  repo_id: GitHubNodeIdSchema,
-  version: z.literal(SYNC_CURSOR_VERSION),
-});
+export const SyncCursorSchema = compileWhenHot(
+  z.strictObject({
+    last_pr_number: z.number().int().positive(),
+    last_updated_at: IsoDateTimeSchema,
+    repo_id: GitHubNodeIdSchema,
+    version: z.literal(SYNC_CURSOR_VERSION),
+  }),
+);
 
 export type SyncCursor = z.infer<typeof SyncCursorSchema>;
 

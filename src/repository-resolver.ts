@@ -21,6 +21,7 @@ import {
   type RegisterRepositoryRequest,
   type ResolvedRepository,
 } from "./repository-registry.js";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const RESOLVE_REPOSITORY_GRAPHQL = `query ResolveRepository($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
@@ -29,20 +30,22 @@ export const RESOLVE_REPOSITORY_GRAPHQL = `query ResolveRepository($owner: Strin
   }
 }`;
 
-const GitHubRepositoryResponseSchema = z.looseObject({
-  data: z
-    .strictObject({
-      repository: z
-        .strictObject({
-          id: GitHubNodeIdSchema,
-          nameWithOwner: RepositoryNameSchema,
-        })
-        .nullable(),
-    })
-    .nullable()
-    .optional(),
-  errors: z.array(z.unknown()).optional(),
-});
+const GitHubRepositoryResponseSchema = compileWhenHot(
+  z.looseObject({
+    data: z
+      .strictObject({
+        repository: z
+          .strictObject({
+            id: GitHubNodeIdSchema,
+            nameWithOwner: RepositoryNameSchema,
+          })
+          .nullable(),
+      })
+      .nullable()
+      .optional(),
+    errors: z.array(z.unknown()).optional(),
+  }),
+);
 
 export type RepositoryResolutionSource =
   | "config-default-repo"
