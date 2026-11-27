@@ -10,6 +10,7 @@ import {
   type ProviderGoldenBaselineArtifact,
 } from "./golden-baseline.js";
 import type { GoldenEvaluationReport } from "./golden-evaluator.js";
+import { addCustomIssue } from "./zod-issues.js";
 
 /** Every §18.1 metric that the M2 quality gate thresholds must cover. */
 export const QUALITY_GATE_METRICS = [
@@ -28,17 +29,16 @@ export const QUALITY_GATE_METRICS = [
 export type QualityGateMetricName = (typeof QUALITY_GATE_METRICS)[number];
 
 const MetricThresholdSchema = z
-  .object({
+  .strictObject({
     margin: z.number().min(0).max(1),
     measured: z.number().min(0).max(1),
     minimum: z.number().min(0).max(1),
     rationale: NonEmptyStringSchema,
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     if (value.minimum > value.measured) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "minimum must not exceed the measured value it derives from",
         path: ["minimum"],
       });
@@ -49,30 +49,24 @@ const metricThresholdEntries = Object.fromEntries(
   QUALITY_GATE_METRICS.map((name) => [name, MetricThresholdSchema]),
 ) as Record<QualityGateMetricName, typeof MetricThresholdSchema>;
 
-export const QualityGateThresholdsSchema = z
-  .object({
-    baseline: z
-      .object({
-        artifact_digest: Sha256DigestSchema,
-        artifact_kind: NonEmptyStringSchema,
-        corpus_digest: Sha256DigestSchema,
-        corpus_id: NonEmptyStringSchema,
-        measured_at: IsoDateTimeSchema,
-      })
-      .strict(),
-    metrics: z.object(metricThresholdEntries).strict(),
-    reviewed: z
-      .object({
-        at: IsoDateTimeSchema,
-        by: NonEmptyStringSchema,
-      })
-      .strict(),
-    schema_version: z.literal(1),
-    source: z.enum(["fixture_replay", "live_measurement"]),
-    thresholds_version: NonEmptyStringSchema,
-    update_procedure: NonEmptyStringSchema,
-  })
-  .strict();
+export const QualityGateThresholdsSchema = z.strictObject({
+  baseline: z.strictObject({
+    artifact_digest: Sha256DigestSchema,
+    artifact_kind: NonEmptyStringSchema,
+    corpus_digest: Sha256DigestSchema,
+    corpus_id: NonEmptyStringSchema,
+    measured_at: IsoDateTimeSchema,
+  }),
+  metrics: z.strictObject(metricThresholdEntries),
+  reviewed: z.strictObject({
+    at: IsoDateTimeSchema,
+    by: NonEmptyStringSchema,
+  }),
+  schema_version: z.literal(1),
+  source: z.enum(["fixture_replay", "live_measurement"]),
+  thresholds_version: NonEmptyStringSchema,
+  update_procedure: NonEmptyStringSchema,
+});
 
 export type QualityGateThresholds = z.infer<typeof QualityGateThresholdsSchema>;
 

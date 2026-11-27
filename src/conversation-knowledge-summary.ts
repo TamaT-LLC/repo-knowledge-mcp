@@ -7,17 +7,15 @@ const hint = z.object({
   kind: z.enum(["hook", "skill", "permission", "prose"]),
   rationale: z.string(),
 });
-export const ConversationSummarySchema = z
-  .object({
-    session_count: z.number().int().nonnegative(),
-    project_count: z.number().int().nonnegative(),
-    period: z
-      .object({ from: IsoDateTimeSchema, to: IsoDateTimeSchema })
-      .nullable(),
-    enforcement_hint: hint.nullable(),
-    has_conflict: z.boolean(),
-  })
-  .strict();
+export const ConversationSummarySchema = z.strictObject({
+  session_count: z.number().int().nonnegative(),
+  project_count: z.number().int().nonnegative(),
+  period: z
+    .object({ from: IsoDateTimeSchema, to: IsoDateTimeSchema })
+    .nullable(),
+  enforcement_hint: hint.nullable(),
+  has_conflict: z.boolean(),
+});
 
 export function isConversationKnowledge(frontmatter: KnowledgeFrontmatter) {
   return z

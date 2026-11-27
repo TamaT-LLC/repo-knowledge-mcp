@@ -1,55 +1,49 @@
 import { z } from "zod";
 
 import { IsoDateTimeSchema } from "./domain-schemas.js";
+import { addCustomIssue } from "./zod-issues.js";
 
 export const PILOT_HUMAN_RUBRIC_KIND = "m2_pilot_human_rubric";
 export const PILOT_RUBRIC_EVALUATION_KIND = "m2_pilot_rubric_evaluation";
 
-const PilotRubricScaleLevelSchema = z
-  .object({
-    description: z.string().min(1),
-    label: z.string().min(1),
-    /**
-     * Deterministic floor binding the subjective score to the criteria
-     * judgements: a query result may only carry this score when at least
-     * `minimum_criteria_met_ratio * criteria_count` criteria are met.
-     * Lower scores stay allowed (an evaluator may judge strictly), but a
-     * high score without the backing criteria is rejected fail-closed.
-     */
-    minimum_criteria_met_ratio: z.number().min(0).max(1),
-    score: z.number().int(),
-  })
-  .strict();
+const PilotRubricScaleLevelSchema = z.strictObject({
+  description: z.string().min(1),
+  label: z.string().min(1),
+  /**
+   * Deterministic floor binding the subjective score to the criteria
+   * judgements: a query result may only carry this score when at least
+   * `minimum_criteria_met_ratio * criteria_count` criteria are met.
+   * Lower scores stay allowed (an evaluator may judge strictly), but a
+   * high score without the backing criteria is rejected fail-closed.
+   */
+  minimum_criteria_met_ratio: z.number().min(0).max(1),
+  score: z.number().int(),
+});
 
-const PilotRubricCheckpointSchema = z
-  .object({
-    day: z.number().int().positive(),
-    description: z.string().min(1),
-    id: z.string().min(1),
-  })
-  .strict();
+const PilotRubricCheckpointSchema = z.strictObject({
+  day: z.number().int().positive(),
+  description: z.string().min(1),
+  id: z.string().min(1),
+});
 
-const PilotRubricCriterionSchema = z
-  .object({
-    description: z.string().min(1),
-    id: z.string().min(1),
-  })
-  .strict();
+const PilotRubricCriterionSchema = z.strictObject({
+  description: z.string().min(1),
+  id: z.string().min(1),
+});
 
 const PilotRubricQuerySchema = z
-  .object({
+  .strictObject({
     criteria: z.array(PilotRubricCriterionSchema).min(1),
     id: z.string().min(1),
     intent: z.string().min(1),
     query: z.string().min(1),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     const seen = new Set<string>();
     for (const [index, criterion] of value.criteria.entries()) {
       if (seen.has(criterion.id)) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message: `duplicate criterion id ${criterion.id}`,
           path: ["criteria", index, "id"],
         });
@@ -66,7 +60,7 @@ const PilotRubricQuerySchema = z
  * every checkpoint reuses the identical query set for comparability.
  */
 export const PilotHumanRubricSchema = z
-  .object({
+  .strictObject({
     checkpoints: z.array(PilotRubricCheckpointSchema).min(2),
     queries: z.array(PilotRubricQuerySchema).min(1),
     rubric_id: z.string().min(1),
@@ -74,8 +68,8 @@ export const PilotHumanRubricSchema = z
     scale: z.array(PilotRubricScaleLevelSchema).min(2),
     schema_version: z.literal(1),
   })
-  .strict()
-  .superRefine((value, context) => {
+  .check((context) => {
+    const value = context.value;
     assertUniqueIds(
       value.queries.map((query) => query.id),
       "queries",
@@ -88,16 +82,14 @@ export const PilotHumanRubricSchema = z
     );
     const days = value.checkpoints.map((checkpoint) => checkpoint.day);
     if (new Set(days).size !== days.length) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "checkpoint days must be unique",
         path: ["checkpoints"],
       });
     }
     const scores = value.scale.map((level) => level.score);
     if (new Set(scores).size !== scores.length) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: "scale scores must be unique",
         path: ["scale"],
       });
@@ -111,8 +103,7 @@ export const PilotHumanRubricSchema = z
         byScore[index]!.minimum_criteria_met_ratio <
         byScore[index - 1]!.minimum_criteria_met_ratio
       ) {
-        context.addIssue({
-          code: "custom",
+        addCustomIssue(context, {
           message:
             "minimum_criteria_met_ratio must not decrease as the score increases",
           path: ["scale"],
@@ -124,34 +115,28 @@ export const PilotHumanRubricSchema = z
 
 export type PilotHumanRubric = z.infer<typeof PilotHumanRubricSchema>;
 
-const PilotRubricCriterionResultSchema = z
-  .object({
-    criterion_id: z.string().min(1),
-    met: z.boolean(),
-  })
-  .strict();
+const PilotRubricCriterionResultSchema = z.strictObject({
+  criterion_id: z.string().min(1),
+  met: z.boolean(),
+});
 
-const PilotRubricQueryResultSchema = z
-  .object({
-    criteria: z.array(PilotRubricCriterionResultSchema).min(1),
-    notes: z.string().min(1).optional(),
-    query_id: z.string().min(1),
-    score: z.number().int(),
-  })
-  .strict();
+const PilotRubricQueryResultSchema = z.strictObject({
+  criteria: z.array(PilotRubricCriterionResultSchema).min(1),
+  notes: z.string().min(1).optional(),
+  query_id: z.string().min(1),
+  score: z.number().int(),
+});
 
 /** One human evaluation pass of the whole rubric at one checkpoint. */
-export const PilotRubricEvaluationSchema = z
-  .object({
-    checkpoint_id: z.string().min(1),
-    evaluated_at: IsoDateTimeSchema,
-    evaluation_kind: z.literal(PILOT_RUBRIC_EVALUATION_KIND),
-    evaluator: z.string().min(1),
-    results: z.array(PilotRubricQueryResultSchema).min(1),
-    rubric_id: z.string().min(1),
-    schema_version: z.literal(1),
-  })
-  .strict();
+export const PilotRubricEvaluationSchema = z.strictObject({
+  checkpoint_id: z.string().min(1),
+  evaluated_at: IsoDateTimeSchema,
+  evaluation_kind: z.literal(PILOT_RUBRIC_EVALUATION_KIND),
+  evaluator: z.string().min(1),
+  results: z.array(PilotRubricQueryResultSchema).min(1),
+  rubric_id: z.string().min(1),
+  schema_version: z.literal(1),
+});
 
 export type PilotRubricEvaluation = z.infer<typeof PilotRubricEvaluationSchema>;
 
@@ -265,13 +250,12 @@ function validateCriterionResults(
 function assertUniqueIds(
   ids: readonly string[],
   path: string,
-  context: z.RefinementCtx,
+  context: z.core.ParsePayload,
 ): void {
   const seen = new Set<string>();
   for (const [index, id] of ids.entries()) {
     if (seen.has(id)) {
-      context.addIssue({
-        code: "custom",
+      addCustomIssue(context, {
         message: `duplicate ${path} id ${id}`,
         path: [path, index, "id"],
       });

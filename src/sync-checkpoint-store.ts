@@ -15,13 +15,11 @@ export const SYNC_CHECKPOINT_FILE_NAME = "checkpoint.json";
  * Durable per-repository resume point for incremental sync. The envelope is
  * versioned independently of the cursor so either layer can migrate.
  */
-export const SyncCheckpointSchema = z
-  .object({
-    cursor: SyncCursorSchema,
-    schema_version: z.literal(SYNC_CHECKPOINT_SCHEMA_VERSION),
-    updated_at: IsoDateTimeSchema,
-  })
-  .strict();
+export const SyncCheckpointSchema = z.strictObject({
+  cursor: SyncCursorSchema,
+  schema_version: z.literal(SYNC_CHECKPOINT_SCHEMA_VERSION),
+  updated_at: IsoDateTimeSchema,
+});
 
 export type SyncCheckpoint = z.infer<typeof SyncCheckpointSchema>;
 

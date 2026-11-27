@@ -106,9 +106,10 @@ export function registerMutationTools(
       {
         description:
           "Set or clear always-return on an existing active personal rule.",
-        inputSchema: z
-          .object({ knowledge_id: KnowledgeIdSchema, enabled: z.boolean() })
-          .strict(),
+        inputSchema: z.strictObject({
+          knowledge_id: KnowledgeIdSchema,
+          enabled: z.boolean(),
+        }),
         outputSchema: AlwaysReturnResultSchema,
         annotations: {
           readOnlyHint: false,
