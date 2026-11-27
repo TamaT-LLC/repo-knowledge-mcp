@@ -388,6 +388,7 @@ MCP plane には承認・却下を直接指示する tool を公開しません�
 | `list [repo]` | canonical knowledge を列挙 |
 | `stats [repo]` | versioned aggregate を JSON で出力 |
 | `doctor [repo]` | installation と canonical state を診断 |
+| `conversations status\|purge\|reset-key` | 会話データ領域の確認、条件付き削除、HMAC 鍵の作り直し |
 | `export [repo] --bootstrap` | agent bootstrap の一文を出力 |
 | `serve` | stdio MCP server を明示起動 |
 
@@ -458,6 +459,10 @@ npm uninstall --global @tamat-llc/repo-knowledge-mcp
 
 package を uninstall してもローカルデータは残ります。
 ローカルデータも消す場合は、`repo-knowledge doctor` で保存先を確認し、必要な backup を取得してから、そのディレクトリだけを削除してください。
+
+会話データ領域（`~/.repo-knowledge/conversations/`）の発言だけを消す場合は、`repo-knowledge conversations purge` で条件を指定して削除します。
+削除条件は保存されるので、同じ発言は再取り込みされません。
+詳細は[会話データの管理](https://github.com/TamaT-LLC/repo-knowledge-mcp/blob/main/docs/operations/usage-reference.md#conversation-data)を参照してください。
 
 <a id="development-and-release"></a>
 

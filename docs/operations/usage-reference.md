@@ -31,6 +31,7 @@ repository を位置引数と `--repo` の両方で指定しないでくださ�
 | `reindex [repo]` | canonical data から `index.sqlite` を再構築 |
 | `redistill [repo] <selector>` | `--all`、`--author <login>`、`--prompt-version <version>`、`--failed`、`--outdated` の一つで再処理対象を選択 |
 | `reconcile [repo] --write-derived-metadata` | 導出した metadata を明示的に保存 |
+| `conversations <status\|purge\|reset-key>` | 会話データ領域の確認と削除。詳細は[会話データの管理](#conversation-data) |
 
 `redistill --outdated` は現在の prompt、schema、trust policy に対応する job がない thread だけを対象にします。
 既存 job の強制リセットには使えません。
@@ -53,7 +54,7 @@ active rule がなく失敗した job だけが残る場合、MCP の `readiness
 通常は ID を指定する管理 command より、内容をまとめて確認できる `review` を使います。
 
 `record_outcome` は MCP tool であり、同名の CLI command は提供しません。
-`--json` は `setup` 専用です。`sync` と `stats` は既定で JSON を出力します。
+`--json` は `setup` 専用です（`conversations status` は互換のため受け付けますが、指定しなくても JSON を出力します）。`sync` と `stats` も既定で JSON を出力します。
 
 ## repository の解決と設定
 
@@ -619,6 +620,56 @@ npm run quality:gate
 
 実 provider を使う測定と threshold 更新は [provider golden baseline 測定 runbook](./golden-baseline-runbook.md) に従ってください。
 
+<a id="conversation-data"></a>
+
+## 会話データの管理
+
+会話ログ蒸留（[設計書](../design/conversation-log-distillation.md)）の取り込み先は、canonical store とは別の会話データ領域 `~/.repo-knowledge/conversations/` です。
+現時点で提供しているのは、この領域の確認・削除・鍵の作り直しを行う command と、設定ファイルの読み込みです。
+取り込み処理そのものは後続の変更で追加します。
+
+設定は `~/.repo-knowledge/conversation-distillation.json` に置きます。
+ファイルがなければ会話の取り込みは無効です。
+symlink は拒否し、group や others から読める権限は 600 に矯正します。
+
+```json
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "sources": { "claudeCode": { "enabled": true }, "codex": { "enabled": false } },
+  "retentionDays": 90,
+  "redactTerms": ["社内コード名"],
+  "excludeProjects": ["owner/private-repo", "/Users/me/secret-project"]
+}
+```
+
+- `retentionDays` を過ぎた発話は本文を消し、削除条件の照合に必要な値だけを残します。`null`（既定）は無期限です。
+- `redactTerms` は保存前に置換する語です。秘密情報の既定パターンに加えて適用されます。
+- `excludeProjects` は `owner/name` または `/` から始まる path prefix です。path は大文字小文字を区別せずに照合します。
+
+| command | 用途 |
+| --- | --- |
+| `conversations status [--json]` | 設定の要約、保存件数、鍵の状態、警告を JSON で出力する。発言本文は出力しない |
+| `conversations purge --session <id>` | 指定 session の発言を削除する |
+| `conversations purge --before <iso>` | 指定時刻より前の発言を削除する |
+| `conversations purge --source <claude-code\|codex>` | 指定 source の発言を削除する |
+| `conversations purge --project <owner/name\|path>` | 指定 repository または path 配下の発言を削除する |
+| `conversations purge --resume` | 中断した purge を最後まで実行する。条件は追加しない |
+| `conversations reset-key [--restart]` | HMAC 鍵を作り直し、保存済みの発言、episode、checkpoint、route cache を破棄する |
+
+`purge` の条件は一度に一つだけ指定します。
+削除条件は `purge-filters.json` に保存され、以後の取り込みでも同じ条件の発言は保存されません。
+`reset-key` も削除条件を保持するので、次回の取り込みで source を読み直しても削除済みの発言は戻りません。
+
+`purge` と `reset-key` はデータを削除するため、実 TTY で確認するか `--yes` を指定します。
+確認を断ると `{"confirmed":false}` を出力し、何も変更しません。
+処理が中断した場合、次回の実行が進捗ファイル（`purge-progress.json`、`reset-pending.json`）から続きを再開します。
+`reset-key` の中断後に新しい鍵が失われた場合だけ、`--restart` で最初からやり直します。
+
+鍵ファイル `local.key` が symlink の場合、group や others から読める権限の場合、他のユーザーが所有している場合は使いません。
+`repo-knowledge doctor` の `conversations.store` が状態と対処方法を表示します。
+会話データ領域の directory は mode 700、file は mode 600 で作成します。
+
 ## storage と直接編集
 
 ```text
@@ -632,6 +683,9 @@ npm run quality:gate
     ├── transactions/
     └── index.sqlite
 ```
+
+会話ログ蒸留を使う場合は、同じ root に `conversation-distillation.json` と `conversations/` も作成します。
+`conversations/` は canonical data ではありません。構成と管理方法は[会話データの管理](#conversation-data)を参照してください。
 
 knowledge Markdown、raw JSONL、event JSONL、repository registry は canonical data です。
 `index.sqlite` は派生 projection なので、削除後に `reindex` で再構築できます。
