@@ -518,7 +518,7 @@ HMAC(local.key, JCS({ source, session_id, source_message_id | null, timestamp, m
 | `local.key.next` があり、マーカーがない | 0 段目の鍵の保存後、マーカーの保存前 | `local.key.next` を消して 0 段目から始める。まだ何も変えていないため、新しい鍵を作り直してよい |
 | マーカーがあり、`local.key.next` の `key_id` がマーカーと一致する | 1 段目の rename 前 | 1 段目から続ける |
 | マーカーがあり、`local.key` の `key_id` がマーカーと一致する | 1 段目の rename 後 | 1 段目の破棄（何度行っても同じ結果になる）から続け、マーカーに記録した段の次へ進む |
-| マーカーがあり、どちらの鍵もマーカーの `key_id` と一致しない | 鍵ファイルを外から消した、または壊した | 自動では続けず、`doctor` で警告して `conversations reset-key --restart` を案内する。`--restart` はマーカーを消して 0 段目からやり直す。3 段目は現在と異なる `key_id` の evidence をすべて withdrawn にするため、やり直しても整合する |
+| マーカーがあり、どちらの鍵もマーカーの `key_id` と一致しない | 鍵ファイルを外から消した、または壊した | 自動では続けず、`doctor` で警告して `conversations reset-key --restart` を案内する。`--restart` は古いマーカーを使わずに 0 段目からやり直す（マーカーは 0 段目で新しい鍵の `key_id` に書き換える）。3 段目は現在と異なる `key_id` の evidence をすべて withdrawn にするため、やり直しても整合する |
 
 3 を行うのは、古い世代の `session_key` と新しい世代の `session_key` が一致せず、同じセッションが二重に数えられるためである。
 古い evidence を根拠としていたナレッジは、再取り込みと再蒸留の後に `same` の merge で新しい evidence を得る。
@@ -1616,7 +1616,7 @@ Claude Code の会話ファイルが削除される前に取り込めるよう�
 
 1. 会話データ領域の `.lock` を取る
 2. 削除条件を `purge-filters.json` に追記する
-3. 条件に一致する発言と tombstone の ID を `purge-progress.json` に控え（`stage: ids_recorded`）、それらを除いて `utterances.jsonl` と `episodes.jsonl` を compaction する。同じ compaction で、代表発言が控えた ID に含まれるラベルの `labeled` と `label_pending` を `grouping-runs.jsonl` から消す。ラベルの文字列は削除した発言から作られたものなので、物理的に消し、以後の統合とラベル同士の照合で送らない。そのラベルを参照する `ClusterMerged` と `aliased` は ID だけなので残し、既に束ねたクラスタはそのままにする。compaction の rename が終わったら `stage: compacted` を記録する。4 と 5 の完了もそれぞれ記録し、5 まで終わったら `purge-progress.json` を消す
+3. 条件に一致する発言と tombstone の ID を `purge-progress.json` に控え（`stage: ids_recorded`）、それらを除いて `utterances.jsonl` と `episodes.jsonl` を compaction する。同じ compaction で、代表発言が控えた ID に含まれるラベルの `labeled` と `label_pending` を `grouping-runs.jsonl` から消す。ラベルの文字列は削除した発言から作られたものなので、物理的に消し、以後の統合とラベル同士の照合で送らない。そのラベルを参照する `ClusterMerged` と `aliased` は ID だけなので残し、既に束ねたクラスタはそのままにする。compaction の rename が終わったら `stage: compacted` を記録する。4 の完了も記録し、5 まで終わったら `purge-progress.json` を消す
 4. ストアごとに writer lock を取り、lock を持った状態で、3 で控えた ID を根拠とする active な evidence を列挙して `ConversationEvidenceWithdrawn` を追記する
 5. ストアごとに writer lock を取り、未完了の job のうち構成発言に 3 で控えた ID を含むものを failed にする
 

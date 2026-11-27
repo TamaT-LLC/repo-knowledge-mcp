@@ -630,7 +630,7 @@ npm run quality:gate
 
 設定は `~/.repo-knowledge/conversation-distillation.json` に置きます。
 ファイルがなければ会話の取り込みは無効です。
-symlink は拒否します。group や others から読める権限は、取り込みが設定を読み込むときに 600 に矯正します（取り込みは後続の変更で追加します）。`conversations status` は権限を報告するだけで、変更しません。
+symlink は拒否します。group や others に何らかの権限（読み・書き・実行）がある場合は、取り込みが設定を読み込むときに 600 に矯正します（取り込みは後続の変更で追加します）。`conversations status` は権限を報告するだけで、変更しません。
 
 ```json
 {
@@ -674,9 +674,9 @@ symlink は拒否します。group や others から読める権限は、取り�
 確認を断ると `{"confirmed":false}` を出力し、何も変更しません。
 処理が中断した場合、次回の実行が進捗ファイル（`purge-progress.json`、`reset-pending.json`）から続きを再開します。
 `reset-key` の中断後に新しい鍵が失われた場合だけ、`--restart` で最初からやり直します。
-パスを条件にした purge が中断したまま古い `local.key` を失った場合、`reset-key` は止まります。リンクでつながったコピーを古い鍵なしでは探せないためです。`local.key` を戻して再実行するか、そのコピーの追跡を諦めて `purge-progress.json` を削除してから再実行します。削除条件そのものは保存済みで、以後の取り込みにも適用されます。
+パスを条件にした purge が条件の保存の段（`filter_saved`）で中断し、保存済みの発言が残ったまま古い `local.key` を失った場合、`reset-key` は止まります（それより後の段で中断した purge は、控えた ID で片付けて先へ進みます）。リンクでつながったコピーを古い鍵なしでは探せないためです。`local.key` を戻して再実行するか、そのコピーの追跡を諦めて `purge-progress.json` を削除してから再実行します。削除条件そのものは保存済みで、以後の取り込みにも適用されます。
 
-鍵ファイル `local.key` が symlink の場合、group や others から読める権限の場合、他のユーザーが所有している場合は使いません。
+鍵ファイル `local.key` が symlink の場合、group や others に何らかの権限がある場合、他のユーザーが所有している場合は使いません。
 例外は `reset-key` が中断中のパス purge を片付けるときだけです。直後に捨てる古い鍵なので、権限や所有者に問題があっても読めれば照合に使います（symlink は使いません）。
 `repo-knowledge doctor` の `conversations.store` が状態と対処方法を表示します。
 会話データ領域の directory は mode 700、file は mode 600 で作成します。
@@ -699,7 +699,7 @@ symlink は拒否します。group や others から読める権限は、取り�
 マスクは既知の形の秘密情報とユーザー名を含むパスを対象にしており、次のものは残ることがあります。
 残したくない語は `redactTerms` に登録してください。
 
-- `password`、`token`、`secret`、`pwd`、`api_key`、`private_key` などを含まないキー名への代入（`pin=1234` など）と、これらの語の直後に `_` や `-` を挟まず文字が続くキー名への代入。`password`、`passwd`、`secret`、`token`、`api_key` の場合は 16 文字未満の値だけが残り（`tokens=abc`、`passwordHash=x`、`secretKey=abc`）、`pwd`、`passphrase`、`private_key` の場合は値の長さによらず残ります（`pwdHash=…`、`privateKeyId=…`）
+- `password`、`token`、`secret`、`pwd`、`api_key`、`private_key` などを含まないキー名への代入（`pin=1234` など）と、これらの語の直後に `_` や `-` を挟まず文字が続くキー名への代入。`password`、`passwd`、`secret`、`token`、`api_key` の場合は 16 文字未満の値だけが残り（`tokens=abc`、`passwordHash=x`、`secretKey=abc`）、`pwd`、`passphrase`、`private_key` の場合は、英字と数字を両方含む 32 文字以上の値（別の規則で置換されます）を除いて残ります（`pwdHash=…`、`privateKeyId=…`）
 - `-u user:pass` と MySQL の `-p<pass>` 以外の形でコマンド引数に書いた認証情報
 - 既知の接頭辞（`glpat-`、`hf_`、`sk_live_` など）がなく、区切り文字で 32 文字未満に分かれるトークン。接頭辞があっても数字を含まないもの
 - `Authorization` header の外にある `Bearer` の後の、8 文字未満の値や英字だけの値
