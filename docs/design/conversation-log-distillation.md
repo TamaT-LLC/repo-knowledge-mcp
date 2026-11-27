@@ -1616,7 +1616,7 @@ Claude Code の会話ファイルが削除される前に取り込めるよう�
 
 2 を 3 より先に行うため、途中で中断しても、以後の取り込みは削除条件を参照して該当する発言を保存しない。
 3 は tombstone も照合の対象にするため、保存期間で本文が消えた後の発言についても、4 で evidence を withdrawn にし、5 で job を failed にできる。照合に使った tombstone も compaction で消す。
-再実行すると、`purge-progress.json` がなければ 3 から、`ids_recorded` なら控えた ID のまま compaction から、`compacted` 以降なら記録された段の次からやり直す。
+再実行すると、`purge-progress.json` がなければ 3 から、`ids_recorded` なら控えた ID で compaction から、`compacted` 以降なら記録された段の次からやり直す（控えた ID にリンクで結ばれたコピーが増えていた場合は、下に書くとおり compaction からやり直す）。
 ID の一時ファイルの有無だけで段を判断しないため、compaction の完了前に中断しても発言が物理的に残ることはない。
 
 2 の前には、追記する条件を `purge-progress.json` に `stage: filter_saved` として記録する。2 の途中で中断しても、再実行（`conversations purge --resume` を含む）と取り込みがその条件を使う。
