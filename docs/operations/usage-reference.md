@@ -27,7 +27,7 @@ repository を位置引数と `--repo` の両方で指定しないでくださ�
 | `review [repo]` | 候補と変更提案を一つの TTY session で確認 |
 | `stats [repo]` | JSON 集計。`--bucket total` または `--bucket day --since <iso> --until <iso>` |
 | `export [repo] --bootstrap` | 明示した repository または workspace を含む `get_rules` の呼び出し指示を出力 |
-| `export [repo] --format claude-md\|agents-md` | 承認済みの active rule を CLAUDE.md / AGENTS.md に貼り付ける Markdown ブロックとして stdout に出力。`--store repository\|global\|all`（既定 `repository`）、`--repo <owner/name>`、`--origin conversation\|all`（既定 `all`）。scope 付きの rule には適用範囲を添える。HTML コメントや管理マーカーの文字列は `&lt;!--` などに置き換え、その件数を stderr に出す。ファイルには書き込まない |
+| `export [repo] --format claude-md\|agents-md` | 承認済みの active rule を CLAUDE.md / AGENTS.md に貼り付ける Markdown ブロックとして stdout に出力。`--store repository\|global\|all`（既定 `repository`）、`--origin conversation\|all`（既定 `all`）。ファイルには書き込まない。詳細は[active rule の書き出し](#rule-export) |
 | `serve` | stdio MCP server を起動。repository は `--repo` または `--workspace` で指定 |
 | `reindex [repo]` | canonical data から `index.sqlite` を再構築 |
 | `redistill [repo] <selector>` | `--all`、`--author <login>`、`--prompt-version <version>`、`--failed`、`--outdated` の一つで再処理対象を選択 |
@@ -619,6 +619,45 @@ npm run quality:gate
 ```
 
 実 provider を使う測定と threshold 更新は [provider golden baseline 測定 runbook](./golden-baseline-runbook.md) に従ってください。
+
+<a id="rule-export"></a>
+
+## active rule の書き出し
+
+`repo-knowledge export --format claude-md` と `--format agents-md` は、承認済みの active rule を、CLAUDE.md や AGENTS.md に貼り付ける Markdown ブロックとして stdout に出力します。
+proposed や保留の knowledge は出力しません。
+ファイルには書き込まないため、貼り付けやリダイレクトは利用者が行います。
+
+```bash
+repo-knowledge export owner/repository --format claude-md
+```
+
+```bash
+repo-knowledge export --format agents-md --store global
+```
+
+| option | 内容 |
+| --- | --- |
+| `--format claude-md\|agents-md` | 出力の形式。二つは begin マーカーと hook の節の導入だけが異なる。`claude-md` は `### hook での強制を推奨` の見出し、`agents-md` は注記を置く |
+| `--store repository\|global\|all` | 対象のストア。既定は `repository`。`global` は個人用のグローバルストアで、リポジトリを指定しない。`all` はリポジトリ、グローバルの順に出す |
+| `[repo]` または `--repo <owner/name>` | 登録済みのリポジトリ。省略すると cwd の `workspaceMappings`、`defaultRepo` の順に選ぶ。GitHub には問い合わせず、大文字小文字を区別せずに照合する |
+| `--origin conversation\|all` | `conversation` は会話から蒸留した rule（frontmatter の `origin.source: conversation`）だけを出す。既定は `all` |
+
+出力は `<!-- repo-knowledge:begin format=... store=... -->` と `<!-- repo-knowledge:end -->` で囲まれます。
+scope を持つ rule には「（適用範囲: `glob`）」を添えます。
+rule 本文や scope に含まれる `<!--`、`-->`、`repo-knowledge:begin`、`repo-knowledge:end` は `&lt;!--` などに置き換え、改行や制御文字は空白にして一行にします。
+置き換えた rule、見える文字が残らず省いた rule、見えない scope パターンを省いた rule の件数は stderr に出ます。
+
+export は読み取りだけを行い、lock、registry、`index.sqlite` を作りません。
+ほかの repo-knowledge のコマンドが書き込み中の場合は、終わるまで約 2 秒待ちます。
+
+| エラー | 意味と対処 |
+| --- | --- |
+| `RULE_EXPORT_REPOSITORY_NOT_REGISTERED` | リポジトリが未登録。`repo-knowledge setup owner/name` を先に実行する |
+| `RULE_EXPORT_REPOSITORY_UNRESOLVED` | リポジトリを選べない。`--repo` を渡すか、`workspaceMappings` か `defaultRepo` を設定する |
+| `RULE_EXPORT_STORE_BUSY` | 書き込みが続いている。少し待って再実行する |
+| `RULE_EXPORT_RECOVERY_REQUIRED` | 中断された書き込みが残っている。表示された `reindex` か `doctor` の案内に従う |
+| `RULE_EXPORT_STORE_UNSAFE` | ストアや配下がシンボリックリンク、または journal や lock の種類が違う。表示された案内に従って配置を直す |
 
 ## storage と直接編集
 
