@@ -462,6 +462,7 @@ canonical は生のセッション ID を持たないため、削除条件の照
 保存済みの発言と tombstone に対しては、`project_path_prefix` を正規化して現在の鍵で HMAC を取り、その値が `path_prefix_hmacs` に含まれるかで照合する。
 `path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/`、`/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ。階層の数に上限は設けず、ルート `/` を含むすべての階層を持つ。そのため削除条件や `excludeProjects` に `/` を指定した場合も、取り込み時と保存後の照合が同じ結果（すべてに一致）になる。上限を設けると、それより深いパスを削除条件や `excludeProjects` に指定したときに照合が漏れるためである。
 前方一致を HMAC の集合の包含で表すため、生のパスを保存せずに、`/Users/alice/repo` と `/Users/bob/repo` を区別できる。
+パスの正規化（NFC、区切りの正規化、末尾の `/` の除去、大文字小文字の畳み込み）は、`path_prefix_hmacs` を作る側と照合する側で同じ関数（[conversation paths](../../src/conversation-paths.ts)）を使う。大文字小文字を畳み込むのは、macOS の既定のファイルシステムが区別しないためで、区別するファイルシステムでは一致が広がる（削除と除外が多めに効く）方向にだけ働く。
 マスク後のパスは区別できないため、照合には使わない。
 
 鍵を作り直すと HMAC が変わるが、`reset-key` は 1 段目で `utterances.jsonl`（tombstone を含む）を破棄し、3 段目で古い世代の evidence を withdrawn にする。
@@ -504,6 +505,10 @@ HMAC(local.key, JCS({ source, session_id, source_message_id | null, timestamp, m
 マーカーがある間は、`ingest-conversations`、MCP の `ingest_conversations`、`distill-conversations`、`prepare_conversation_distillation`、`submit_conversation_distillation` を拒否し、`conversations reset-key` の再実行を案内する。
 中断後に再実行した場合は、鍵を作り直さず、マーカーに記録した新しい鍵のまま、完了していない段だけを続ける。
 鍵を二度作り直すと、1 段目以降に作った発言 ID や 3 段目の判定がずれるためである。
+
+0 段目の前に、中断した purge があれば先に完了させる。その削除条件とリンクで見つかるコピーの識別を、破棄の前に `purge-filters.json` へ残すためである。
+パスの削除条件が `filter_saved` のまま中断している場合は、古い `local.key` で保存済みの発言と照合する。この照合に限り、権限や所有者の検査に通らない鍵も読めれば使う（直後に破棄する鍵だから。symlink は使わない）。
+古い鍵が読めず、保存済みの発言がある場合は、条件だけを保存して止まり、進捗とリンクを残す。`local.key` を戻して再実行するか、リンク先のコピーの追跡をあきらめて `purge-progress.json` を消してから再実行するよう案内する。
 
 鍵は必ずマーカーより先に永続化する。
 再実行時は、鍵ファイルとマーカーの状態から次のとおり再開する。
@@ -1613,6 +1618,11 @@ Claude Code の会話ファイルが削除される前に取り込めるよう�
 3 は tombstone も照合の対象にするため、保存期間で本文が消えた後の発言についても、4 で evidence を withdrawn にし、5 で job を failed にできる。照合に使った tombstone も compaction で消す。
 再実行すると、`purge-progress.json` がなければ 3 から、`ids_recorded` なら控えた ID のまま compaction から、`compacted` 以降なら記録された段の次からやり直す。
 ID の一時ファイルの有無だけで段を判断しないため、compaction の完了前に中断しても発言が物理的に残ることはない。
+
+2 の前には、追記する条件を `purge-progress.json` に `stage: filter_saved` として記録する。2 の途中で中断しても、再実行（`conversations purge --resume` を含む）と取り込みがその条件を使う。
+history と会話ファイルの間の `superseded` で結ばれた発言は一つの発言とみなし、どちらかが条件に一致すれば両方を消す。
+リンクを通じてだけ一致したコピーは、自分の値では条件に一致しないため、その識別（`source`、`session_id`、`timestamp`）を `purge-filters.json` の `copies` に残す。`reset-key` でリンクが消えた後も、そのコピーは再取り込みで保存しない。
+再実行では、どの段からでも、控えた ID を起点に現在のリンクをたどり直す。中断の間に足されたリンクで新しいコピーが見つかった場合は、その ID を加えて compaction からやり直す（4 と 5 は同じ ID で繰り返しても結果が変わらない）。
 
 4 で evidence の列挙を lock の後に行うのは、列挙と追記の間に submit が同じ発言の evidence を書く競合を防ぐためである。
 submit 側も、ストアの writer lock を持った状態で、書き込む evidence の発言が `purge-filters.json` に一致しないこと、会話データ領域に存在することを確かめる（[同時実行](#cd-concurrency)）。

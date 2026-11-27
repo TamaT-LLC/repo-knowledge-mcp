@@ -643,9 +643,10 @@ symlink は拒否し、group や others から読める権限は読み込み時�
 }
 ```
 
-- `retentionDays` を過ぎた発話は本文を消し、削除条件の照合に必要な値だけを残します。`null`（既定）は無期限です。
+- `retentionDays` を過ぎた発話は、取り込みの開始時に本文を消し、削除条件の照合に必要な値だけを残します。`null`（既定）は無期限です。
 - `redactTerms` は保存前に置換する語です。秘密情報の既定パターンに加えて適用されます。
-- `excludeProjects` は `owner/name` または `/` から始まる path prefix です。path は大文字小文字を区別せずに照合します。
+  語を変えても効くのは新しい取り込みだけです。保存済みの発言に効かせるには `conversations reset-key` で取り込み直します。
+- `excludeProjects` は `owner/name` または `/` から始まる path prefix です。一致するプロジェクトの発言は取り込みません。path は大文字小文字を区別せずに照合します。
 
 | command | 用途 |
 | --- | --- |
