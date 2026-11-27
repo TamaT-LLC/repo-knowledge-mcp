@@ -681,7 +681,7 @@ symlink は拒否します。group や others から読める権限は、取り�
 `repo-knowledge doctor` の `conversations.store` が状態と対処方法を表示します。
 会話データ領域の directory は mode 700、file は mode 600 で作成します。
 
-`utterances.jsonl` に壊れた行があると、purge は `CONVERSATION_DATA_CORRUPT` で止まります。新しい条件を指定した purge だった場合は `purge-progress.json` が残ります（`--resume` や保存済みの条件の再指定では残りません）。
+`utterances.jsonl` に壊れた行があると、purge は `CONVERSATION_DATA_CORRUPT` で止まります。新しい条件を指定した purge だった場合は `purge-progress.json` が残ります（`--resume` や保存済みの条件の再指定では新しく作られません。前の失敗で残ったものはそのまま残ります）。
 この状態では、中断した purge を先に片付けようとする `reset-key` も同じエラーで止まります。
 保存済みの発言を作り直してよい場合は、`purge-progress.json` を消してから `reset-key` を実行します。
 条件は purge の 2 段目で保存済みなので、消しても以後の取り込みには適用されます。
