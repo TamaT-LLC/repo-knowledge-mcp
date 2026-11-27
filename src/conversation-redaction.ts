@@ -106,10 +106,14 @@ const HOME_DIRECTORY_PATH_SOURCE = String.raw`(?:(?<![\w.-])|(?<=(?:^|\s)-[A-Za-
 /**
  * Start of a conversation-only secret assignment, up to and including the
  * `:` or `=` and its spaces; the `prefix` group stays open for the quote.
+ * A separator followed by `=` or `>` is a comparison or an arrow
+ * (`token == null`, `token := f()`, `password => hash(password)`), and the
+ * value must sit on the same line, so a YAML map (`secret:` and its nested
+ * keys below) is left alone.
  * The keyword may sit anywhere in the key (`SECRET_KEY`, `PASSWORD_DB`),
  * but a suffix must start with `_` or `-`, so `max_tokens: 100` is kept.
  */
-const SECRET_KEY_SOURCE = String.raw`\b(?<prefix>(?:[A-Za-z0-9_-]{0,64}(?:password|passwd|passphrase|pwd|secret|token|private[_-]?key|api[_-]?key)(?:[_-][A-Za-z0-9_-]{0,64})?|pass(?=["'\x60]?\s*=))["'\x60]?\s*[:=]\s*`;
+const SECRET_KEY_SOURCE = String.raw`\b(?<prefix>(?:[A-Za-z0-9_-]{0,64}(?:password|passwd|passphrase|pwd|secret|token|private[_-]?key|api[_-]?key)(?:[_-][A-Za-z0-9_-]{0,64})?|pass(?=["'\x60]?[^\S\n]*=(?![=>])))["'\x60]?[^\S\n]*[:=](?![=>])[^\S\n]*`;
 
 /** A value runs until whitespace, a quote, or a list/statement separator. */
 const VALUE_TAIL = String.raw`[^\s"'\x60,;]*`;
@@ -185,10 +189,12 @@ const RULES: readonly RedactionRule[] = [
     // no longer identifiable from what is left. Matched on the whole text
     // and never right after a placeholder: per segment, each mask would
     // expose the next link of a `-Users-a-Users-a` chain to the next pass,
-    // and the fixpoint loop would take quadratic time.
+    // and the fixpoint loop would take quadratic time. The same places as
+    // the path rule are covered in encoded form (`-Volumes-Ext-Users-a`,
+    // `-mnt-c-Users-a`, `-var-home-a`, `C--Users-a`), in any letter case.
     kind: "home_directory_path",
     pattern:
-      /(?<![A-Za-z0-9_.\]-])(?<prefix>-(?:[Uu]sers|home)-)[^-/\\\s"'\x60<>()[\]{}|;:,]+/gu,
+      /(?<![A-Za-z0-9_.\]-])(?<prefix>(?:[a-z]-|-mnt-[a-z]|-usr|-var|-export|-private-var|-private|-system-volumes-data|-volumes-[^-/\\\s"'\x60<>()[\]{}|;:,]+)?-(?:users|home)-)[^-/\\\s"'\x60<>()[\]{}|;:,]+/giu,
     replacement: "keep_prefix",
     wholeText: true,
   },

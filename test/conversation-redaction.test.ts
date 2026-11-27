@@ -70,6 +70,14 @@ const RULES = [
     redactions: [{ count: 2, kind: "home_directory_path" }],
   },
   {
+    name: "encoded home directories under other places and in any letter case",
+    input:
+      "x/-Volumes-Ext-Users-alice-repo x/-mnt-c-Users-alice-repo x/-var-home-alice-repo x/-usr-home-alice-repo x/-private-var-home-alice-repo C--Users-alice-repo -USERS-alice-x -Home-bob-x",
+    output:
+      "x/-Volumes-Ext-Users-[REDACTED]-repo x/-mnt-c-Users-[REDACTED]-repo x/-var-home-[REDACTED]-repo x/-usr-home-[REDACTED]-repo x/-private-var-home-[REDACTED]-repo C--Users-[REDACTED]-repo -USERS-[REDACTED]-x -Home-[REDACTED]-x",
+    redactions: [{ count: 8, kind: "home_directory_path" }],
+  },
+  {
     name: "an armored PGP secret key, through its END line or to the end",
     input:
       "key:\n-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBF0\n-----END PGP PRIVATE KEY BLOCK-----\nok, and -----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOY",
@@ -326,6 +334,10 @@ const UNCHANGED = [
   "the token is valid; hf_transfer_enabled; mkdir -p dir; mysql -u root -p",
   "a home-made my-home-page",
   "tokenizer: bpe and max_tokens: 100",
+  "if (token == null) return; if (token === expected) {",
+  'token := os.Getenv("X"); password => hash(password); pass==x',
+  "secret:\n  name: foo\n  value: bar",
+  "x/-var-log-foo and -mnt-c-data",
 ] as const;
 
 describe("conversation redaction rules", () => {
@@ -527,6 +539,8 @@ describe("user dictionary (redactTerms)", () => {
     ["repeated mysql commands", "mysql ".repeat(20_000)],
     ["repeated token prefixes", "hf_".repeat(30_000)],
     ["a chain of encoded home directories", "-Users-a".repeat(20_000)],
+    ["a chain of encoded volume homes", "-Volumes-v-Users-a".repeat(10_000)],
+    ["repeated comparisons with secret keys", "token == ".repeat(20_000)],
   ])("masks %s in linear time", (_name, text) => {
     const started = performance.now();
 
