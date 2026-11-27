@@ -4,9 +4,14 @@ import { join } from "node:path";
 
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
+  CommentObservationSchema,
   DomainProjectionError,
+  PullRequestObservationSchema,
+  ThreadObservationSchema,
+  captureCanonicalStateReadOnly,
   PROJECTION_SCHEMA_VERSION,
   SqliteCanonicalProjection,
   createDomainId,
@@ -225,6 +230,84 @@ describe("domain SQLite projection", () => {
       ).toEqual({ value: PROJECTION_SCHEMA_VERSION });
     } finally {
       reopened.close();
+    }
+  });
+
+  // The compiled observation parsers must accept and reject what the runtime
+  // ones do. `npm run test:compiled` runs the rest of the projection compiled.
+  it("accepts and rejects edge inputs like the runtime parser", async () => {
+    const repository = await createRepository();
+    await seedCompleteDomainState(repository);
+    const seeded = (
+      await captureCanonicalStateReadOnly(repository)
+    ).records.map((entry) => entry.record);
+    const seededPayload = (
+      records: readonly CanonicalJsonlRecord[],
+      type: string,
+    ) => {
+      const record = records.find(
+        (candidate) => candidate.record_type === type,
+      );
+      if (record === undefined) throw new Error(`no seeded ${type} record`);
+      return record.payload as Record<string, unknown>;
+    };
+    const variants = (
+      base: Record<string, unknown>,
+      changes: readonly Record<string, unknown>[],
+    ) => [
+      base,
+      ...changes.map((change) => ({ ...base, ...change })),
+      { ...base, unexpected: true },
+      { ...base, ...JSON.parse('{"__proto__": {"polluted": true}}') },
+      "not an object",
+      null,
+    ];
+    const timestamps = [
+      "2026-08-06T00:00:00Z",
+      "2026-08-06T00:00Z",
+      "2026-08-06",
+      "not a date",
+    ];
+    const cases = {
+      comment: variants(seededPayload(seeded, "CommentObservation"), [
+        ...timestamps.map((created_at) => ({ created_at })),
+        { url: "https://example.com/a b" },
+        { url: "javascript:alert(1)" },
+        { url: "http://" },
+        { diff_hunk: undefined },
+        { body: 1 },
+      ]),
+      pullRequest: variants(seededPayload(seeded, "PullRequestObservation"), [
+        ...timestamps.map((observed_at) => ({ observed_at })),
+        ...[0, -1, 1.5, 2 ** 53].map((pr_number) => ({ pr_number })),
+        { merged_at: null },
+        { title: "" },
+      ]),
+      thread: variants(seededPayload(seeded, "ThreadObservation"), [
+        { comment_ids: [] },
+        { comment_ids: ["b", "a", "b"] },
+        { comment_ids: ["a", 1] },
+        { path: "" },
+        { path: undefined },
+        { is_outdated: "yes" },
+      ]),
+    };
+
+    for (const [schema, inputs] of [
+      [CommentObservationSchema, cases.comment],
+      [PullRequestObservationSchema, cases.pullRequest],
+      [ThreadObservationSchema, cases.thread],
+    ] as const) {
+      const compiled = z.compile(schema);
+      for (const input of inputs) {
+        const expected = schema.safeParse(structuredClone(input));
+        const actual = compiled.safeParse(structuredClone(input));
+        // Wrapped with the input so that a failure shows which one differed.
+        expect({ input, result: actual }).toStrictEqual({
+          input,
+          result: expected,
+        });
+      }
     }
   });
 

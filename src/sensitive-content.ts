@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { compileWhenHot } from "./zod-compile-when-hot.js";
 
 export const SENSITIVE_CONTENT_DETECTED = "SENSITIVE_CONTENT_DETECTED";
 
@@ -21,21 +22,23 @@ export const SensitiveContentKindSchema = z.enum([
   "slack_token",
 ]);
 
-const SensitiveContentPathSchema = z
-  .string()
-  .regex(
-    /^\$(?:(?:\.[A-Za-z_][A-Za-z0-9_-]{0,63}|\.\*)|\[(?:0|[1-9][0-9]*)\])*$/u,
-    "path must contain only scanner-generated field names and indexes",
-  );
+const SensitiveContentPathSchema = compileWhenHot(
+  z
+    .string()
+    .regex(
+      /^\$(?:(?:\.[A-Za-z_][A-Za-z0-9_-]{0,63}|\.\*)|\[(?:0|[1-9][0-9]*)\])*$/u,
+      "path must contain only scanner-generated field names and indexes",
+    ),
+);
 
 export const SensitiveContentFindingSchema = z.strictObject({
   kind: SensitiveContentKindSchema,
   path: SensitiveContentPathSchema,
 });
 
-export const SensitiveContentFindingsSchema = z
-  .array(SensitiveContentFindingSchema)
-  .min(1);
+export const SensitiveContentFindingsSchema = compileWhenHot(
+  z.array(SensitiveContentFindingSchema).min(1),
+);
 
 export type SensitiveContentBoundary = z.infer<
   typeof SensitiveContentBoundarySchema
