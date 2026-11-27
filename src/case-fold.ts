@@ -3,8 +3,8 @@
  * Unicode case fold, so this approximates the full folding (CaseFolding.txt
  * C + F): upper-casing applies the multi-character mappings (`ß` -> `SS`,
  * `ŉ` -> `ʼN`), lower-casing brings them back down, and final sigma is
- * folded to `σ`. Where it differs from the full folding it can only make
- * more strings equal, the safe side for masking and deletion.
+ * folded to `σ`. It is not the full folding (Turkish dotted I, for one,
+ * differs), but it is idempotent and used on both sides of every match.
  */
 export function foldCase(value: string): string {
   // Repeated until stable, so folding a folded value changes nothing:

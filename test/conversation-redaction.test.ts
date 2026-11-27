@@ -385,6 +385,10 @@ describe("user dictionary (redactTerms)", () => {
     expect(
       redactConversationText("Straße", { redactTerms: ["STRASSE"] }).text,
     ).toBe("[REDACTED]");
+    // Capital sharp s folds through ß to ss, like the other spellings.
+    expect(
+      redactConversationText("STRAẞE", { redactTerms: ["Straße"] }).text,
+    ).toBe("[REDACTED]");
   });
 
   it("uses the current terms when the caller's list changes", () => {
