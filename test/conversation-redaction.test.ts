@@ -77,6 +77,26 @@ const RULES = [
     redactions: [{ count: 2, kind: "private_key_block" }],
   },
   {
+    name: "short or quoted secrets assigned to well-known key names",
+    input:
+      'DB_PASSWORD=hunter2 token=abc password = "correct horse battery staple" pwd: x9 private_key=k1 pass=p2 PGPASSWORD=y',
+    output:
+      'DB_PASSWORD=[REDACTED] token=[REDACTED] password = "[REDACTED]" pwd: [REDACTED] private_key=[REDACTED] pass=[REDACTED] PGPASSWORD=[REDACTED]',
+    redactions: [{ count: 7, kind: "generic_secret_assignment" }],
+  },
+  {
+    name: "passwords on a command line",
+    input: "curl -u admin:hunter2 x; mysql -u root -phunter2secret db",
+    output: "curl -u admin:[REDACTED] x; mysql -u root -p[REDACTED] db",
+    redactions: [{ count: 2, kind: "generic_secret_assignment" }],
+  },
+  {
+    name: "prefixed tokens split into short runs",
+    input: "use glpat-ab12-cd34-ef56 or hf_AbCdEf123456 or sk_live_abc_123_def",
+    output: "use [REDACTED] or [REDACTED] or [REDACTED]",
+    redactions: [{ count: 3, kind: "provider_api_key" }],
+  },
+  {
     name: "connection string credentials",
     input: "db postgres://admin:s3cr3t@db.example.test:5432/app",
     output: "db postgres://[REDACTED]@db.example.test:5432/app",
@@ -288,6 +308,9 @@ const UNCHANGED = [
   "a basic understanding of Basic Authentication",
   "Basic JavaScript knowledge and BASIC programming",
   "see https://api.example.com/users/42/orders and /srv/home/app",
+  "Tests pass: 5 of 6, bypass=1, max_tokens: 100 and cwd: /tmp",
+  "the token is valid; hf_transfer_enabled; mkdir -p dir; mysql -u root -p",
+  "a home-made my-home-page",
 ] as const;
 
 describe("conversation redaction rules", () => {
@@ -484,6 +507,10 @@ describe("user dictionary (redactTerms)", () => {
     ["repeated secret keys", "password=".repeat(20_000)],
     ["a chain of home directories", "/home/a".repeat(20_000)],
     ["a long run of JWT starts", "eyJ-".repeat(100_000)],
+    ["repeated short secret assignments", "password=".repeat(25_000)],
+    ["repeated command-line users", " -u a:".repeat(20_000)],
+    ["repeated mysql commands", "mysql ".repeat(20_000)],
+    ["repeated token prefixes", "hf_".repeat(30_000)],
     ["a chain of encoded home directories", "-Users-a".repeat(20_000)],
   ])("masks %s in linear time", (_name, text) => {
     const started = performance.now();

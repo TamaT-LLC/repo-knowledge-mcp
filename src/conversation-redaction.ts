@@ -103,6 +103,12 @@ const HOME_DIRECTORY_PATH_SOURCE = String.raw`(?:(?<![\w.-])|(?<=(?:^|\s)-[A-Za-
 // Repeated quantifiers in the rules are bounded where a rule can start at
 // many positions of one run, so masking stays linear in the text length.
 
+/**
+ * Start of a conversation-only secret assignment, up to and including the
+ * `:` or `=` and its spaces; the `prefix` group stays open for the quote.
+ */
+const SECRET_KEY_SOURCE = String.raw`\b(?<prefix>(?:[A-Za-z0-9_-]{0,64}(?:password|passwd|passphrase|pwd|secret|token|private[_-]?key|api[_-]?key)|pass(?=["'\x60]?\s*=))["'\x60]?\s*[:=]\s*`;
+
 /** A value runs until whitespace, a quote, or a list/statement separator. */
 const VALUE_TAIL = String.raw`[^\s"'\x60,;]*`;
 
@@ -247,6 +253,48 @@ const RULES: readonly RedactionRule[] = [
     kind: "basic_credentials",
     pattern:
       /\b(?:[Bb]asic|BASIC)\s+(?=[A-Za-z0-9+/]+[A-Z0-9+/])(?:[A-Za-z0-9+/]{4}){2,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![A-Za-z0-9+/=])/gu,
+  },
+  {
+    // A short or quoted secret assigned to a well-known key name, which the
+    // shared 16-character rule leaves alone (`DB_PASSWORD=hunter2`,
+    // `password = "correct horse battery staple"`, `pwd: x`). The key name
+    // and any quotes are kept; a value already masked is not matched again.
+    kind: "generic_secret_assignment",
+    pattern: new RegExp(
+      `${SECRET_KEY_SOURCE}["'\x60])(?!\\[REDACTED\\])[^"'\x60\\n]{1,256}(?=["'\x60])`,
+      "giu",
+    ),
+    replacement: "keep_prefix",
+  },
+  {
+    kind: "generic_secret_assignment",
+    pattern: new RegExp(
+      `${SECRET_KEY_SOURCE})(?!["'\x60[])[^\\s"'\x60,;[]{1,256}`,
+      "giu",
+    ),
+    replacement: "keep_prefix",
+  },
+  {
+    // A password on a command line: `-u user:pass` / `--user user:pass`
+    // (curl, wget) keeps the user, and MySQL's attached `-p<pass>` is masked.
+    kind: "generic_secret_assignment",
+    pattern:
+      /(?<prefix>(?:^|\s)(?:-u|--user)(?:\s+|=)[^\s:]{1,128}:)\S{1,256}/gu,
+    replacement: "keep_prefix",
+  },
+  {
+    kind: "generic_secret_assignment",
+    pattern:
+      /(?<prefix>\bmysql(?:dump|admin)?\b[^\n]{0,200}?\s-p)(?![\s-])\S{1,256}/gu,
+    replacement: "keep_prefix",
+  },
+  {
+    // Tokens whose separators split them into runs too short for the
+    // 32-character rule (`glpat-…`, `hf_…`, `sk_live_…`). A digit is
+    // required, so names such as `hf_transfer_enabled` are left alone.
+    kind: "provider_api_key",
+    pattern:
+      /\b(?:glpat|gldt|glptt|hf|sk_live|sk_test|rk_live|rk_test|npm|pypi|xapp)[-_](?=[A-Za-z0-9_-]{0,256}[0-9])[A-Za-z0-9_-]{8,256}/gu,
   },
   {
     // Starts only where no token character precedes: `\b` would let every
