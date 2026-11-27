@@ -985,6 +985,45 @@ describe("purge", () => {
     ).resolves.toMatchObject({ saved: 0, skipped: { purged: 1 } });
   });
 
+  it("follows a link to a recorded ID whose record is already compacted away", async () => {
+    await store().saveUtterances([draft({ session_id: "doomed" })], config());
+    const [doomed] = await utterances();
+    const episodes = join(root, "conversations", "episodes.jsonl");
+    await writeFile(
+      episodes,
+      `${JSON.stringify({ utterance_ids: [doomed!.utterance_id] })}\n`,
+      { mode: 0o600 },
+    );
+    let renames = 0;
+    const crashing = new ConversationStore(root, {
+      checkpoint: (name) => {
+        if (name === "compaction:before-rename" && ++renames === 2) {
+          throw new Crash(name);
+        }
+      },
+      clock: () => NOW,
+    });
+    await expect(
+      crashing.purge({ session_id: "doomed" }),
+    ).rejects.toBeInstanceOf(Crash);
+    expect(await utterances()).toEqual([]);
+
+    await store().saveUtterances(
+      [draft({ session_id: "pseudo-2", source_origin: "history" })],
+      config(),
+    );
+    const [copy] = await utterances();
+    await store().saveSuperseded([
+      { superseded_by: doomed!.utterance_id, utterance_id: copy!.utterance_id },
+    ]);
+
+    await expect(store().purge(null)).resolves.toMatchObject({
+      resumed_from: "ids_recorded",
+    });
+    expect(await utterances()).toEqual([]);
+    expect(await readFile(episodes, "utf8")).toBe("");
+  });
+
   it("purges by session without reading an unreadable key", async () => {
     await store().saveUtterances([draft({ session_id: "doomed" })], config());
     const target = store();
@@ -1309,11 +1348,14 @@ describe("purge", () => {
       [
         draft({ project: projectAt("/work/ΟΣ") }),
         draft({ project: projectAt("/work/Straße") }),
+        draft({ project: projectAt("/work/ẞ") }),
       ],
       config(),
     );
     await store().purge({ project_path_prefix: "/work/οσ" });
     await store().purge({ project_path_prefix: "/work/STRASSE" });
+    // `ẞ` folds to `ß`, then `ss`: the purge must fold it the same way.
+    await store().purge({ project_path_prefix: "/work/ẞ" });
     expect(await utterances()).toEqual([]);
   });
 

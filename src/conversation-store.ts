@@ -628,7 +628,9 @@ export class ConversationStore {
     // History and transcript copies linked by `superseded` are one
     // utterance: matching either copy removes both, even when the other's
     // own fields (a pseudo session, a millisecond apart) do not match.
-    const matched = new Set(direct);
+    // Chosen IDs seed the walk even when their record is already gone (a
+    // compaction stopped between files), so their links are still followed.
+    const matched = new Set([...direct, ...chosen]);
     for (let grew = true; grew; ) {
       grew = false;
       for (const { duplicate, kept } of links) {

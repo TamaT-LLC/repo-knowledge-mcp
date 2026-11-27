@@ -7,5 +7,15 @@
  * more strings equal, the safe side for masking and deletion.
  */
 export function foldCase(value: string): string {
-  return value.toUpperCase().toLowerCase().replaceAll("ς", "σ");
+  // Repeated until stable, so folding a folded value changes nothing:
+  // `ẞ` lowers to `ß`, which only a second pass expands to `ss`.
+  // Two passes settle every mapping in Unicode; the cap only guards a
+  // future mapping that would not.
+  let current = value;
+  for (let pass = 0; pass < 4; pass += 1) {
+    const next = current.toUpperCase().toLowerCase().replaceAll("ς", "σ");
+    if (next === current) break;
+    current = next;
+  }
+  return current;
 }
