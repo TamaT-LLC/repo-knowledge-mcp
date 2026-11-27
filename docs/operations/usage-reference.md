@@ -668,6 +668,7 @@ symlink は拒否し、group や others から読める権限は読み込み時�
 パスを条件にした purge が中断したまま古い `local.key` を失った場合、`reset-key` は止まります。リンクでつながったコピーを古い鍵なしでは探せないためです。`local.key` を戻して再実行するか、そのコピーの追跡を諦めて `purge-progress.json` を削除してから再実行します。削除条件そのものは保存済みで、以後の取り込みにも適用されます。
 
 鍵ファイル `local.key` が symlink の場合、group や others から読める権限の場合、他のユーザーが所有している場合は使いません。
+例外は `reset-key` が中断中のパス purge を片付けるときだけです。直後に捨てる古い鍵なので、権限や所有者に問題があっても読めれば照合に使います（symlink は使いません）。
 `repo-knowledge doctor` の `conversations.store` が状態と対処方法を表示します。
 会話データ領域の directory は mode 700、file は mode 600 で作成します。
 
