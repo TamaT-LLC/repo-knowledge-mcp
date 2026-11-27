@@ -529,10 +529,10 @@ function validateProviderResponse(
 ): StructuredCompletionResponse {
   if (
     response.provider !== expectedProvider ||
-    NonEmptyStringSchema.safeParse(response.model).success === false ||
+    NonEmptyStringSchema.validate(response.model) === false ||
     typeof response.outputText !== "string" ||
     (response.responseId !== undefined &&
-      NonEmptyStringSchema.safeParse(response.responseId).success === false)
+      NonEmptyStringSchema.validate(response.responseId) === false)
   ) {
     throw new MergeClassifierError(
       "PROVIDER_RESPONSE_INVALID",

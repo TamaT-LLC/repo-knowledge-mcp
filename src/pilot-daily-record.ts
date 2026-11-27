@@ -236,7 +236,7 @@ export function buildObservedDailyRecord(
       abortedRuns += 1;
       continue;
     }
-    if (PilotSyncSkippedLineSchema.safeParse(line).success) continue;
+    if (PilotSyncSkippedLineSchema.validate(line)) continue;
     const parsed = PilotSyncSummaryLineSchema.safeParse(line);
     if (!parsed.success) {
       throw new PilotRecordError(

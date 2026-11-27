@@ -245,7 +245,7 @@ function parseJevResponse(
   readonly decisions: readonly MergeDecision[];
   readonly metadata: readonly MergeDecisionMetadata[];
 } {
-  if (!NonEmptyStringSchema.safeParse(response.model).success) {
+  if (!NonEmptyStringSchema.validate(response.model)) {
     throw invalidJevResponse("response model is invalid");
   }
   const expectedQuestions = evaluated

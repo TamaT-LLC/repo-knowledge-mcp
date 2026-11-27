@@ -29,7 +29,7 @@ import {
   OutcomeKindSchema,
   RecordOutcomeRequestSchema,
 } from "./record-outcome-mutation-service.js";
-import { SensitiveContentFindingSchema } from "./sensitive-content.js";
+import { SensitiveContentFindingsSchema } from "./sensitive-content.js";
 import { SyncCursorSchema } from "./sync-cursor.js";
 import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
 import { addCustomIssue } from "./zod-issues.js";
@@ -272,10 +272,7 @@ const PrepareBlockedJobMcpSchema = z.strictObject({
     "source_unavailable",
   ]),
   review_content_characters: z.number().int().nonnegative().optional(),
-  sensitive_content_findings: z
-    .array(SensitiveContentFindingSchema)
-    .min(1)
-    .optional(),
+  sensitive_content_findings: SensitiveContentFindingsSchema.optional(),
 });
 
 const PrepareDisabledResultMcpSchema = z.strictObject({

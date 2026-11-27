@@ -17,10 +17,12 @@ export const ConversationSummarySchema = z.strictObject({
   has_conflict: z.boolean(),
 });
 
+const ConversationOriginSchema = z.object({
+  source: z.literal("conversation"),
+});
+
 export function isConversationKnowledge(frontmatter: KnowledgeFrontmatter) {
-  return z
-    .object({ source: z.literal("conversation") })
-    .safeParse(frontmatter.origin).success;
+  return ConversationOriginSchema.validate(frontmatter.origin);
 }
 
 /** Expose only aggregates from canonical events, never their IDs or raw payload. */
@@ -85,7 +87,7 @@ export function conversationSummary(
   }
   const dates = [];
   for (const e of supports.values()) {
-    if (!IsoDateTimeSchema.safeParse(e.observed_at).success) continue;
+    if (!IsoDateTimeSchema.validate(e.observed_at)) continue;
     sessions.add(e.session_key);
     projects.add(e.project_key);
     dates.push(e.observed_at);

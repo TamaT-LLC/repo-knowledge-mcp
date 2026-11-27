@@ -33,6 +33,10 @@ export const SensitiveContentFindingSchema = z.strictObject({
   path: SensitiveContentPathSchema,
 });
 
+export const SensitiveContentFindingsSchema = z
+  .array(SensitiveContentFindingSchema)
+  .min(1);
+
 export type SensitiveContentBoundary = z.infer<
   typeof SensitiveContentBoundarySchema
 >;
@@ -123,10 +127,7 @@ export class SensitiveContentTransmissionError extends Error {
     readonly boundary: SensitiveContentBoundary,
     findings: readonly SensitiveContentFinding[],
   ) {
-    const parsed = z
-      .array(SensitiveContentFindingSchema)
-      .min(1)
-      .parse(findings);
+    const parsed = SensitiveContentFindingsSchema.parse(findings);
     super(
       `${SENSITIVE_CONTENT_DETECTED}: ${boundary} contains ${String(
         parsed.length,
