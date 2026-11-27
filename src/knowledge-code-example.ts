@@ -117,7 +117,8 @@ export function parseKnowledgeBodyCodeExample(
   };
 }
 
-function longestBacktickRun(value: string): number {
+/** Length of the longest run of backticks, for fences no run can close. */
+export function longestBacktickRun(value: string): number {
   let longest = 0;
   for (const run of value.matchAll(/`+/gu)) {
     longest = Math.max(longest, run[0].length);

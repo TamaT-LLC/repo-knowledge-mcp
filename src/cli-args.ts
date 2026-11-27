@@ -17,6 +17,11 @@ import type {
   ParsedCliCommand,
 } from "./cli-types.js";
 import { parseRepositoryName } from "./repository-resolver.js";
+import {
+  RuleExportFormatSchema,
+  RuleExportOriginSchema,
+  RuleExportStoreSchema,
+} from "./rule-export-service.js";
 import { StatsBucketSchema } from "./stats-read-service.js";
 import { MAX_SYNC_PULL_REQUESTS_PER_RUN } from "./sync-repo-service.js";
 import {
@@ -445,15 +450,53 @@ function parseReconcile(args: readonly string[]): ParsedCliCommand {
 function parseExport(args: readonly string[]): ParsedCliCommand {
   const parsed = parseOptions(args, {
     booleans: ["bootstrap"],
-    values: ["repo", "workspace"],
+    values: ["repo", "workspace", "format", "store", "origin"],
   });
   assertPositionalCount(parsed, 0, 1, "export");
-  if (!parsed.booleans.has("bootstrap")) {
-    throw usage("export requires --bootstrap in M1");
+  const format = parsed.values.get("format");
+  if (parsed.booleans.has("bootstrap")) {
+    if (format !== undefined) {
+      throw usage("export accepts only one of --bootstrap or --format");
+    }
+    for (const name of ["store", "origin"]) {
+      if (parsed.values.has(name)) {
+        throw usage(`--${name} is only supported with export --format`);
+      }
+    }
+    return {
+      kind: "export-bootstrap",
+      selection: selection(parsed, parsed.positionals[0]),
+    };
+  }
+  if (format === undefined) {
+    throw usage("export requires --format claude-md|agents-md or --bootstrap");
+  }
+  if (parsed.values.has("workspace")) {
+    throw usage(
+      "export --format selects a repository with --repo, not --workspace",
+    );
+  }
+  const store = parseSchema(
+    RuleExportStoreSchema,
+    parsed.values.get("store") ?? "repository",
+    "store",
+  );
+  const repo = selection(parsed, parsed.positionals[0]).repo;
+  if (store === "global" && repo !== undefined) {
+    throw usage("export --store global cannot be combined with a repository");
   }
   return {
-    kind: "export-bootstrap",
-    selection: selection(parsed, parsed.positionals[0]),
+    kind: "export-rules",
+    format: parseSchema(RuleExportFormatSchema, format, "format"),
+    request: {
+      origin: parseSchema(
+        RuleExportOriginSchema,
+        parsed.values.get("origin") ?? "all",
+        "origin",
+      ),
+      ...(repo === undefined ? {} : { repo }),
+      store,
+    },
   };
 }
 

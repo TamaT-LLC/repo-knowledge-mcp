@@ -1,7 +1,13 @@
 import { safeTerminalValue } from "./admin-plane-service.js";
 import type { RepositoryTransmissionState } from "./config.js";
+import { longestBacktickRun } from "./knowledge-code-example.js";
 import type { GuidedSetupResult } from "./setup-service.js";
 import type { ReviewInboxItem } from "./review-inbox-service.js";
+import type {
+  ExportedRule,
+  RuleExportFormat,
+  RuleExportStore,
+} from "./rule-export-service.js";
 
 export interface ReviewSessionProgress {
   readonly edited: number;
@@ -216,4 +222,107 @@ export function renderReviewSessionPaused(
     `${String(progress.edited)} edit(s), ${String(progress.skipped)} skipped; ` +
     "unresolved items remain available on the next run.\n"
   );
+}
+
+const RULE_EXPORT_HEADING = "## repo-knowledge が学習したルール";
+const RULE_EXPORT_HOOK_HEADING = "### hook での強制を推奨";
+const RULE_EXPORT_HOOK_NOTE =
+  "> 注: 次のルールは hook での強制が推奨されています。AGENTS.md からは hook を設定できないため、指示として守ってください。";
+
+export interface RenderedRuleExport {
+  readonly block: string;
+  /** Rules whose rule or scope text had comment or marker strings escaped. */
+  readonly neutralized: number;
+}
+
+/**
+ * Renders active rules as one paste-ready block between management markers.
+ * The formats differ only in how the hook section is introduced: a heading
+ * for CLAUDE.md, a note for AGENTS.md (Codex reads no Claude Code hooks).
+ * Marker attributes come from validated enums, never from rule text. A
+ * scoped rule names its paths, so pasting it does not widen it to the whole
+ * repository.
+ */
+export function renderRuleExport(
+  format: RuleExportFormat,
+  store: RuleExportStore,
+  rules: readonly ExportedRule[],
+): RenderedRuleExport {
+  let neutralized = 0;
+  const prose: string[] = [];
+  const hook: string[] = [];
+  for (const rule of rules) {
+    const text = neutralizeExportedText(rule.rule);
+    const scope = rule.scope.map(neutralizeExportedText);
+    if ([text, ...scope].some((entry) => entry.escaped)) neutralized += 1;
+    const item =
+      scope.length === 0
+        ? `- ${text.value}`
+        : `- ${text.value}（適用範囲: ${scope.map((entry) => codeSpan(entry.value, text.value)).join(", ")}）`;
+    (rule.hook ? hook : prose).push(item);
+  }
+  const lines = [
+    `<!-- repo-knowledge:begin format=${format} store=${store} -->`,
+    RULE_EXPORT_HEADING,
+    ...(prose.length === 0 ? [] : ["", ...prose]),
+  ];
+  if (hook.length > 0) {
+    lines.push(
+      "",
+      format === "claude-md" ? RULE_EXPORT_HOOK_HEADING : RULE_EXPORT_HOOK_NOTE,
+      "",
+      ...hook,
+    );
+  }
+  lines.push("<!-- repo-knowledge:end -->");
+  return { block: `${lines.join("\n")}\n`, neutralized };
+}
+
+/**
+ * Wraps neutralized text in a code span whose fence no backtick run in it,
+ * or in the rule text before it on the same line, can close or pair with.
+ */
+function codeSpan(value: string, lineText: string): string {
+  const longestRun = longestBacktickRun(value);
+  const fence = "`".repeat(
+    Math.max(longestRun, longestBacktickRun(lineText)) + 1,
+  );
+  const padding = longestRun > 0 ? " " : "";
+  return `${fence}${padding}${value}${padding}${fence}`;
+}
+
+/** Strings that could open, close, or forge a block in the paste target. */
+const RULE_EXPORT_FORBIDDEN = /<!--|--!?>|repo-knowledge:(?:begin|end)/iu;
+
+interface NeutralizedText {
+  readonly escaped: boolean;
+  readonly value: string;
+}
+
+/**
+ * Makes exported text a single inert Markdown line. Bidirectional controls
+ * are removed so the pasted text reads as stored, and line breaks and other
+ * control characters become single spaces so the text cannot start a new
+ * line. Escaping runs after that, so removed characters cannot rejoin a
+ * token, and replaces only `<`, `>`, and `:` with entities that contain none
+ * of the forbidden strings, so one pass reaches a fixed point.
+ */
+function neutralizeExportedText(value: string): NeutralizedText {
+  const flattened = value
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, "")
+    .replace(/[\p{Cc}\s]+/gu, " ")
+    .trim();
+  const neutralized = flattened
+    .replace(/<(?=!--)/gu, "&lt;")
+    .replace(/(?<=--!?)>/gu, "&gt;")
+    .replace(/(?<=repo-knowledge):(?=begin|end)/giu, "&#58;");
+  if (RULE_EXPORT_FORBIDDEN.test(neutralized)) {
+    throw new TypeError("exported rule text still contains a block marker");
+  }
+  return { escaped: neutralized !== flattened, value: neutralized };
+}
+
+/** The text one rule renders as; exported for its adversarial tests. */
+export function neutralizeExportedRuleText(value: string): string {
+  return neutralizeExportedText(value).value;
 }

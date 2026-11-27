@@ -19,6 +19,71 @@ export type StoreReference =
   | { kind: "repository"; repoId: string; absolutePath: string }
   | { kind: "global"; repoId: typeof GLOBAL_STORE_ID; absolutePath: string };
 
+/** A store path that is not a real directory exactly where the layout puts it. */
+export class StoreDirectoryUnsafeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StoreDirectoryUnsafeError";
+  }
+}
+
+/**
+ * Read-only: is `<storageRoot>/<relativePath>` a real directory at exactly
+ * that path, with no symbolic link anywhere below the storage root and none
+ * among its canonical entries? A missing store reads as false; an unsafe one
+ * throws StoreDirectoryUnsafeError. It never creates or changes anything.
+ */
+export async function inspectStoreDirectory(
+  storageRoot: string,
+  relativePath: string,
+  label: string,
+): Promise<boolean> {
+  try {
+    const root = resolve(storageRoot);
+    if (!(await lstat(root)).isDirectory())
+      throw new StoreDirectoryUnsafeError(
+        "Storage root must be a real directory",
+      );
+    const parent = await realpath(root);
+    const expected = join(parent, relativePath);
+    const path = join(root, relativePath);
+    if ((await lstat(path)).isSymbolicLink())
+      throw new StoreDirectoryUnsafeError(
+        `${label} must be directly inside the storage root, not a symbolic link`,
+      );
+    const actual = await realpath(path);
+    if (actual !== expected || !actual.startsWith(parent + sep))
+      throw new StoreDirectoryUnsafeError(
+        `${label} must be directly inside the storage root`,
+      );
+    if (!(await lstat(actual)).isDirectory())
+      throw new StoreDirectoryUnsafeError(`${label} must be a real directory`);
+    for (const child of [
+      "knowledge",
+      "events",
+      "transactions",
+      "index.sqlite",
+      "index.sqlite-wal",
+      "index.sqlite-shm",
+    ]) {
+      const info = await lstat(join(actual, child)).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return undefined;
+          throw error;
+        },
+      );
+      if (info?.isSymbolicLink())
+        throw new StoreDirectoryUnsafeError(
+          `${label} entries must not be symbolic links`,
+        );
+    }
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 export function openStore(ref: StoreReference) {
   return new CanonicalTransactionStore(ref.absolutePath, {
     global: ref.kind === "global",
@@ -42,46 +107,7 @@ export class GlobalStore {
 
   /** Read-only: is `global` a real directory (no symlinks) inside the root? */
   async exists(): Promise<boolean> {
-    try {
-      const path = this.reference.absolutePath;
-      const directory = dirname(path);
-      const status = await lstat(directory);
-      if (!status.isDirectory())
-        throw new Error("Storage root must be a real directory");
-      const parent = await realpath(directory);
-      const expected = join(parent, "global");
-      if ((await lstat(path)).isSymbolicLink())
-        throw new Error(
-          "Global store must be directly inside the storage root, not a symbolic link",
-        );
-      const actual = await realpath(path);
-      if (actual !== expected || !actual.startsWith(parent + sep))
-        throw new Error(
-          "Global store must be directly inside the storage root",
-        );
-      if (!(await lstat(actual)).isDirectory())
-        throw new Error("Global store must be a real directory");
-      for (const child of [
-        "knowledge",
-        "events",
-        "transactions",
-        "index.sqlite",
-        "index.sqlite-wal",
-        "index.sqlite-shm",
-      ]) {
-        const path = join(actual, child);
-        const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
-          if (error.code === "ENOENT") return undefined;
-          throw error;
-        });
-        if (info?.isSymbolicLink())
-          throw new Error("Global store entries must not be symbolic links");
-      }
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-      throw error;
-    }
+    return inspectStoreDirectory(this.storageRoot, "global", "Global store");
   }
 
   async initialize() {

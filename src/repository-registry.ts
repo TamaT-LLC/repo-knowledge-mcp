@@ -141,35 +141,33 @@ export class RepositoryRegistry {
   }
 
   async resolveByName(name: string): Promise<ResolvedRepository | null> {
-    if (!RepositoryNameSchema.safeParse(name).success) {
-      throw new RepositoryRegistryError(
-        "INVALID_REPOSITORY_REGISTRY",
-        "Repository name must use owner/name form",
-      );
-    }
+    assertRepositoryName(name);
     await this.ensureLayout();
     return withPosixFileLock(
       join(this.registryRoot, ".registry.lock"),
       this.lockTimeoutMs,
-      async () => {
-        const repositories = (await this.readSnapshot()).document.repositories;
-        const matches = Object.entries(repositories)
-          .filter(
-            ([, entry]) =>
-              entry.currentName === name || entry.aliases.includes(name),
-          )
-          .sort(([a], [b]) => compareCodeUnits(a, b));
-        if (matches.length > 1) {
-          throw new RepositoryRegistryError(
-            "REPOSITORY_NAME_AMBIGUOUS",
-            `Repository name ${name} resolves to multiple repo IDs`,
-          );
-        }
-        const match = matches[0];
-        return match
-          ? toResolvedRepository(this.registryRoot, match[0], match[1])
-          : null;
-      },
+      async () =>
+        matchRepositoryName(
+          this.registryRoot,
+          (await this.readSnapshot()).document.repositories,
+          name,
+        ),
+    );
+  }
+
+  /**
+   * Looks a name up without creating the layout, taking the lock, or writing.
+   * Registry writes are atomic renames, so an unlocked read sees one whole
+   * document; a missing registry means nothing is registered yet. See
+   * matchRepositoryName for how a name is matched without GitHub.
+   */
+  async findByNameReadOnly(name: string): Promise<ResolvedRepository | null> {
+    assertRepositoryName(name);
+    return matchRepositoryName(
+      this.registryRoot,
+      (await this.readSnapshot()).document.repositories,
+      name,
+      true,
     );
   }
 
@@ -347,6 +345,56 @@ function findRepositoryEntry(
   return Object.entries(repositories).find(
     ([candidate]) => candidate === repoId,
   )?.[1];
+}
+
+function assertRepositoryName(name: string): void {
+  if (!RepositoryNameSchema.safeParse(name).success) {
+    throw new RepositoryRegistryError(
+      "INVALID_REPOSITORY_REGISTRY",
+      "Repository name must use owner/name form",
+    );
+  }
+}
+
+/**
+ * Matches a name against current names and aliases. With `offline`, there
+ * is no GitHub lookup to canonicalize the name, so the lookup mirrors what
+ * GitHub would answer: a repository's current name wins over an alias (an
+ * old name another repository may since have taken), and within each, an
+ * exact match wins over one that differs only in case.
+ */
+function matchRepositoryName(
+  registryRoot: string,
+  repositories: Readonly<Record<string, RepositoryRegistryEntry>>,
+  name: string,
+  offline = false,
+): ResolvedRepository | null {
+  const entries = Object.entries(repositories);
+  const exact = (value: string) => value === name;
+  const folded = (value: string) => value.toLowerCase() === name.toLowerCase();
+  const tiers: ReadonlyArray<(entry: RepositoryRegistryEntry) => boolean> =
+    offline
+      ? [
+          (entry) => exact(entry.currentName),
+          (entry) => folded(entry.currentName),
+          (entry) => entry.aliases.some(exact),
+          (entry) => entry.aliases.some(folded),
+        ]
+      : [(entry) => exact(entry.currentName) || entry.aliases.some(exact)];
+  for (const matches of tiers) {
+    const found = entries
+      .filter(([, entry]) => matches(entry))
+      .sort(([a], [b]) => compareCodeUnits(a, b));
+    if (found.length > 1) {
+      throw new RepositoryRegistryError(
+        "REPOSITORY_NAME_AMBIGUOUS",
+        `Repository name ${name} resolves to multiple repo IDs`,
+      );
+    }
+    const match = found[0];
+    if (match) return toResolvedRepository(registryRoot, match[0], match[1]);
+  }
+  return null;
 }
 
 function toResolvedRepository(

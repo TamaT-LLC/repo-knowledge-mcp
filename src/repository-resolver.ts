@@ -178,33 +178,18 @@ export class RepositoryResolver {
       }
     }
 
-    if (Object.keys(this.config.workspaceMappings).length > 0) {
-      let mappingWorkspace = toolWorkspace ?? startupWorkspace;
-      if (mappingWorkspace === undefined) {
-        try {
-          mappingWorkspace = await canonicalWorkspace(this.cwd);
-        } catch (error) {
-          if (!(error instanceof RepositoryResolutionError)) throw error;
-          diagnostics.push(error.message);
-        }
-      }
-      if (mappingWorkspace !== undefined) {
-        const mapping = await this.findWorkspaceMapping(
-          mappingWorkspace,
-          diagnostics,
-        );
-        if (mapping !== null) {
-          return this.resolveName(
-            mapping.repository,
-            "config-workspace-mapping",
-            mappingWorkspace,
-          );
-        }
-      }
-    }
-
-    if (this.config.defaultRepo !== undefined) {
-      return this.resolveName(this.config.defaultRepo, "config-default-repo");
+    const configured = await selectConfiguredRepository(
+      this.config,
+      toolWorkspace ?? startupWorkspace,
+      this.cwd,
+      diagnostics,
+    );
+    if (configured !== null) {
+      return this.resolveName(
+        configured.repository,
+        configured.source,
+        configured.workspacePath,
+      );
     }
 
     throw this.unresolvedError(diagnostics);
@@ -312,48 +297,6 @@ export class RepositoryResolver {
     }
   }
 
-  private async findWorkspaceMapping(
-    workspacePath: string,
-    diagnostics: string[],
-  ): Promise<WorkspaceMapping | null> {
-    const matches: WorkspaceMapping[] = [];
-    for (const [configuredRoot, repository] of Object.entries(
-      this.config.workspaceMappings,
-    )) {
-      let root: string;
-      try {
-        root = await canonicalWorkspace(configuredRoot);
-      } catch (error) {
-        if (!(error instanceof RepositoryResolutionError)) throw error;
-        diagnostics.push(error.message);
-        continue;
-      }
-      if (isWithin(root, workspacePath)) matches.push({ repository, root });
-    }
-    matches.sort((left, right) => {
-      const lengthOrder = right.root.length - left.root.length;
-      return lengthOrder !== 0
-        ? lengthOrder
-        : compareCodeUnits(left.repository, right.repository);
-    });
-    const best = matches[0];
-    if (best === undefined) return null;
-    const equallySpecific = matches.filter(
-      (candidate) => candidate.root.length === best.root.length,
-    );
-    const repositories = sortAndDedupeStrings(
-      equallySpecific.map((candidate) => candidate.repository),
-    );
-    if (repositories.length > 1) {
-      throw new RepositoryResolutionError(
-        "WORKSPACE_MAPPING_AMBIGUOUS",
-        `Workspace ${workspacePath} matches conflicting mappings`,
-        { candidates: repositories },
-      );
-    }
-    return best;
-  }
-
   private unresolvedError(diagnostics: readonly string[]): Error {
     const candidates = sortAndDedupeStrings([
       ...this.config.repos,
@@ -373,6 +316,101 @@ export class RepositoryResolver {
       { candidates, diagnostics, guidance },
     );
   }
+}
+
+export interface ConfiguredRepository {
+  readonly repository: string;
+  readonly source: "config-default-repo" | "config-workspace-mapping";
+  readonly workspacePath?: string;
+}
+
+/**
+ * The network-free fallback when no repository was named: the most specific
+ * workspace mapping containing the workspace (or the cwd), then defaultRepo.
+ * Unresolvable paths are noted in diagnostics rather than thrown.
+ */
+export async function selectConfiguredRepository(
+  config: RepoKnowledgeConfig,
+  workspace: string | undefined,
+  cwd: string,
+  diagnostics: string[],
+): Promise<ConfiguredRepository | null> {
+  if (Object.keys(config.workspaceMappings).length > 0) {
+    let mappingWorkspace = workspace;
+    if (mappingWorkspace === undefined) {
+      try {
+        mappingWorkspace = await canonicalWorkspace(cwd);
+      } catch (error) {
+        if (!(error instanceof RepositoryResolutionError)) throw error;
+        diagnostics.push(error.message);
+      }
+    }
+    if (mappingWorkspace !== undefined) {
+      const mapping = await findWorkspaceMapping(
+        config.workspaceMappings,
+        mappingWorkspace,
+        diagnostics,
+      );
+      if (mapping !== null) {
+        return {
+          repository: mapping.repository,
+          source: "config-workspace-mapping",
+          workspacePath: mappingWorkspace,
+        };
+      }
+    }
+  }
+  return config.defaultRepo === undefined
+    ? null
+    : { repository: config.defaultRepo, source: "config-default-repo" };
+}
+
+/**
+ * Returns the most specific configured mapping containing a canonical
+ * workspace. Unresolvable roots are noted in diagnostics; equally specific
+ * conflicting mappings are an error rather than an arbitrary choice.
+ */
+async function findWorkspaceMapping(
+  workspaceMappings: Readonly<Record<string, string>>,
+  workspacePath: string,
+  diagnostics: string[],
+): Promise<WorkspaceMapping | null> {
+  const matches: WorkspaceMapping[] = [];
+  for (const [configuredRoot, repository] of Object.entries(
+    workspaceMappings,
+  )) {
+    let root: string;
+    try {
+      root = await canonicalWorkspace(configuredRoot);
+    } catch (error) {
+      if (!(error instanceof RepositoryResolutionError)) throw error;
+      diagnostics.push(error.message);
+      continue;
+    }
+    if (isWithin(root, workspacePath)) matches.push({ repository, root });
+  }
+  matches.sort((left, right) => {
+    const lengthOrder = right.root.length - left.root.length;
+    return lengthOrder !== 0
+      ? lengthOrder
+      : compareCodeUnits(left.repository, right.repository);
+  });
+  const best = matches[0];
+  if (best === undefined) return null;
+  const equallySpecific = matches.filter(
+    (candidate) => candidate.root.length === best.root.length,
+  );
+  const repositories = sortAndDedupeStrings(
+    equallySpecific.map((candidate) => candidate.repository),
+  );
+  if (repositories.length > 1) {
+    throw new RepositoryResolutionError(
+      "WORKSPACE_MAPPING_AMBIGUOUS",
+      `Workspace ${workspacePath} matches conflicting mappings`,
+      { candidates: repositories },
+    );
+  }
+  return best;
 }
 
 /** Realpaths a workspace and proves it is inside at least one configured root. */

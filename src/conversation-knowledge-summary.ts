@@ -17,6 +17,14 @@ export const ConversationSummarySchema = z.strictObject({
   has_conflict: z.boolean(),
 });
 
+/** The enforcement hint of a knowledge document, or null when absent or malformed. */
+export function readEnforcementHint(
+  frontmatter: KnowledgeFrontmatter,
+): z.infer<typeof hint> | null {
+  const parsed = hint.safeParse(frontmatter.enforcement_hint);
+  return parsed.success ? parsed.data : null;
+}
+
 export function isConversationKnowledge(frontmatter: KnowledgeFrontmatter) {
   return z
     .object({ source: z.literal("conversation") })
@@ -91,12 +99,11 @@ export function conversationSummary(
     dates.push(e.observed_at);
   }
   dates.sort((a, b) => Date.parse(a) - Date.parse(b));
-  const parsed = hint.safeParse(frontmatter.enforcement_hint);
   return {
     session_count: sessions.size,
     project_count: projects.size,
     period: dates.length ? { from: dates[0]!, to: dates.at(-1)! } : null,
     has_conflict: hasConflict,
-    enforcement_hint: parsed.success ? parsed.data : null,
+    enforcement_hint: readEnforcementHint(frontmatter),
   };
 }

@@ -249,6 +249,7 @@ status を `stale` や `deprecated` にする提案は v1 では作らない。
 
 蒸留結果には、ルールを文章（prose）、hook、skill、権限設定のどれで守らせるべきかの提案を付ける。
 review と export はこの提案を表示する。
+export は v1 では `hook` の提案だけを節の分け方で表示し、`skill`、`permission`、`prose` のルールは通常の節に出す（[export の出力形式](#cd-export-format)）。
 
 #### M4-FR-016 review への統合
 
@@ -1586,7 +1587,7 @@ interface ConversationFinalizeJob extends ConversationJobBase {
 | `repo-knowledge conversations status [--json]` | M4-FR-018 の統計。未登録リポジトリと保留中の発言件数、送信字数の累計、常時返却の一覧と操作した側を含む | PR1、PR2、PR3、PR4a |
 | `repo-knowledge conversations purge (--session <id> \| --before <iso> \| --source <name> \| --project <owner/name\|path>) [--yes]` | 発言の削除（M4-FR-017） | PR2、PR4a、PR4b |
 | `repo-knowledge conversations reset-key [--yes] [--restart]` | 鍵の作り直し。`--restart` は鍵ファイルが失われて再開できないときに 0 段目からやり直す | PR2、PR4b |
-| `repo-knowledge export --format claude-md\|agents-md [--store repository\|global\|all] [--repo <owner/name>] [--origin conversation\|all]` | active ルールの stdout 出力 | PR6 |
+| `repo-knowledge export [repo] --format claude-md\|agents-md [--store repository\|global\|all] [--repo <owner/name>] [--origin conversation\|all]` | active ルールの stdout 出力。既定は `--store repository`、`--origin all` | PR6 |
 | `repo-knowledge add --global ...` | 手動のグローバルルール | PR1 |
 | `repo-knowledge reindex --global` | グローバルストアの projection の再構築 | PR1 |
 | `repo-knowledge always-return add <id>`、`always-return remove <id>`、`always-return list` | 常時返却の付け外しと一覧（最大 3 件、操作した側を表示） | PR1 |
@@ -1642,6 +1643,8 @@ submit は会話データ領域の `.lock` を取らない。
 削除が 2 まで進んだ後の submit は削除条件との照合で受け付けられず、2 より前に完了した submit の evidence は削除の 4 で withdrawn になる。
 後者のナレッジ本文は残るが、根拠がなくなるため保留になり、review で「削除済み」と表示される。
 
+<a id="cd-export-format"></a>
+
 ### export の出力形式
 
 ```markdown
@@ -1658,8 +1661,38 @@ submit は会話データ領域の `.lock` を取らない。
 ```
 
 `claude-md` と `agents-md` は、見出しの表記と、hook の節の扱い（Codex 向けは注記にする）だけが異なる。
+具体的には、begin マーカーの `format` と、hook の節の導入だけが異なる。
+`claude-md` は `### hook での強制を推奨` の見出しを置き、`agents-md` はその見出しの代わりに「AGENTS.md からは hook を設定できないため、指示として守る」旨の注記（引用）を置く。
+トップの見出し `## repo-knowledge が学習したルール` は両形式で共通とする。
+hook の節に入れるのは、`enforcement_hint` が `kind` と `rationale` を持ち `kind` が `hook` のルールだけとする（review の表示と同じ schema で読む）。
+hook のルールがなければ hook の節を省き、一致するルールがなくてもブロックは出す（貼り付け済みのブロックを置き換えられるようにする）。
+
 rule 本文に含まれる `<!--`、`-->`、`repo-knowledge:begin`、`repo-knowledge:end` は無害化（`&lt;!--` などへの置換）してから出力する。
 本文が管理マーカーを偽装して、利用者が貼り付けた先のブロック境界を崩すことを防ぐためである。
+無害化の前に、改行と制御文字を空白に、双方向制御文字を削除して一つの行にする。
+無害化は大文字小文字を区別せず、`--!>` も対象にする。
+
+並びと付記は次のとおりとする。
+
+- リポジトリのストアのルール、グローバルストアのルールの順に、それぞれ knowledge ID の順に並べる
+- `scope` を持つルールには「（適用範囲: `glob`）」を添える。添えないと、貼り付け先でリポジトリ全体の指示に広がるためである
+- 無害化で本文や scope を置き換えたルールの件数と、一致するルールがないことは stderr に出す。stdout はブロックだけとする
+
+export は読み取りだけを行う。
+lock の取得、registry への登録、`index.sqlite` の再構築、recovery、GitHub への問い合わせをしない。
+リポジトリは `--repo` か位置引数の `owner/name`、なければ他の CLI と同じく cwd の `workspaceMappings`、`defaultRepo` の順に選ぶ。
+registry との照合は GitHub を引けないため、現在の名前を古い alias より優先し、それぞれで完全一致を優先したうえで大文字小文字を区別しない。
+未登録のリポジトリは登録せずに `RULE_EXPORT_REPOSITORY_NOT_REGISTERED` で終える。
+
+ストアの状態によって次のように扱う。
+
+| 状態 | 扱い |
+| --- | --- |
+| journal に準備済みの項目があり、writer lock の持ち主が生きている | 書き込みの終了を待つ。待っても終わらなければ `RULE_EXPORT_STORE_BUSY` |
+| journal に準備済みの項目があり、lock がないか持ち主が終了している（同じ journal を二回続けて見た） | `RULE_EXPORT_RECOVERY_REQUIRED`。`reindex` を案内する。recovery が適用できない項目は、`reindex` がその項目を示して止まる |
+| manifest も COMMITTED もない staging | recovery が消すだけで正本に触れていないため、無視して読む |
+| ストレージルート、ストアやその配下がシンボリックリンク | `RULE_EXPORT_STORE_UNSAFE` |
+| 読み取り中に commit が完了した | 二回続けた読み取りの digest が一致するまで読み直す |
 
 <a id="cd-config"></a>
 
@@ -1921,7 +1954,8 @@ PR6 は PR1 の後なら、PR2 以降と並行できる。
 - 依存: PR1（会話由来でないルールも出力できるため、PR2 以降と並行できる）
 - 内容: `export --format claude-md|agents-md`、ストアと由来の絞り込み、強制手段の提案による節の分け方、マーカー文字列の無害化
 - 変更ファイルの見込み: 新規 `src/rule-export-service.ts`、`src/cli-args.ts`、`src/cli-render.ts`
-- テスト: 二つの形式の出力、絞り込み、`enforcement_hint.kind: hook` のルールが hook の節に出ること、マーカーと HTML コメントを含む rule の無害化、ファイルを開かないこと（filesystem spy）、既存の `export --bootstrap` が変わらないこと
+- 実装で変更したファイル: 上記に加え、読み取り専用の経路のために新規 `src/canonical-transaction-journal.ts`（journal の配置と writer の状態の判定。ストアと共有）、`src/cli.ts`、`src/cli-types.ts`、`src/cli-runtime.ts`、`src/repository-registry.ts`（lock なしの名前照合）、`src/repository-resolver.ts`（cwd の mapping と `defaultRepo` の選択の共有）、`src/global-store.ts`（ストアの安全確認の共有）、`src/posix-file-lock.ts`（lock の生死の読み取り）、`src/config.ts`、`src/conversation-knowledge-summary.ts`、`src/knowledge-code-example.ts`、`src/canonical-transaction-store.ts`、`src/doctor/checks-canonical.ts`。既存の挙動は変えない
+- テスト: 二つの形式の出力、絞り込み、`enforcement_hint.kind: hook` のルールが hook の節に出ること、マーカーと HTML コメントを含む rule の無害化、ファイルを開かないこと（filesystem spy）、既存の `export --bootstrap` が変わらないこと。加えて、ストアのファイル一覧と内容が変わらないこと（CLI E2E）、書き込み中と中断された journal の扱い、journal の判定が実際の commit と kill の各段階で recovery の扱いと一致すること（契約テスト）
 - 完了条件: active ルールを stdout に出力できる。`src/cli-args.ts` の coverage 閾値を満たす
 
 ### PR7 文書と受け入れ

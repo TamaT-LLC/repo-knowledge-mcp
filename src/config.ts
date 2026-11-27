@@ -141,6 +141,24 @@ export async function loadRepoKnowledgeConfig(
   return parseRepoKnowledgeConfig(value, absolutePath);
 }
 
+/** Like loadRepoKnowledgeConfig, but a missing file reads as no config. */
+export async function loadRepoKnowledgeConfigIfPresent(
+  configPath: string,
+): Promise<RepoKnowledgeConfig | null> {
+  try {
+    return await loadRepoKnowledgeConfig(configPath);
+  } catch (error) {
+    if (
+      error instanceof RepoKnowledgeConfigError &&
+      error.code === "CONFIG_IO_ERROR" &&
+      hasErrorCode(error.cause, "ENOENT")
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 /** Computes the repository-specific cloud transmission policy. */
 export function resolveRepositoryPolicy(
   config: RepoKnowledgeConfig,
@@ -226,8 +244,8 @@ export async function initializeStorage(
   };
 }
 
-/** Validate a configured home before accessing its private stores. */
-export function resolveStorageRoot(storageRoot: string): string {
+/** An empty home would silently resolve to the cwd; reads and writes reject it. */
+export function assertExplicitStorageRoot(storageRoot: string): void {
   if (storageRoot.trim().length === 0) {
     throw new RepoKnowledgeConfigError(
       "CONFIG_PATH_UNSAFE",
@@ -235,6 +253,15 @@ export function resolveStorageRoot(storageRoot: string): string {
       "storage root must be explicit",
     );
   }
+}
+
+/**
+ * Validate a configured home before accessing its private stores. The
+ * broad-directory guard protects permission changes, so read-only callers
+ * use assertExplicitStorageRoot alone.
+ */
+export function resolveStorageRoot(storageRoot: string): string {
+  assertExplicitStorageRoot(storageRoot);
   const rootPath = resolve(storageRoot);
   assertSafeStorageRoot(rootPath);
   return rootPath;

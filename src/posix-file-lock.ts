@@ -60,7 +60,7 @@ async function acquireLock(
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       }
 
-      if (await lockOwnerIsDead(lockPath)) {
+      if ((await lockOwnerState(lockPath)) === "dead") {
         try {
           await unlink(lockPath);
           await syncDirectory(dirname(lockPath));
@@ -95,33 +95,44 @@ async function releaseLock(
   }
 }
 
-async function lockOwnerIsDead(lockPath: string): Promise<boolean> {
+/**
+ * Read-only probe: is the lock file present and owned by a live process?
+ * It never takes, breaks, or rewrites the lock.
+ */
+export async function isPosixFileLockHeld(lockPath: string): Promise<boolean> {
+  return (await lockOwnerState(lockPath)) === "live";
+}
+
+async function lockOwnerState(
+  lockPath: string,
+): Promise<"dead" | "live" | "missing"> {
   let first: Buffer;
   try {
     first = await readFile(lockPath);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
     throw error;
   }
   let pid = parseLockPid(lockPath, first);
   if (pid === null) {
+    // A lock being written may be briefly unparsable; only a stable one is dead.
     await delay(20);
     let second: Buffer;
     try {
       second = await readFile(lockPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
       throw error;
     }
-    if (!first.equals(second)) return false;
+    if (!first.equals(second)) return "live";
     pid = parseLockPid(lockPath, second);
-    if (pid === null) return true;
+    if (pid === null) return "dead";
   }
   try {
     process.kill(pid, 0);
-    return false;
+    return "live";
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "ESRCH";
+    return (error as NodeJS.ErrnoException).code === "ESRCH" ? "dead" : "live";
   }
 }
 

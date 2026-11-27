@@ -87,6 +87,51 @@ describe("repository registry", () => {
     });
     await expect(registry.resolveById("toString")).resolves.toEqual(reserved);
   });
+
+  it("looks names up read-only the way GitHub would answer", async () => {
+    const root = await createRegistryRoot();
+    const missing = join(root, "missing");
+    // A registry that does not exist yet reads as empty and is not created.
+    expect(
+      await new RepositoryRegistry(missing).findByNameReadOnly("acme/widget"),
+    ).toBeNull();
+    await expect(
+      readFile(join(missing, "repositories.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    const registry = new RepositoryRegistry(root);
+    // acme/Widget was renamed to acme/gadget; a new acme/widget took the name.
+    await registry.register({
+      aliases: ["acme/Widget"],
+      currentName: "acme/gadget",
+      repoId: "R_renamed",
+    });
+    await registry.register({ currentName: "acme/widget", repoId: "R_new" });
+    await registry.register({ currentName: "Foo/Bar", repoId: "R_upper" });
+    await registry.register({ currentName: "foo/bar", repoId: "R_lower" });
+
+    for (const [name, repoId] of [
+      // A current name, in any case, wins over the stale alias.
+      ["acme/widget", "R_new"],
+      ["acme/Widget", "R_new"],
+      ["ACME/WIDGET", "R_new"],
+      ["ACME/GADGET", "R_renamed"],
+      // An exact match wins over one that differs only in case.
+      ["Foo/Bar", "R_upper"],
+      ["foo/bar", "R_lower"],
+    ] as const) {
+      expect(await registry.findByNameReadOnly(name)).toMatchObject({ repoId });
+    }
+    await expect(registry.findByNameReadOnly("FOO/BAR")).rejects.toMatchObject({
+      code: "REPOSITORY_NAME_AMBIGUOUS",
+    });
+    await expect(registry.findByNameReadOnly("bad")).rejects.toMatchObject({
+      code: "INVALID_REPOSITORY_REGISTRY",
+    });
+    // resolveByName (used after a GitHub lookup) keeps exact matching.
+    expect(await registry.resolveByName("acme/Widget")).toMatchObject({
+      repoId: "R_renamed",
+    });
+  });
 });
 
 async function createRegistryRoot(): Promise<string> {

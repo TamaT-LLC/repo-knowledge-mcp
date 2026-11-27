@@ -23,6 +23,11 @@ import type {
   ReviewInboxRequest,
   ReviewInboxResult,
 } from "./review-inbox-service.js";
+import type {
+  RuleExportFormat,
+  RuleExporter,
+  RuleExportRequest,
+} from "./rule-export-service.js";
 import type { TerminalActivityUpdate } from "./terminal-progress.js";
 import type { SyncScheduleFormat, SyncSchedulerLike } from "./sync-schedule.js";
 
@@ -149,6 +154,8 @@ export interface RunRepoKnowledgeCliOptions {
   readonly io: RepoKnowledgeCliIo;
   readonly mutationServiceResolver: KnowledgeMutationServiceResolver;
   readonly operationsResolver: CliRepositoryOperationsResolver;
+  /** Read-only active-rule source for `export --format`; unavailable when omitted. */
+  readonly ruleExporter?: RuleExporter;
   /** OS scheduler integration for `schedule`; unavailable when omitted. */
   readonly scheduler?: SyncSchedulerLike;
   serve(request: RepoKnowledgeServeRequest): Promise<void> | void;
@@ -249,6 +256,11 @@ export type ParsedCliCommand =
   | {
       readonly kind: "export-bootstrap";
       readonly selection: CliRepositorySelection;
+    }
+  | {
+      readonly format: RuleExportFormat;
+      readonly kind: "export-rules";
+      readonly request: RuleExportRequest;
     }
   | {
       readonly id: string;
