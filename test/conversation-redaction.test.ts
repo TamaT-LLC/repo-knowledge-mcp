@@ -70,6 +70,13 @@ const RULES = [
     redactions: [{ count: 2, kind: "home_directory_path" }],
   },
   {
+    name: "an armored PGP secret key, through its END line or to the end",
+    input:
+      "key:\n-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBF0\n-----END PGP PRIVATE KEY BLOCK-----\nok, and -----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOY",
+    output: "key:\n[REDACTED]\nok, and [REDACTED]",
+    redactions: [{ count: 2, kind: "private_key_block" }],
+  },
+  {
     name: "connection string credentials",
     input: "db postgres://admin:s3cr3t@db.example.test:5432/app",
     output: "db postgres://[REDACTED]@db.example.test:5432/app",

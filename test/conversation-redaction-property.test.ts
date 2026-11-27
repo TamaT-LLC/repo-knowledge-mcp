@@ -26,6 +26,7 @@ const FRAGMENTS = [
   "AIzaSyA0123456789abcdefghijklmnopqrstuv",
   "-----BEGIN PRIVATE KEY-----",
   "-----END PRIVATE KEY-----",
+  "-----BEGIN PGP PRIVATE KEY BLOCK-----",
   "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln",
   "alice@example.com",
   "postgres://admin:p@ss@db.example.test/x",

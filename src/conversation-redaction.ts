@@ -198,6 +198,15 @@ const RULES: readonly RedactionRule[] = [
     wholeText: true,
   },
   {
+    // An armored PGP secret key, which the shared detector does not cover:
+    // `-----BEGIN PGP PRIVATE KEY BLOCK-----` through its END line, or to the
+    // end of a paste cut before it.
+    kind: "private_key_block",
+    pattern:
+      /-----BEGIN PGP PRIVATE KEY BLOCK-----(?:[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----|[\s\S]*)/gu,
+    wholeText: true,
+  },
+  {
     // Replace the whole header value. Leaving `Bearer [REDACTED]` would make
     // the shared detector match `[REDACTED]` as a credential again. Quoted
     // names (`"Authorization": "Basic …"`), quoted values and a value on the

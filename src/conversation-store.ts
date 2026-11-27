@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmod, open, readdir, rename, unlink } from "node:fs/promises";
+import { open, readdir, rename, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { z } from "zod";
@@ -1393,7 +1393,18 @@ export class ConversationStore {
     await this.#assertRegularOrMissing(file);
     await repairTornTail(path);
     await appendDurable(path, Buffer.from(`${lines.join("\n")}\n`, "utf8"));
-    await chmod(path, 0o600);
+    // Through a handle opened without following links, so the mode lands on
+    // the file just written and checked, not on whatever the path names now.
+    const opened = await openRegularFileNoFollow(path, () =>
+      unsafePath(`${file} must be a regular file, not a symlink`),
+    );
+    if (opened !== null) {
+      try {
+        await opened.handle.chmod(0o600);
+      } finally {
+        await opened.handle.close();
+      }
+    }
     await fsyncDirectory(this.directory);
   }
 
