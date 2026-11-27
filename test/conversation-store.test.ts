@@ -1256,6 +1256,43 @@ describe("purge", () => {
     expect(followUp.failJobsFor).toHaveBeenCalledWith([doomed!.utterance_id]);
   });
 
+  it("runs every canonical follow-up while holding the data-area lock", async () => {
+    // Design (同時実行): store writer locks are taken only inside the
+    // conversation .lock. A writer that needs the .lock must wait meanwhile.
+    const lockHeld = async (): Promise<boolean> =>
+      new ConversationStore(root, { clock: () => NOW, lockTimeoutMs: 50 })
+        .saveSuperseded([])
+        .then(
+          () => false,
+          // Only a lock timeout counts; a pending reset also refuses writes.
+          (error: { code?: string }) => error.code === "LOCK_TIMEOUT",
+        );
+    const held: string[] = [];
+    const followUp = {
+      failJobsFor: vi.fn(async () => {
+        if (await lockHeld()) held.push("failJobsFor");
+      }),
+      withdrawEvidenceFor: vi.fn(async () => {
+        if (await lockHeld()) held.push("withdrawEvidenceFor");
+      }),
+      withdrawEvidenceNotFromKey: vi.fn(async () => {
+        if (await lockHeld()) held.push("withdrawEvidenceNotFromKey");
+      }),
+    };
+    await store().saveUtterances([draft({ session_id: "doomed" })], config());
+
+    await store({ followUp }).purge({ session_id: "doomed" });
+    await store({ followUp }).resetKey();
+
+    expect(held).toEqual([
+      "withdrawEvidenceFor",
+      "failJobsFor",
+      "withdrawEvidenceNotFromKey",
+    ]);
+    // Outside the operations the lock is free again.
+    expect(await lockHeld()).toBe(false);
+  });
+
   it("reports a damaged purge progress file with the fix order", async () => {
     await store().saveUtterances([draft()], config());
     await writeFile(join(root, "conversations", "purge-progress.json"), "{", {
