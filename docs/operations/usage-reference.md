@@ -678,6 +678,7 @@ symlink は拒否します。group や others から読める権限は、取り�
 鍵ファイル `local.key` が symlink の場合、group や others から読める権限の場合、他のユーザーが所有している場合は使いません。
 例外は `reset-key` が中断中のパス purge を片付けるときだけです。直後に捨てる古い鍵なので、権限や所有者に問題があっても読めれば照合に使います（symlink は使いません）。
 `repo-knowledge doctor` の `conversations.store` が状態と対処方法を表示します。
+会話データ領域の directory は mode 700、file は mode 600 で作成します。
 
 `utterances.jsonl` に壊れた行があると、purge は `CONVERSATION_DATA_CORRUPT` で止まり、`purge-progress.json` が残ります。
 この状態では、中断した purge を先に片付けようとする `reset-key` も同じエラーで止まります。
@@ -694,7 +695,6 @@ symlink は拒否します。group や others から読める権限は、取り�
 - コマンド引数に書いた認証情報（`curl -u admin:pass`、`mysql -phunter2`）
 - 区切り文字で 32 文字未満に分かれるトークン
 - 第三者の氏名や社名（自動の氏名検出は行いません）
-会話データ領域の directory は mode 700、file は mode 600 で作成します。
 
 ## storage と直接編集
 
