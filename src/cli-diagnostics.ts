@@ -94,11 +94,16 @@ export function cliDiagnostic(error: unknown): {
     error.code.length > 0
       ? error.code
       : "CLI_OPERATION_FAILED";
+  const message =
+    error instanceof Error ? error.message : "CLI operation failed";
   return {
     code,
     exitCode: REPO_KNOWLEDGE_CLI_EXIT.failure,
+    // Errors that already lead with their code are printed once, not twice.
     message: safeDiagnosticMessage(
-      error instanceof Error ? error.message : "CLI operation failed",
+      message.startsWith(`${code}: `)
+        ? message.slice(code.length + 2)
+        : message,
     ),
   };
 }

@@ -3,6 +3,8 @@ import { z } from "zod";
 export const SENSITIVE_CONTENT_DETECTED = "SENSITIVE_CONTENT_DETECTED";
 
 export const SensitiveContentBoundarySchema = z.enum([
+  "conversation_host_assisted_payload",
+  "conversation_provider_payload",
   "host_assisted_payload",
   "jev_merge_payload",
   "provider_distillation_payload",
@@ -43,7 +45,7 @@ export type SensitiveContentFinding = z.infer<
   typeof SensitiveContentFindingSchema
 >;
 
-interface SensitivePattern {
+export interface SensitivePattern {
   readonly kind: SensitiveContentKind;
   readonly pattern: RegExp;
 }
@@ -51,8 +53,11 @@ interface SensitivePattern {
 /**
  * Deny-list for credentials and non-anonymized identities. Patterns are
  * deliberately conservative because every caller is an external boundary.
+ * Conversation redaction reuses these exact patterns (see
+ * `conversation-redaction.ts`); the patterns are non-global, so sharing them
+ * cannot leak `lastIndex` state between callers.
  */
-const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
+export const SENSITIVE_PATTERNS: readonly SensitivePattern[] = Object.freeze([
   // Generic `sk-` covers Anthropic, OpenAI, and other provider key formats.
   { kind: "provider_api_key", pattern: /\bsk-[A-Za-z0-9_-]{10,}/u },
   {
@@ -81,7 +86,7 @@ const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
     pattern:
       /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@(?:(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}|\d{1,3}(?:\.\d{1,3}){3})/u,
   },
-];
+]);
 
 /** Scans every string value while returning only safe kind/path metadata. */
 export function findSensitiveContent(
