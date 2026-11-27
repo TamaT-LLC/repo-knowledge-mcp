@@ -1,64 +1,39 @@
-import { describe, expect, it } from "vitest";
+import { McpServer } from "@modelcontextprotocol/server";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { AlwaysReturnResultSchema } from "../src/global-always-return.js";
-import {
-  AddKnowledgeInputSchema,
-  AddKnowledgeOutputSchema,
-  IngestPrInputSchema,
-  IngestPrOutputSchema,
-  PrepareDistillationInputSchema,
-  PrepareDistillationOutputSchema,
-  RecordOutcomeInputSchema,
-  RecordOutcomeOutputSchema,
-  SubmitDistillationInputSchema,
-  SubmitDistillationOutputSchema,
-  SyncRepoInputSchema,
-  SyncRepoOutputSchema,
-  UpdateKnowledgeInputSchema,
-  UpdateKnowledgeOutputSchema,
-} from "../src/mcp-mutation-schemas.js";
-import {
-  GetKnowledgeInputSchema,
-  GetKnowledgeOutputSchema,
-  GetRulesInputSchema,
-  GetRulesOutputSchema,
-  SearchKnowledgeInputSchema,
-  SearchKnowledgeOutputSchema,
-  StatsInputSchema,
-  StatsOutputSchema,
-} from "../src/mcp-server.js";
+import { buildServer, type BuildServerOptions } from "../src/mcp-server.js";
 
 // The MCP SDK validates tool input and output through `~standard.validate`
 // and builds its error text from the issues. These cases send invalid values
-// through that entry point for every tool schema; under `npm run
-// test:compiled` each call is also checked against the runtime parser, so the
-// compiled path must report the same issues the SDK would show.
-const TOOL_SCHEMAS = {
-  AddKnowledgeInputSchema,
-  AddKnowledgeOutputSchema,
-  AlwaysReturnResultSchema,
-  GetKnowledgeInputSchema,
-  GetKnowledgeOutputSchema,
-  GetRulesInputSchema,
-  GetRulesOutputSchema,
-  IngestPrInputSchema,
-  IngestPrOutputSchema,
-  PrepareDistillationInputSchema,
-  PrepareDistillationOutputSchema,
-  RecordOutcomeInputSchema,
-  RecordOutcomeOutputSchema,
-  SearchKnowledgeInputSchema,
-  SearchKnowledgeOutputSchema,
-  StatsInputSchema,
-  StatsOutputSchema,
-  SubmitDistillationInputSchema,
-  SubmitDistillationOutputSchema,
-  SyncRepoInputSchema,
-  SyncRepoOutputSchema,
-  UpdateKnowledgeInputSchema,
-  UpdateKnowledgeOutputSchema,
-} satisfies Record<string, z.ZodType>;
+// through that entry point for every schema the server registers; under `npm
+// run test:compiled` each call is also checked against the runtime parser, so
+// the compiled path must report the same issues the SDK would show.
+
+/** Every input and output schema `buildServer` registers, by tool. */
+function registeredToolSchemas(): Array<readonly [string, z.ZodType]> {
+  const registerTool = vi.spyOn(McpServer.prototype, "registerTool");
+  try {
+    buildServer({
+      allowAlwaysReturnChanges: true,
+      mutationServiceResolver:
+        {} as BuildServerOptions["mutationServiceResolver"],
+      readServiceResolver: {} as BuildServerOptions["readServiceResolver"],
+    });
+    return registerTool.mock.calls.flatMap(([name, config]) => {
+      const { inputSchema, outputSchema } = config as unknown as {
+        inputSchema?: z.ZodType;
+        outputSchema?: z.ZodType;
+      };
+      return [
+        ...(inputSchema ? [[`${name} input`, inputSchema] as const] : []),
+        ...(outputSchema ? [[`${name} output`, outputSchema] as const] : []),
+      ];
+    });
+  } finally {
+    registerTool.mockRestore();
+  }
+}
 
 /** Every property name the schema lists, including those of union members. */
 function propertyNames(json: unknown): string[] {
@@ -90,8 +65,15 @@ function invalidValues(schema: z.ZodType): unknown[] {
   ];
 }
 
+const TOOL_SCHEMAS = registeredToolSchemas();
+
 describe("MCP tool schemas through ~standard.validate", () => {
-  it.each(Object.entries(TOOL_SCHEMAS))(
+  it("covers every tool's input and output schema", () => {
+    // 12 tools with set_global_always_return enabled; each has both schemas.
+    expect(TOOL_SCHEMAS).toHaveLength(24);
+  });
+
+  it.each(TOOL_SCHEMAS)(
     "%s reports what safeParse reports for invalid values",
     (_name, schema) => {
       let rejected = 0;

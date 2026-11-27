@@ -58,52 +58,48 @@ const safeParseView = (result: SafeParseResult) =>
     ? { success: true, data: result.data }
     : { success: false, issues: result.error.issues };
 
+type Parsers = Pick<z.ZodType, "parse" | "safeParse" | "validate"> & {
+  readonly "~standard": Pick<z.ZodType["~standard"], "validate">;
+};
+
 enableCompileWhenHot({
   afterUses: 0,
-  compile(schema) {
-    // compileWhenHot calls this while the schema still has its runtime methods.
-    const runtime = {
-      parse: schema.parse,
-      safeParse: schema.safeParse,
-      validate: schema.validate,
-      standard: schema["~standard"],
-    };
+  compile(schema, runtime) {
     // strict: a marked schema that Zod cannot compile fails here instead of
     // quietly keeping the runtime parser.
-    const compiled = z.compile(schema, { strict: true });
+    const compiled: Parsers = z.compile(schema, { strict: true });
+    /** One entry point, run on both parsers and compared. */
+    const checked =
+      <A extends [unknown, ...unknown[]], R>(
+        method: string,
+        pick: (parsers: Parsers) => (...args: A) => R,
+        view?: (value: R) => unknown,
+      ) =>
+      (...args: A): R =>
+        agree(
+          method,
+          args[0],
+          () => pick(compiled)(...args),
+          () => pick(runtime)(...args),
+          view,
+        );
     return {
-      parse: (data, params) =>
-        agree(
-          "parse",
-          data,
-          () => compiled.parse(data, params),
-          () => runtime.parse(data, params),
-        ),
-      safeParse: (data, params) =>
-        agree(
-          "safeParse",
-          data,
-          () => compiled.safeParse(data, params),
-          () => runtime.safeParse(data, params),
-          safeParseView,
-        ),
-      validate: ((data, params) =>
-        agree(
-          "validate",
-          data,
-          () => compiled.validate(data, params),
-          () => runtime.validate(data, params),
-        )) as z.ZodType["validate"],
+      parse: checked("parse", (parsers) => parsers.parse),
+      safeParse: checked(
+        "safeParse",
+        (parsers) => parsers.safeParse,
+        safeParseView,
+      ),
+      validate: checked(
+        "validate",
+        (parsers) => parsers.validate,
+      ) as z.ZodType["validate"],
       // What the MCP SDK calls; its error text is built from these issues.
       "~standard": {
-        ...compiled["~standard"],
-        validate: ((value, options) =>
-          agree(
-            "~standard.validate",
-            value,
-            () => compiled["~standard"].validate(value, options),
-            () => runtime.standard.validate(value, options),
-          )) as z.ZodType["~standard"]["validate"],
+        validate: checked(
+          "~standard.validate",
+          (parsers) => parsers["~standard"].validate,
+        ),
       },
     };
   },

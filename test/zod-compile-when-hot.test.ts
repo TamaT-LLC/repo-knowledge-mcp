@@ -23,6 +23,7 @@ describe("compileWhenHot", () => {
   it("switches to the compiled copy after the threshold", async () => {
     const { compileWhenHot, enableCompileWhenHot } = await freshModule();
     const schema = compileWhenHot(Schema());
+    const { parse, safeParse, validate } = schema;
     const compiled = z.compile(schema);
     const compile = vi.fn(() => compiled);
     enableCompileWhenHot({ afterUses: 2, compile });
@@ -33,7 +34,11 @@ describe("compileWhenHot", () => {
     expect(schema.validate({ id: "c" })).toBe(true);
     schema.parse({ id: "d" });
     expect(compile).toHaveBeenCalledTimes(1);
-    expect(compile).toHaveBeenCalledWith(schema);
+    // The second argument is the schema's own parsers, not the counting ones.
+    expect(compile).toHaveBeenCalledWith(
+      schema,
+      expect.objectContaining({ parse, safeParse, validate }),
+    );
   });
 
   it("installs schemas marked after it was enabled, once each", async () => {

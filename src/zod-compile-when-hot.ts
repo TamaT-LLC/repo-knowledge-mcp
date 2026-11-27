@@ -15,16 +15,19 @@ const DEFAULT_COMPILE_AFTER_USES = 500;
  * The entry points a caller validates through: the three methods this code
  * calls, and `~standard`, which the MCP SDK calls for tool input and output.
  */
-type Parsers = Pick<
-  z.ZodType,
-  "parse" | "safeParse" | "validate" | "~standard"
->;
-type StandardValidate = Parsers["~standard"]["validate"];
+type Standard = z.ZodType["~standard"];
+type StandardValidate = Standard["validate"];
+interface Parsers extends Pick<z.ZodType, "parse" | "safeParse" | "validate"> {
+  readonly "~standard": { readonly validate: StandardValidate };
+}
 
 interface CompileWhenHotOptions {
   readonly afterUses?: number;
-  /** Replaces `z.compile` in tests. */
-  readonly compile?: (schema: z.ZodType) => Parsers;
+  /**
+   * Replaces `z.compile` in tests. `runtime` holds the schema's own parsers,
+   * which the schema also has at the moment this is called.
+   */
+  readonly compile?: (schema: z.ZodType, runtime: Parsers) => Parsers;
 }
 
 const pending: z.ZodType[] = [];
@@ -36,11 +39,13 @@ let enabled: Required<CompileWhenHotOptions> | undefined;
  * effect in a process that calls `enableCompileWhenHot`. Libraries and tests
  * keep the runtime parser. Returns the same schema.
  *
- * Mark only a schema that is validated on its own: one whose `parse`,
- * `safeParse` or `validate` this code calls, directly or through a helper, or
- * one passed to the MCP SDK as a tool's input or output schema. A schema
- * reached only as part of another one needs no mark: compiling the parent
- * compiles it too.
+ * Mark a schema when both hold:
+ * - It is validated on its own: this code calls its `parse`, `safeParse` or
+ *   `validate`, directly or through a helper, or passes it to the MCP SDK as a
+ *   tool's input or output schema. A schema reached only as part of another
+ *   one needs no mark: compiling the parent compiles it too.
+ * - Compiling it was measured to make it at least 1.5× faster, and a process
+ *   can use it 500 times (not a dev tool that parses once per run).
  */
 export function compileWhenHot<T extends z.ZodType>(schema: T): T {
   if (enabled === undefined) pending.push(schema);
@@ -54,7 +59,7 @@ export function enableCompileWhenHot(
 ): void {
   enabled = {
     afterUses: options.afterUses ?? DEFAULT_COMPILE_AFTER_USES,
-    compile: options.compile ?? z.compile,
+    compile: options.compile ?? ((schema) => z.compile(schema)),
   };
   for (const schema of pending.splice(0)) install(schema, enabled);
 }
@@ -72,7 +77,9 @@ function install(
 ): void {
   if (installed.has(schema)) return;
   installed.add(schema);
-  const target = schema as { -readonly [K in keyof Parsers]: Parsers[K] };
+  const target = schema as {
+    -readonly [K in keyof z.ZodType]: z.ZodType[K];
+  };
   const standard = schema["~standard"];
   const runtime: Parsers = {
     parse: schema.parse,
@@ -86,10 +93,10 @@ function install(
     target.validate = parsers.validate;
     // Only `validate` changes hands; vendor, version and jsonSchema stay the
     // original schema's, so the tool listing cannot change.
-    target["~standard"] =
-      parsers === runtime
-        ? standard
-        : { ...standard, validate: parsers["~standard"].validate };
+    target["~standard"] = {
+      ...standard,
+      validate: parsers["~standard"].validate,
+    };
   };
   let uses = 0;
   let compiled: Parsers | undefined;
@@ -100,7 +107,7 @@ function install(
     // The compiled copy falls back to the schema's current methods on invalid
     // input, so compile while those are still the runtime ones.
     use(runtime);
-    compiled = compile(schema);
+    compiled = compile(schema, runtime);
     use(compiled);
     return compiled;
   };
@@ -110,7 +117,6 @@ function install(
     validate: ((data, params) =>
       next().validate(data, params)) as Parsers["validate"],
     "~standard": {
-      ...standard,
       validate: ((value, options) =>
         next()["~standard"].validate(value, options)) as StandardValidate,
     },
