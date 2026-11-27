@@ -691,7 +691,7 @@ symlink は拒否します。group や others から読める権限は、取り�
 マスクは既知の形の秘密情報とユーザー名を含むパスを対象にしており、次のものは残ることがあります。
 残したくない語は `redactTerms` に登録してください。
 
-- `password`、`token`、`secret`、`pwd`、`api_key`、`private_key` などを含まないキー名への代入（`pin=1234` など）
+- `password`、`token`、`secret`、`pwd`、`api_key`、`private_key` などを含まないキー名への代入（`pin=1234` など）と、これらの語の直後に `_` や `-` を挟まず文字が続くキー名への 16 文字未満の代入（`tokens=abc`、`passwordHash=x`、`secretKey=abc`）
 - `-u user:pass` と MySQL の `-p<pass>` 以外の形でコマンド引数に書いた認証情報
 - 既知の接頭辞（`glpat-`、`hf_`、`sk_live_` など）がなく、区切り文字で 32 文字未満に分かれるトークン。接頭辞があっても数字を含まないもの
 - `Authorization` header の外にある `Bearer` の後の、8 文字未満の値や英字だけの値
