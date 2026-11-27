@@ -96,7 +96,7 @@ function replace(rule: RedactionRule, groups: NamedGroups): string {
  * after `C:\Users\bob and …` is kept. Escaped separators (`C:\\Users\\bob`
  * in JSON or a string literal) are matched too.
  */
-const HOME_DIRECTORY_PATH_SOURCE = String.raw`(?:(?<![\w.-])|(?<=(?:^|\s)-[A-Za-z]))(?:(?:/mnt/[a-z]|/var|/export|/private/var|/private|/System/Volumes/Data|/Volumes/[^/\s"'\x60]+)?/(?:users|home)/[^/\\\s"'\x60<>()[\]{}|;:,]+?)+(?=$|[/\\\s"'\x60<>()[\]{}|;:,]|[.!?](?:$|\s))|(?:[a-z]:)?\\+users\\+(?:[^\\\s"'\x60<>|*?]+(?: [^\\\s"'\x60<>|*?]+)*(?=\\)|[^\\\s"'\x60<>|*?]+)`;
+const HOME_DIRECTORY_PATH_SOURCE = String.raw`(?:(?<![\w.-])|(?<=(?:^|\s)-[A-Za-z]))(?:(?:/mnt/[a-z]|/usr|/var|/export|/private/var|/private|/System/Volumes/Data|/Volumes/[^/\s"'\x60]+)?/(?:users|home)/[^/\\\s"'\x60<>()[\]{}|;:,]+?)+(?=$|[/\\\s"'\x60<>()[\]{}|;:,]|[.!?](?:$|\s))|(?:[a-z]:)?\\+users\\+(?:[^\\\s"'\x60<>|*?]+(?: [^\\\s"'\x60<>|*?]+)*(?=\\)|[^\\\s"'\x60<>|*?]+)`;
 
 // A web route such as `/users/42` at the start of a path is masked too: it
 // cannot be told from a home directory, and masking is the safe side.

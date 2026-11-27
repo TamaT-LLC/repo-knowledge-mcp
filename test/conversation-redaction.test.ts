@@ -201,6 +201,12 @@ const RULES = [
     redactions: [{ count: 2, kind: "home_directory_path" }],
   },
   {
+    name: "FreeBSD home paths under /usr/home",
+    input: "cd /usr/home/alice/repo, not /usr/local/bin",
+    output: "cd ~/repo, not /usr/local/bin",
+    redactions: [{ count: 1, kind: "home_directory_path" }],
+  },
+  {
     name: "a private key pasted without its END line",
     input:
       "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\nMzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDu+\nthanks",
