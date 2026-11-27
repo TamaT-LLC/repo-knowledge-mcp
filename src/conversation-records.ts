@@ -50,7 +50,7 @@ const ConversationProjectKindSchema = z.enum([
 ]);
 
 const StoredProjectSchema = z
-  .object({
+  .strictObject({
     kind: ConversationProjectKindSchema,
     repo_id: NonEmptyStringSchema.nullable(),
     name_with_owner: RepositoryNameSchema.nullable(),
@@ -59,7 +59,6 @@ const StoredProjectSchema = z
     /** HMAC of every component prefix of the raw path; see the design doc. */
     path_prefix_hmacs: PathPrefixHmacsSchema,
   })
-  .strict()
   .refine(
     (project) =>
       project.kind !== "repository" ||
@@ -67,66 +66,57 @@ const StoredProjectSchema = z
     "a repository project needs repo_id and name_with_owner",
   );
 
-export const UtteranceRecordSchema = z
-  .object({
-    type: z.literal("utterance"),
-    utterance_id: UtteranceIdSchema,
-    source: ConversationSourceSchema,
-    source_origin: z.enum(["history", "transcript"]),
-    session_id: NonEmptyStringSchema,
-    session_kind: z.enum(["real", "pseudo"]),
-    timestamp: IsoDateTimeSchema,
-    project: StoredProjectSchema,
-    text: MaskedTextSchema,
-    text_digest: Sha256DigestSchema,
-    context: z
-      .object({ text: MaskedTextSchema, text_digest: Sha256DigestSchema })
-      .strict()
-      .nullable(),
-    signals: z.array(NonEmptyStringSchema),
-    human_confidence: z.enum(["high", "medium", "low"]),
-    human_reasons: z.array(NonEmptyStringSchema),
-    /**
-     * Masks applied to the source text and context, by kind. A mask in a part
-     * the length cap later cut off is still counted: these describe what
-     * masking did, not what placeholders remain.
-     */
-    redactions: z.array(ConversationRedactionCountSchema),
-    flags: z.array(NonEmptyStringSchema),
-    detector_version: NonEmptyStringSchema,
-    masking_version: NonEmptyStringSchema,
-  })
-  .strict();
+export const UtteranceRecordSchema = z.strictObject({
+  type: z.literal("utterance"),
+  utterance_id: UtteranceIdSchema,
+  source: ConversationSourceSchema,
+  source_origin: z.enum(["history", "transcript"]),
+  session_id: NonEmptyStringSchema,
+  session_kind: z.enum(["real", "pseudo"]),
+  timestamp: IsoDateTimeSchema,
+  project: StoredProjectSchema,
+  text: MaskedTextSchema,
+  text_digest: Sha256DigestSchema,
+  context: z
+    .strictObject({ text: MaskedTextSchema, text_digest: Sha256DigestSchema })
+    .nullable(),
+  signals: z.array(NonEmptyStringSchema),
+  human_confidence: z.enum(["high", "medium", "low"]),
+  human_reasons: z.array(NonEmptyStringSchema),
+  /**
+   * Masks applied to the source text and context, by kind. A mask in a part
+   * the length cap later cut off is still counted: these describe what
+   * masking did, not what placeholders remain.
+   */
+  redactions: z.array(ConversationRedactionCountSchema),
+  flags: z.array(NonEmptyStringSchema),
+  detector_version: NonEmptyStringSchema,
+  masking_version: NonEmptyStringSchema,
+});
 export type UtteranceRecord = z.infer<typeof UtteranceRecordSchema>;
 
 /** History and transcript copies of one utterance (pipeline step 2). */
-const SupersededRecordSchema = z
-  .object({
-    type: z.literal("superseded"),
-    utterance_id: UtteranceIdSchema,
-    superseded_by: UtteranceIdSchema,
-  })
-  .strict();
+const SupersededRecordSchema = z.strictObject({
+  type: z.literal("superseded"),
+  utterance_id: UtteranceIdSchema,
+  superseded_by: UtteranceIdSchema,
+});
 
 /**
  * What remains of an utterance after `retentionDays`: only the values a
  * later purge filter is matched against. No text, context, or signals.
  */
-const ExpiredTombstoneSchema = z
-  .object({
-    type: z.literal("expired"),
-    utterance_id: UtteranceIdSchema,
-    source: ConversationSourceSchema,
-    session_id: NonEmptyStringSchema,
-    timestamp: IsoDateTimeSchema,
-    project: z
-      .object({
-        name_with_owner: RepositoryNameSchema.nullable(),
-        path_prefix_hmacs: PathPrefixHmacsSchema,
-      })
-      .strict(),
-  })
-  .strict();
+const ExpiredTombstoneSchema = z.strictObject({
+  type: z.literal("expired"),
+  utterance_id: UtteranceIdSchema,
+  source: ConversationSourceSchema,
+  session_id: NonEmptyStringSchema,
+  timestamp: IsoDateTimeSchema,
+  project: z.strictObject({
+    name_with_owner: RepositoryNameSchema.nullable(),
+    path_prefix_hmacs: PathPrefixHmacsSchema,
+  }),
+});
 export type ExpiredTombstone = z.infer<typeof ExpiredTombstoneSchema>;
 
 export const ConversationDataRecordSchema = z.discriminatedUnion("type", [
@@ -158,7 +148,7 @@ export function toExpiredTombstone(record: UtteranceRecord): ExpiredTombstone {
  * kept raw, as typed (design: 削除条件の形式), in the 0600 data area.
  */
 export const PurgeFilterSchema = z
-  .object({
+  .strictObject({
     source: ConversationSourceSchema.optional(),
     session_id: NonEmptyStringSchema.optional(),
     /** Exclusive upper bound on the utterance timestamp. */
@@ -169,7 +159,6 @@ export const PurgeFilterSchema = z
     name_with_owner: RepositoryNameSchema.optional(),
     added_at: IsoDateTimeSchema,
   })
-  .strict()
   .refine(
     (filter) =>
       Object.entries(filter).some(

@@ -33,12 +33,10 @@ export type ConversationRedactionKind = z.infer<
   typeof ConversationRedactionKindSchema
 >;
 
-export const ConversationRedactionCountSchema = z
-  .object({
-    count: z.number().int().positive(),
-    kind: ConversationRedactionKindSchema,
-  })
-  .strict();
+export const ConversationRedactionCountSchema = z.strictObject({
+  count: z.number().int().positive(),
+  kind: ConversationRedactionKindSchema,
+});
 export type ConversationRedactionCount = z.infer<
   typeof ConversationRedactionCountSchema
 >;

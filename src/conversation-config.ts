@@ -51,19 +51,17 @@ const ExcludedProjectSchema = z.string().transform((value, context) => {
 
 const SourceSchema = (home: string) =>
   z
-    .object({
+    .strictObject({
       enabled: z.boolean().default(false),
       home: NonEmptyTrimmedStringSchema.default(home),
     })
-    .strict()
     .prefault({});
 
 const SdkAllowlistEntrySchema = z
-  .object({
+  .strictObject({
     cwdPrefix: ProjectPathSchema.optional(),
     entrypoint: NonEmptyTrimmedStringSchema.optional(),
   })
-  .strict()
   .refine(
     (entry) => entry.cwdPrefix !== undefined || entry.entrypoint !== undefined,
     "must set entrypoint or cwdPrefix",
@@ -80,70 +78,60 @@ const RegularExpressionSchema = z.string().refine((value) => {
 
 const PositiveIntegerSchema = z.number().int().positive();
 
-const ConversationDistillationConfigSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    enabled: z.boolean().default(false),
-    sources: z
-      .object({
-        claudeCode: SourceSchema("~/.claude"),
-        codex: SourceSchema("~/.codex"),
-      })
-      .strict()
-      .prefault({}),
-    provider: z
-      .object({
-        allowConversationContentTransmission: z.boolean().default(false),
-        consentedMode: NonEmptyTrimmedStringSchema.nullable().default(null),
-      })
-      .strict()
-      .prefault({}),
-    hostAssisted: z
-      .object({
-        allowConversationContentTransmission: z.boolean().default(false),
-        allowGlobalStore: z.boolean().default(false),
-        enabled: z.boolean().default(false),
-      })
-      .strict()
-      .prefault({}),
-    assistantContext: z
-      .object({
-        enabled: z.boolean().default(true),
-        maxCharacters: PositiveIntegerSchema.max(
-          MAX_UTTERANCE_TEXT_CHARACTERS,
-        ).default(500),
-      })
-      .strict()
-      .prefault({}),
-    /** `null` keeps utterances indefinitely. */
-    retentionDays: PositiveIntegerSchema.max(36_500).nullable().default(null),
-    redactTerms: z.array(NonEmptyTrimmedStringSchema).default([]),
-    sdkAllowlist: z.array(SdkAllowlistEntrySchema).default([]),
-    automationPatterns: z.array(RegularExpressionSchema).default([]),
-    correctionKeywords: z.array(NonEmptyTrimmedStringSchema).default([]),
-    excludeProjects: z.array(ExcludedProjectSchema).default([]),
-    thresholds: z
-      .object({
-        global: z
-          .object({
-            minProjects: PositiveIntegerSchema.default(2),
-            minSessions: PositiveIntegerSchema.default(3),
-          })
-          .strict()
-          .prefault({}),
-        noRepository: z
-          .object({ minSessions: PositiveIntegerSchema.default(3) })
-          .strict()
-          .prefault({}),
-        repository: z
-          .object({ minSessions: PositiveIntegerSchema.default(2) })
-          .strict()
-          .prefault({}),
-      })
-      .strict()
-      .prefault({}),
-  })
-  .strict();
+const ConversationDistillationConfigSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  enabled: z.boolean().default(false),
+  sources: z
+    .strictObject({
+      claudeCode: SourceSchema("~/.claude"),
+      codex: SourceSchema("~/.codex"),
+    })
+    .prefault({}),
+  provider: z
+    .strictObject({
+      allowConversationContentTransmission: z.boolean().default(false),
+      consentedMode: NonEmptyTrimmedStringSchema.nullable().default(null),
+    })
+    .prefault({}),
+  hostAssisted: z
+    .strictObject({
+      allowConversationContentTransmission: z.boolean().default(false),
+      allowGlobalStore: z.boolean().default(false),
+      enabled: z.boolean().default(false),
+    })
+    .prefault({}),
+  assistantContext: z
+    .strictObject({
+      enabled: z.boolean().default(true),
+      maxCharacters: PositiveIntegerSchema.max(
+        MAX_UTTERANCE_TEXT_CHARACTERS,
+      ).default(500),
+    })
+    .prefault({}),
+  /** `null` keeps utterances indefinitely. */
+  retentionDays: PositiveIntegerSchema.max(36_500).nullable().default(null),
+  redactTerms: z.array(NonEmptyTrimmedStringSchema).default([]),
+  sdkAllowlist: z.array(SdkAllowlistEntrySchema).default([]),
+  automationPatterns: z.array(RegularExpressionSchema).default([]),
+  correctionKeywords: z.array(NonEmptyTrimmedStringSchema).default([]),
+  excludeProjects: z.array(ExcludedProjectSchema).default([]),
+  thresholds: z
+    .strictObject({
+      global: z
+        .strictObject({
+          minProjects: PositiveIntegerSchema.default(2),
+          minSessions: PositiveIntegerSchema.default(3),
+        })
+        .prefault({}),
+      noRepository: z
+        .strictObject({ minSessions: PositiveIntegerSchema.default(3) })
+        .prefault({}),
+      repository: z
+        .strictObject({ minSessions: PositiveIntegerSchema.default(2) })
+        .prefault({}),
+    })
+    .prefault({}),
+});
 
 export type ConversationDistillationConfig = z.infer<
   typeof ConversationDistillationConfigSchema

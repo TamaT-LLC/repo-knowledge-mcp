@@ -223,20 +223,16 @@ export interface ResetKeyResult {
 
 const PurgeProgressSchema = z.discriminatedUnion("stage", [
   // The filter being added, until it is saved: its only copy.
-  z
-    .object({
-      schema_version: z.literal(1),
-      stage: z.literal("filter_saved"),
-      filter: PurgeFilterSchema,
-    })
-    .strict(),
-  z
-    .object({
-      schema_version: z.literal(1),
-      stage: z.enum(["ids_recorded", "compacted", "evidence_withdrawn"]),
-      utterance_ids: z.array(UtteranceIdSchema),
-    })
-    .strict(),
+  z.strictObject({
+    schema_version: z.literal(1),
+    stage: z.literal("filter_saved"),
+    filter: PurgeFilterSchema,
+  }),
+  z.strictObject({
+    schema_version: z.literal(1),
+    stage: z.enum(["ids_recorded", "compacted", "evidence_withdrawn"]),
+    utterance_ids: z.array(UtteranceIdSchema),
+  }),
 ]);
 type PurgeProgress = z.infer<typeof PurgeProgressSchema>;
 type PurgeStage = PurgeProgress["stage"];
@@ -250,31 +246,25 @@ type IdsProgress = Extract<
  * apart from the user's filters and matched by exact identity, so ingest
  * pays a set lookup, not a filter scan, for each.
  */
-const PurgedCopySchema = z
-  .object({
-    source: ConversationSourceSchema,
-    session_id: NonEmptyStringSchema,
-    timestamp: IsoDateTimeSchema,
-  })
-  .strict();
+const PurgedCopySchema = z.strictObject({
+  source: ConversationSourceSchema,
+  session_id: NonEmptyStringSchema,
+  timestamp: IsoDateTimeSchema,
+});
 
-const PurgeFiltersFileSchema = z
-  .object({
-    schema_version: z.literal(1),
-    filters: z.array(PurgeFilterSchema),
-    copies: z.array(PurgedCopySchema).default([]),
-  })
-  .strict();
+const PurgeFiltersFileSchema = z.strictObject({
+  schema_version: z.literal(1),
+  filters: z.array(PurgeFilterSchema),
+  copies: z.array(PurgedCopySchema).default([]),
+});
 type PurgeState = z.infer<typeof PurgeFiltersFileSchema>;
 
 /** `reset-pending` marker: the new key generation and the last done stage. */
-const ResetPendingSchema = z
-  .object({
-    schema_version: z.literal(1),
-    key_id: z.string().regex(/^[0-9a-f]{16}$/u),
-    completed_stage: z.number().int().min(0).max(3),
-  })
-  .strict();
+const ResetPendingSchema = z.strictObject({
+  schema_version: z.literal(1),
+  key_id: z.string().regex(/^[0-9a-f]{16}$/u),
+  completed_stage: z.number().int().min(0).max(3),
+});
 type ResetPendingMarker = z.infer<typeof ResetPendingSchema>;
 
 export interface UnsafeKeyFile {
