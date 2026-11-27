@@ -107,6 +107,17 @@ describe("GoldenFixtureSchema expected rules", () => {
     ]);
   });
 
+  it("rejects duplicate case ids", async () => {
+    const fixture = await load();
+    at(fixture.cases, 1).id = at(fixture.cases, 0).id;
+    expect(customIssues(GoldenFixtureSchema, fixture)).toEqual([
+      {
+        message: `duplicate cases id ${at(fixture.cases, 0).id}`,
+        path: ["cases", 1, "id"],
+      },
+    ]);
+  });
+
   it("rejects duplicate search ids", async () => {
     const fixture = await load();
     at(fixture.searches, 1).id = at(fixture.searches, 0).id;
@@ -303,6 +314,17 @@ describe("PilotHumanRubricSchema rules", () => {
       {
         message: `duplicate criterion id ${at(criteria, 0).id}`,
         path: ["queries", 0, "criteria", 1, "id"],
+      },
+    ]);
+  });
+
+  it("rejects duplicate query ids", async () => {
+    const rubric = await load();
+    at(rubric.queries, 1).id = at(rubric.queries, 0).id;
+    expect(customIssues(PilotHumanRubricSchema, rubric)).toEqual([
+      {
+        message: `duplicate queries id ${at(rubric.queries, 0).id}`,
+        path: ["queries", 1, "id"],
       },
     ]);
   });
