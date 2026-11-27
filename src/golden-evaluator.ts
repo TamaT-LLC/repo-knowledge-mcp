@@ -8,7 +8,7 @@ import {
   type Severity,
 } from "./domain-schemas.js";
 import { scopeGlobOptions } from "./scope-glob.js";
-import { addCustomIssue } from "./zod-issues.js";
+import { addCustomIssue, addDuplicateIdIssues } from "./zod-issues.js";
 
 const GoldenExpectedSchema = z
   .strictObject({
@@ -85,15 +85,15 @@ export const GoldenFixtureSchema = z
   })
   .check((context) => {
     const value = context.value;
-    addDuplicateIssues(
-      value.cases.map((entry) => entry.id),
+    addDuplicateIdIssues(
+      context,
       "cases",
-      context,
+      value.cases.map((entry) => entry.id),
     );
-    addDuplicateIssues(
-      value.searches.map((entry) => entry.id),
-      "searches",
+    addDuplicateIdIssues(
       context,
+      "searches",
+      value.searches.map((entry) => entry.id),
     );
   });
 
@@ -396,21 +396,4 @@ function metric(
 
 function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
-}
-
-function addDuplicateIssues(
-  values: readonly string[],
-  path: string,
-  context: z.core.ParsePayload,
-): void {
-  const seen = new Set<string>();
-  for (const [index, value] of values.entries()) {
-    if (seen.has(value)) {
-      addCustomIssue(context, {
-        message: `duplicate ${path} id ${value}`,
-        path: [path, index, "id"],
-      });
-    }
-    seen.add(value);
-  }
 }

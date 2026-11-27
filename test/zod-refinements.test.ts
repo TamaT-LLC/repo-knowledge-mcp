@@ -18,6 +18,7 @@ import {
   RepositoryNameSchema,
   SubmitDistillationInputSchema,
   UpdateKnowledgeInputSchema,
+  UtcDaySchema,
   createDomainId,
 } from "../src/experimental.js";
 import { repositoryRoot } from "./support/quality-gate-fixtures.js";
@@ -70,19 +71,15 @@ function readGoldenFixture<S extends z.ZodType>(
 }
 
 describe("GoldenFixtureSchema expected rules", () => {
+  const load = () => readGoldenFixture(GoldenFixtureSchema, "m1-golden.json");
+
   it("accepts the committed fixture", async () => {
-    const fixture = await readGoldenFixture(
-      GoldenFixtureSchema,
-      "m1-golden.json",
-    );
+    const fixture = await load();
     expect(customIssues(GoldenFixtureSchema, fixture)).toEqual([]);
   });
 
   it("requires category and severity for knowledge cases", async () => {
-    const fixture = await readGoldenFixture(
-      GoldenFixtureSchema,
-      "m1-golden.json",
-    );
+    const fixture = await load();
     const index = fixture.cases.findIndex(
       (entry) => entry.expected.is_knowledge,
     );
@@ -96,10 +93,7 @@ describe("GoldenFixtureSchema expected rules", () => {
   });
 
   it("rejects merge groups on non-knowledge cases", async () => {
-    const fixture = await readGoldenFixture(
-      GoldenFixtureSchema,
-      "m1-golden.json",
-    );
+    const fixture = await load();
     const index = fixture.cases.findIndex(
       (entry) => !entry.expected.is_knowledge,
     );
@@ -108,6 +102,28 @@ describe("GoldenFixtureSchema expected rules", () => {
       {
         message: "non-knowledge fixtures cannot belong to a merge group",
         path: ["cases", index, "expected"],
+      },
+    ]);
+  });
+
+  it("rejects duplicate case ids", async () => {
+    const fixture = await load();
+    at(fixture.cases, 1).id = at(fixture.cases, 0).id;
+    expect(customIssues(GoldenFixtureSchema, fixture)).toEqual([
+      {
+        message: `duplicate cases id ${at(fixture.cases, 0).id}`,
+        path: ["cases", 1, "id"],
+      },
+    ]);
+  });
+
+  it("rejects duplicate search ids", async () => {
+    const fixture = await load();
+    at(fixture.searches, 1).id = at(fixture.searches, 0).id;
+    expect(customIssues(GoldenFixtureSchema, fixture)).toEqual([
+      {
+        message: `duplicate searches id ${at(fixture.searches, 0).id}`,
+        path: ["searches", 1, "id"],
       },
     ]);
   });
@@ -182,6 +198,23 @@ describe("AnonymizedThreadCorpusSchema rules", () => {
       {
         message: `duplicate thread id ${at(corpus.threads, 0).id}`,
         path: ["threads", index, "id"],
+      },
+    ]);
+  });
+
+  it("reports a thread issue and a corpus issue together", async () => {
+    const corpus = await load();
+    const comments = at(corpus.threads, 0).comments;
+    at(comments, 1).id = at(comments, 0).id;
+    at(corpus.searches, 1).id = at(corpus.searches, 0).id;
+    expect(customIssues(AnonymizedThreadCorpusSchema, corpus)).toEqual([
+      {
+        message: `duplicate comment id ${at(comments, 0).id}`,
+        path: ["threads", 0, "comments", 1, "id"],
+      },
+      {
+        message: `duplicate search id ${at(corpus.searches, 0).id}`,
+        path: ["searches", 1, "id"],
       },
     ]);
   });
@@ -280,6 +313,28 @@ describe("PilotHumanRubricSchema rules", () => {
       {
         message: `duplicate criterion id ${at(criteria, 0).id}`,
         path: ["queries", 0, "criteria", 1, "id"],
+      },
+    ]);
+  });
+
+  it("rejects duplicate query ids", async () => {
+    const rubric = await load();
+    at(rubric.queries, 1).id = at(rubric.queries, 0).id;
+    expect(customIssues(PilotHumanRubricSchema, rubric)).toEqual([
+      {
+        message: `duplicate queries id ${at(rubric.queries, 0).id}`,
+        path: ["queries", 1, "id"],
+      },
+    ]);
+  });
+
+  it("rejects duplicate checkpoint ids", async () => {
+    const rubric = await load();
+    at(rubric.checkpoints, 1).id = at(rubric.checkpoints, 0).id;
+    expect(customIssues(PilotHumanRubricSchema, rubric)).toEqual([
+      {
+        message: `duplicate checkpoints id ${at(rubric.checkpoints, 0).id}`,
+        path: ["checkpoints", 1, "id"],
       },
     ]);
   });
@@ -597,6 +652,11 @@ describe("refine error messages", () => {
       schema: RecordOutcomeRequestSchema.shape.context,
     },
     {
+      input: "2026-02-30",
+      message: "must be a valid UTC calendar day",
+      schema: UtcDaySchema,
+    },
+    {
       input: { ...sync, runs_failed: 1 },
       message: "runs_failed must not exceed runs_total",
       schema: ObservedPilotDailyRecordSchema.shape.sync,
@@ -607,6 +667,7 @@ describe("refine error messages", () => {
 
   it("accepts the values next to each rejected one", () => {
     expect(customIssues(RepositoryNameSchema, "owner/.name")).toEqual([]);
+    expect(UtcDaySchema.parse("2026-02-28")).toBe("2026-02-28");
     expect(customIssues(KnowledgeRevisionPatchSchema, { rule: "x" })).toEqual(
       [],
     );

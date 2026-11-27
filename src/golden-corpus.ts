@@ -13,7 +13,7 @@ import {
   findSensitiveContent,
   type SensitiveContentFinding,
 } from "./sensitive-content.js";
-import { addCustomIssue } from "./zod-issues.js";
+import { addCustomIssue, addDuplicateIdIssues } from "./zod-issues.js";
 
 export {
   findSensitiveContent,
@@ -84,17 +84,12 @@ const CorpusThreadSchema = z
     tags: z.array(NonEmptyStringSchema),
   })
   .check((context) => {
-    const value = context.value;
-    const seen = new Set<string>();
-    for (const [index, comment] of value.comments.entries()) {
-      if (seen.has(comment.id)) {
-        addCustomIssue(context, {
-          message: `duplicate comment id ${comment.id}`,
-          path: ["comments", index, "id"],
-        });
-      }
-      seen.add(comment.id);
-    }
+    addDuplicateIdIssues(
+      context,
+      "comments",
+      context.value.comments.map((comment) => comment.id),
+      "comment",
+    );
   });
 
 const CorpusSearchSchema = z.strictObject({
@@ -114,16 +109,9 @@ export const AnonymizedThreadCorpusSchema = z
   })
   .check((context) => {
     const value = context.value;
-    const threadIds = new Set<string>();
-    for (const [index, thread] of value.threads.entries()) {
-      if (threadIds.has(thread.id)) {
-        addCustomIssue(context, {
-          message: `duplicate thread id ${thread.id}`,
-          path: ["threads", index, "id"],
-        });
-      }
-      threadIds.add(thread.id);
-    }
+    const threadIdList = value.threads.map((thread) => thread.id);
+    addDuplicateIdIssues(context, "threads", threadIdList, "thread");
+    const threadIds = new Set(threadIdList);
     const searchIds = new Set<string>();
     for (const [index, search] of value.searches.entries()) {
       if (searchIds.has(search.id)) {
