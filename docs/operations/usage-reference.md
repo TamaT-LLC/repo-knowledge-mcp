@@ -630,7 +630,7 @@ npm run quality:gate
 
 設定は `~/.repo-knowledge/conversation-distillation.json` に置きます。
 ファイルがなければ会話の取り込みは無効です。
-symlink は拒否し、group や others から読める権限は 600 に矯正します。
+symlink は拒否し、group や others から読める権限は読み込み時に 600 に矯正します。`conversations status` は権限を報告するだけで、変更しません。
 
 ```json
 {
