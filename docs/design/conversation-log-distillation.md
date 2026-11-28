@@ -271,7 +271,7 @@ registry に未登録のリポジトリ（`unregistered`）については、`ow
 
 #### M4-FR-019 除外プロジェクト
 
-利用者は、取り込まないプロジェクトを `owner/name` の完全一致か、絶対パスの前方一致で指定できる。
+利用者は、取り込まないプロジェクトを `owner/name` の一致（GitHub と同じく大文字小文字を区別しない）か、絶対パスの前方一致で指定できる。
 該当する発言は取り込み段階で捨て、保存しない。
 
 #### M4-FR-020 直前のアシスタント発言の文脈
@@ -435,10 +435,13 @@ $REPO_KNOWLEDGE_HOME/
     ├── utterances.jsonl              # マスク後の発言と supersede
     ├── episodes.jsonl                # エピソードとクラスタ割り当て
     ├── checkpoints.json              # ソースファイルごとの読み取り位置
-    ├── purge-filters.json            # 削除条件（鍵に依存しない値で保存）
+    ├── purge-filters.json            # 削除条件とリンクで消したコピー（鍵に依存しない値で保存）
+    ├── purge-progress.json           # 中断した purge の進捗（完了したら消す）
+    ├── reset-pending.json            # reset-key の reset-pending マーカー（完了したら消す）
     ├── route-cache.json              # cwd からプロジェクトへの解決結果
     ├── mcp-ingest-state.json         # MCP からの取り込みの最終実行時刻
     ├── local.key                     # 発言 ID とハッシュ化に使う鍵（0600）
+    ├── local.key.next                # reset-key の途中だけ存在する新しい鍵（0600）
     └── .lock                         # 会話データ領域の writer lock
 ```
 
@@ -460,8 +463,9 @@ canonical は生のセッション ID を持たないため、削除条件の照
 
 削除条件の `project_path_prefix` は、取り込み時はソースから読んだマスク前のパスに直接照合する。前方一致は文字列ではなくパス区切り（`/`）の単位で判定し、`/Users/alice/re` は `/Users/alice/repo` に一致しない。取り込み時の照合と保存後の HMAC による照合は、この同じ規則で判定する。
 保存済みの発言と tombstone に対しては、`project_path_prefix` を正規化して現在の鍵で HMAC を取り、その値が `path_prefix_hmacs` に含まれるかで照合する。
-`path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/`、`/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ。階層の数に上限は設けず、ルート `/` を含むすべての階層を持つ。そのため削除条件や `excludeProjects` に `/` を指定した場合も、取り込み時と保存後の照合が同じ結果（すべてに一致）になる。上限を設けると、それより深いパスを削除条件や `excludeProjects` に指定したときに照合が漏れるためである。
+`path_prefix_hmacs` は、たとえば `/Users/alice/repo/app` なら `/`、`/Users`、`/Users/alice`、`/Users/alice/repo`、`/Users/alice/repo/app` のそれぞれの HMAC を持つ。階層の数に上限は設けず、ルート `/` を含むすべての階層を持つ。そのため削除条件や `excludeProjects` に `/` を指定した場合も、取り込み時と保存後の照合が同じ結果（プロジェクトのパスを持つ発言のすべてに一致）になる。パスを持たない発言は、パスの条件には一致しない。上限を設けると、それより深いパスを削除条件や `excludeProjects` に指定したときに照合が漏れるためである。
 前方一致を HMAC の集合の包含で表すため、生のパスを保存せずに、`/Users/alice/repo` と `/Users/bob/repo` を区別できる。
+パスの正規化（NFC、区切りの正規化、末尾の `/` の除去、大文字小文字の畳み込み）は、`path_prefix_hmacs` を作る側と照合する側で同じ関数（[conversation paths](../../src/conversation-paths.ts)）を使う。大文字小文字を畳み込むのは、macOS の既定のファイルシステムが区別しないためで、区別するファイルシステムでは一致が広がる（削除と除外が多めに効く）方向にだけ働く。
 マスク後のパスは区別できないため、照合には使わない。
 
 鍵を作り直すと HMAC が変わるが、`reset-key` は 1 段目で `utterances.jsonl`（tombstone を含む）を破棄し、3 段目で古い世代の evidence を withdrawn にする。
@@ -505,6 +509,10 @@ HMAC(local.key, JCS({ source, session_id, source_message_id | null, timestamp, m
 中断後に再実行した場合は、鍵を作り直さず、マーカーに記録した新しい鍵のまま、完了していない段だけを続ける。
 鍵を二度作り直すと、1 段目以降に作った発言 ID や 3 段目の判定がずれるためである。
 
+0 段目の前に、中断した purge があれば先に完了させる。その削除条件とリンクで見つかるコピーの識別を、破棄の前に `purge-filters.json` へ残すためである。
+パスの削除条件が `filter_saved` のまま中断している場合は、古い `local.key` で保存済みの発言と照合する。この照合に限り、権限や所有者の検査に通らない鍵も読めれば使う（直後に破棄する鍵だから。symlink は使わない）。
+古い鍵が読めず、保存済みの発言がある場合は、条件だけを保存して止まり、進捗とリンクを残す。`local.key` を戻して再実行するか、リンク先のコピーの追跡をあきらめて `purge-progress.json` を消してから再実行するよう案内する。
+
 鍵は必ずマーカーより先に永続化する。
 再実行時は、鍵ファイルとマーカーの状態から次のとおり再開する。
 
@@ -513,7 +521,7 @@ HMAC(local.key, JCS({ source, session_id, source_message_id | null, timestamp, m
 | `local.key.next` があり、マーカーがない | 0 段目の鍵の保存後、マーカーの保存前 | `local.key.next` を消して 0 段目から始める。まだ何も変えていないため、新しい鍵を作り直してよい |
 | マーカーがあり、`local.key.next` の `key_id` がマーカーと一致する | 1 段目の rename 前 | 1 段目から続ける |
 | マーカーがあり、`local.key` の `key_id` がマーカーと一致する | 1 段目の rename 後 | 1 段目の破棄（何度行っても同じ結果になる）から続け、マーカーに記録した段の次へ進む |
-| マーカーがあり、どちらの鍵もマーカーの `key_id` と一致しない | 鍵ファイルを外から消した、または壊した | 自動では続けず、`doctor` で警告して `conversations reset-key --restart` を案内する。`--restart` はマーカーを消して 0 段目からやり直す。3 段目は現在と異なる `key_id` の evidence をすべて withdrawn にするため、やり直しても整合する |
+| マーカーがあり、どちらの鍵もマーカーの `key_id` と一致しない | 鍵ファイルを外から消した、または壊した | 自動では続けず、`doctor` で警告して `conversations reset-key --restart` を案内する。`--restart` は古いマーカーを使わずに 0 段目からやり直す（マーカーは 0 段目で新しい鍵の `key_id` に書き換える）。3 段目は現在と異なる `key_id` の evidence をすべて withdrawn にするため、やり直しても整合する |
 
 3 を行うのは、古い世代の `session_key` と新しい世代の `session_key` が一致せず、同じセッションが二重に数えられるためである。
 古い evidence を根拠としていたナレッジは、再取り込みと再蒸留の後に `same` の merge で新しい evidence を得る。
@@ -569,7 +577,10 @@ history の行は時刻順に追記されるため、取り込みを分けても
 
 #### 削除条件の形式
 
-`purge-filters.json` の各要素は、`source`、`session_id`（ソース側の値）、`before`、`after`、`project_path_prefix`、`name_with_owner` のうち一つ以上と、追加日時を持つ。
+`purge-filters.json` は、利用者が指定した削除条件の配列（`filters`）と、リンクでつながったコピーの識別情報の配列（`copies`）を持つ。
+`filters` の各要素は、`source`、`session_id`（ソース側の値）、`before`、`after`、`project_path_prefix`、`name_with_owner` のうち一つ以上と、追加日時を持つ。
+`copies` の各要素は、条件には一致せず `superseded` のリンクをたどって消した発言の `source`、`session_id`、`timestamp` を持つ。
+リンクは `reset-key` で破棄されるため、コピーの識別情報を別に残し、再取り込みでも同じコピーを保存しない。照合は条件の走査ではなく識別情報の完全一致で行う。
 条件は、ソースから読んだ直後のマスク前の値、または保存済みの発言と tombstone の `path_prefix_hmacs` に対して照合する（[保存期間の tombstone](#cd-tombstone)）。
 擬似セッションの発言は、期間、ソース、プロジェクトの条件で削除する。
 
@@ -893,10 +904,16 @@ history にだけある情報（プロジェクトのパス）は会話ファイ
 | --- | --- | --- |
 | 既存の検出種別（API key、GitHub token、Slack token、AWS key、Google API key、秘密鍵ブロック、汎用の秘密代入、メールアドレス） | 共有 | 該当部分を `[REDACTED]` |
 | Authorization header | 共有 | header の値全体を `[REDACTED]` にし、`Authorization: [REDACTED]` とする |
-| Bearer token | 会話だけ | `bearer <token>` 全体を `[REDACTED]` |
+| Bearer token | 会話だけ | `bearer <token>` 全体を `[REDACTED]`。token は 8 文字以上で、数字か記号を含むものとし、`the bearer token` のような文は残す |
+| `Basic` の資格情報（header の外） | 会話だけ | `Basic <base64>` の base64 部分を含めて `[REDACTED]`。`Basic JavaScript` のような文は残す |
 | JWT | 会話だけ | 該当部分を `[REDACTED]` |
 | 英字と数字を両方含む 32 文字以上の連続 | 会話だけ | 該当部分を `[REDACTED]`。パスの一部は除く |
-| ホームディレクトリの絶対パス | 会話だけ | `/Users/<name>/`、`/home/<name>/` を `~/` |
+| ホームディレクトリの絶対パス | 会話だけ | `/Users/<name>/`、`/home/<name>/`（`/usr/home`、`/var/home`、`/mnt/<drive>`、`/Volumes/<disk>` などの下と Windows の `C:\Users\<name>` を含む）を `~/` |
+| Claude Code の符号化ディレクトリ名 | 会話だけ | `-Users-<name>-…`、`-home-<name>-…`（`/` と `.` を `-` にしたプロジェクトのディレクトリ名）の `<name>` を `[REDACTED]`。`-Volumes-<disk>-`、`-mnt-<drive>-`、`-var-`、`-usr-`、`C-` などの接頭辞が付く形も含み、大文字小文字は区別しない |
+| 秘密鍵ブロックの本文 | 会話だけ | 共有の検出は BEGIN 行だけを見るため、END 行まで（END がなければ末尾まで）をまとめて `[REDACTED]`。PGP の秘密鍵ブロックも同じ |
+| よく知られたキー名への短い秘密代入 | 会話だけ | キー名に `password`、`passwd`、`passphrase`、`pwd`、`secret`、`token`、`private_key`、`api_key` を含む代入（語の後に続ける場合は `_` か `-` で区切ったもの。`SECRET_KEY`、`DB_PASSWORD` など。`pass=` も）は、16 文字未満や空白入りの引用値でもキー名と引用符を残して値を `[REDACTED]`。区切りの直後が `=` か `>` の比較や矢印（`==`、`:=`、`=>`）と、区切りと違う行にある値は対象外 |
+| コマンド引数の認証情報 | 会話だけ | `-u user:pass` / `--user user:pass` の `pass` と、MySQL の `-p<pass>` を `[REDACTED]` |
+| 接頭辞付きのトークン | 会話だけ | `glpat-`、`hf_`、`sk_live_` などで始まり数字を含む、区切り文字で 32 文字未満に分かれるトークンを `[REDACTED]` |
 | 接続文字列の資格情報 | 会話だけ | `scheme://user:pass@host` 形式の `user:pass` を置換し、`scheme://[REDACTED]@host` とする |
 | 利用者辞書（`redactTerms`） | 会話だけ | NFKC 正規化と大文字小文字の無視をしたうえで、語に一致する部分を `[REDACTED]` |
 
@@ -1584,7 +1601,7 @@ interface ConversationFinalizeJob extends ConversationJobBase {
 | `repo-knowledge ingest-conversations [--source claude-code\|codex\|all] [--since <iso>] [--dry-run] [--json]` | 収集からプロジェクト解決まで。`--dry-run` は保存せずに統計だけを出す | PR3 |
 | `repo-knowledge distill-conversations [--store repository\|global\|all] [--repo <owner/name>] [--plan] [--limit <n>] [--group-pending]` | クラスタ化と job 作成。`--plan` は job を作らずに予定だけを出す。Provider の同意がある場合は蒸留まで実行する。`--group-pending` は未ラベルのクラスタが 1 件以上あれば統合の job を作る | PR4a、PR5 |
 | `repo-knowledge conversations status [--json]` | M4-FR-018 の統計。未登録リポジトリと保留中の発言件数、送信字数の累計、常時返却の一覧と操作した側を含む | PR1、PR2、PR3、PR4a |
-| `repo-knowledge conversations purge (--session <id> \| --before <iso> \| --source <name> \| --project <owner/name\|path>) [--yes]` | 発言の削除（M4-FR-017） | PR2、PR4a、PR4b |
+| `repo-knowledge conversations purge (--session <id> \| --before <iso> \| --source <name> \| --project <owner/name\|path> \| --resume) [--yes]` | 発言の削除（M4-FR-017）。`--resume` は条件を加えずに中断した purge を最後まで行う | PR2、PR4a、PR4b |
 | `repo-knowledge conversations reset-key [--yes] [--restart]` | 鍵の作り直し。`--restart` は鍵ファイルが失われて再開できないときに 0 段目からやり直す | PR2、PR4b |
 | `repo-knowledge export --format claude-md\|agents-md [--store repository\|global\|all] [--repo <owner/name>] [--origin conversation\|all]` | active ルールの stdout 出力 | PR6 |
 | `repo-knowledge add --global ...` | 手動のグローバルルール | PR1 |
@@ -1605,14 +1622,20 @@ Claude Code の会話ファイルが削除される前に取り込めるよう�
 
 1. 会話データ領域の `.lock` を取る
 2. 削除条件を `purge-filters.json` に追記する
-3. 条件に一致する発言と tombstone の ID を `purge-progress.json` に控え（`stage: ids_recorded`）、それらを除いて `utterances.jsonl` と `episodes.jsonl` を compaction する。同じ compaction で、代表発言が控えた ID に含まれるラベルの `labeled` と `label_pending` を `grouping-runs.jsonl` から消す。ラベルの文字列は削除した発言から作られたものなので、物理的に消し、以後の統合とラベル同士の照合で送らない。そのラベルを参照する `ClusterMerged` と `aliased` は ID だけなので残し、既に束ねたクラスタはそのままにする。compaction の rename が終わったら `stage: compacted` を記録する。4 と 5 の完了もそれぞれ記録し、5 まで終わったら `purge-progress.json` を消す
+3. 条件に一致する発言と tombstone の ID を `purge-progress.json` に控え（`stage: ids_recorded`）、それらを除いて `utterances.jsonl` と `episodes.jsonl` を compaction する。同じ compaction で、代表発言が控えた ID に含まれるラベルの `labeled` と `label_pending` を `grouping-runs.jsonl` から消す。ラベルの文字列は削除した発言から作られたものなので、物理的に消し、以後の統合とラベル同士の照合で送らない。そのラベルを参照する `ClusterMerged` と `aliased` は ID だけなので残し、既に束ねたクラスタはそのままにする。compaction の rename が終わったら `stage: compacted` を記録する。4 の完了も記録し、5 まで終わったら `purge-progress.json` を消す
 4. ストアごとに writer lock を取り、lock を持った状態で、3 で控えた ID を根拠とする active な evidence を列挙して `ConversationEvidenceWithdrawn` を追記する
 5. ストアごとに writer lock を取り、未完了の job のうち構成発言に 3 で控えた ID を含むものを failed にする
 
 2 を 3 より先に行うため、途中で中断しても、以後の取り込みは削除条件を参照して該当する発言を保存しない。
 3 は tombstone も照合の対象にするため、保存期間で本文が消えた後の発言についても、4 で evidence を withdrawn にし、5 で job を failed にできる。照合に使った tombstone も compaction で消す。
-再実行すると、`purge-progress.json` がなければ 3 から、`ids_recorded` なら控えた ID のまま compaction から、`compacted` 以降なら記録された段の次からやり直す。
+再実行すると、`purge-progress.json` がなければ 3 から、`filter_saved` なら控えた条件の追記から、`ids_recorded` なら控えた ID で compaction から、`compacted` 以降なら記録された段の次からやり直す（控えた ID にリンクで結ばれたコピーが増えていた場合は、下に書くとおり compaction からやり直す）。
+中断した purge は、次に `conversations purge` を実行したときに新しい条件より先に完了させる。条件を加えずに完了させるだけなら `conversations purge --resume` を使う。
 ID の一時ファイルの有無だけで段を判断しないため、compaction の完了前に中断しても発言が物理的に残ることはない。
+
+2 の前には、追記する条件を `purge-progress.json` に `stage: filter_saved` として記録する。2 の途中で中断しても、再実行（`conversations purge --resume` を含む）と取り込みがその条件を使う。
+history と会話ファイルの間の `superseded` で結ばれた発言は一つの発言とみなし、どちらかが条件に一致すれば両方を消す。
+リンクを通じてだけ一致したコピーは、自分の値では条件に一致しないため、その識別（`source`、`session_id`、`timestamp`）を `purge-filters.json` の `copies` に残す。`reset-key` でリンクが消えた後も、そのコピーは再取り込みで保存しない。
+再実行では、どの段からでも、控えた ID を起点に現在のリンクをたどり直す。中断の間に足されたリンクで新しいコピーが見つかった場合は、その ID を加えて compaction からやり直す（4 と 5 は同じ ID で繰り返しても結果が変わらない）。
 
 4 で evidence の列挙を lock の後に行うのは、列挙と追記の間に submit が同じ発言の evidence を書く競合を防ぐためである。
 submit 側も、ストアの writer lock を持った状態で、書き込む evidence の発言が `purge-filters.json` に一致しないこと、会話データ領域に存在することを確かめる（[同時実行](#cd-concurrency)）。
@@ -1621,7 +1644,7 @@ submit 側も、ストアの writer lock を持った状態で、書き込む ev
 
 | 段階 | PR |
 | --- | --- |
-| 1〜3 | PR2 |
+| 1〜3（3 の `grouping-runs.jsonl` からラベルを消す部分は、そのファイルを作る PR5） | PR2 |
 | 5（job を failed にする） | PR4a |
 | 4（evidence を withdrawn にする） | PR4b |
 
@@ -1717,7 +1740,7 @@ setup は同意の前に、ログの出所（Claude Code、Codex）と送信先�
 
 既存の `hostAssistedDistillation`、`llm.allowCloudTransmission`、`mergeClassifier` の値は、会話の送信を許可しない。
 
-`excludeProjects` の要素は、`/` で始まる場合は正規化した絶対パスのパス区切り単位の前方一致（削除条件と同じ規則）、それ以外は `owner/name` の完全一致として扱う。
+`excludeProjects` の要素は、`/` で始まる場合は正規化した絶対パスのパス区切り単位の前方一致（削除条件と同じ規則）、それ以外は `owner/name` の一致として扱う。GitHub の owner 名とリポジトリ名は大文字小文字を区別しないため、比べる前に両側を小文字にする（削除条件の `name_with_owner` も同じ）。
 取り込み時はソースから読んだマスク前のパスに直接照合する。
 保存済みの発言とラベルの代表発言に照合する場合（後から `excludeProjects` に追加したときなど）は、削除条件と同じく、パスを正規化して現在の鍵で HMAC を取り、`path_prefix_hmacs` に含まれるかで照合する。
 

@@ -31,6 +31,7 @@ repository を位置引数と `--repo` の両方で指定しないでくださ�
 | `reindex [repo]` | canonical data から `index.sqlite` を再構築 |
 | `redistill [repo] <selector>` | `--all`、`--author <login>`、`--prompt-version <version>`、`--failed`、`--outdated` の一つで再処理対象を選択 |
 | `reconcile [repo] --write-derived-metadata` | 導出した metadata を明示的に保存 |
+| `conversations <status\|purge\|reset-key>` | 会話データ領域の確認と削除。詳細は[会話データの管理](#conversation-data) |
 
 `redistill --outdated` は現在の prompt、schema、trust policy に対応する job がない thread だけを対象にします。
 既存 job の強制リセットには使えません。
@@ -53,7 +54,7 @@ active rule がなく失敗した job だけが残る場合、MCP の `readiness
 通常は ID を指定する管理 command より、内容をまとめて確認できる `review` を使います。
 
 `record_outcome` は MCP tool であり、同名の CLI command は提供しません。
-`--json` は `setup` 専用です。`sync` と `stats` は既定で JSON を出力します。
+`--json` は `setup` 専用です（`conversations status` は互換のため受け付けますが、指定しなくても JSON を出力します）。`sync` と `stats` も既定で JSON を出力します。
 
 ## repository の解決と設定
 
@@ -619,6 +620,98 @@ npm run quality:gate
 
 実 provider を使う測定と threshold 更新は [provider golden baseline 測定 runbook](./golden-baseline-runbook.md) に従ってください。
 
+<a id="conversation-data"></a>
+
+## 会話データの管理
+
+会話ログ蒸留（[設計書](../design/conversation-log-distillation.md)）の取り込み先は、canonical store とは別の会話データ領域 `~/.repo-knowledge/conversations/` です。
+現時点で提供しているのは、この領域の確認・削除・鍵の作り直しを行う command と、設定ファイルの読み込みです。
+取り込み処理そのものは後続の変更で追加します。
+
+設定は `~/.repo-knowledge/conversation-distillation.json` に置きます。
+ファイルがなければ会話の取り込みは無効です。
+symlink は拒否します。group や others に何らかの権限（読み・書き・実行）がある場合は、取り込みが設定を読み込むときに 600 に矯正します（取り込みは後続の変更で追加します）。`conversations status` は権限を報告するだけで、変更しません。
+
+```json
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "sources": { "claudeCode": { "enabled": true }, "codex": { "enabled": false } },
+  "retentionDays": 90,
+  "redactTerms": ["社内コード名"],
+  "excludeProjects": ["owner/private-repo", "/Users/me/secret-project"]
+}
+```
+
+- `retentionDays` を過ぎた発話は、取り込みの開始時に本文を消し、削除条件の照合に必要な値だけを残します。`null`（既定）は無期限です。
+- `redactTerms` は保存前に置換する語です。秘密情報の既定パターンに加えて適用されます。
+  語を変えても効くのは新しい取り込みだけです。保存済みの発言に効かせるには `conversations reset-key` で取り込み直します。
+- `excludeProjects` は `owner/name` または `/` から始まる path prefix です。一致するプロジェクトの発言は取り込みません。`owner/name` も path も大文字小文字を区別せずに照合します。
+
+| command | 用途 |
+| --- | --- |
+| `conversations status [--json]` | 設定の要約、保存件数、鍵の状態、警告を JSON で出力する。発言本文は出力しない |
+| `conversations purge --session <id>` | 指定 session の発言を削除する |
+| `conversations purge --before <iso>` | 指定時刻より前の発言を削除する |
+| `conversations purge --source <claude-code\|codex>` | 指定 source の発言を削除する |
+| `conversations purge --project <owner/name\|path>` | 指定 repository または path 配下の発言を削除する |
+| `conversations purge --resume` | 中断した purge を最後まで実行する。条件は追加しない |
+| `conversations reset-key [--restart]` | HMAC 鍵を作り直し、保存済みの発言、episode、checkpoint、route cache を破棄する |
+
+`purge` の条件は一度に一つだけ指定します。
+削除条件は `purge-filters.json` に保存され、以後の取り込みでも同じ条件の発言は保存されません。
+`reset-key` も削除条件を保持するので、次回の取り込みで source を読み直しても削除済みの発言は戻りません。
+`reset-key` の後に戻るのは、元のログがまだ残っている発言だけです。ログが消えた期間の発言は戻りません。
+
+削除条件を取り消すコマンドはありません。
+未来の時刻を `--before` に指定すると以後の取り込みがすべて止まり、`--project /` を指定するとプロジェクトのパスを持つ発言の取り込みがすべて止まります。
+条件は `~/.repo-knowledge/conversations/purge-filters.json` の `filters` に並んでいます（`conversations status` は件数だけを表示します）。
+保存するときに正規化するので、時刻は UTC のミリ秒（`2026-01-01T00:00:00.000Z`）、`owner/name` は小文字、パスは `..` や末尾の `/` を除いた形で記録されます。
+取り消す場合は、取り込みや purge を実行していないときに、そのファイルから該当する要素を消します。
+`copies` の要素は、リンク経由で消したコピーの記録なので消さないでください。
+
+`purge` と `reset-key` はデータを削除するため、実 TTY で確認するか `--yes` を指定します。
+確認を断ると `{"confirmed":false}` を出力し、何も変更しません。
+処理が中断した場合、次回の実行が進捗ファイル（`purge-progress.json`、`reset-pending.json`）から続きを再開します。
+`reset-key` の中断後に新しい鍵が失われた場合だけ、`--restart` で最初からやり直します。
+パスを条件にした purge が条件の保存の段（`filter_saved`）で中断し、保存済みの発言が残ったまま古い `local.key` を失った場合、`reset-key` は止まります（それより後の段で中断した purge は、控えた ID で片付けて先へ進みます）。リンクでつながったコピーを古い鍵なしでは探せないためです。`local.key` を戻して再実行するか、そのコピーの追跡を諦めて `purge-progress.json` を削除してから再実行します。削除条件そのものは保存済みで、以後の取り込みにも適用されます。
+
+鍵ファイル `local.key` が symlink の場合、group や others に何らかの権限がある場合、他のユーザーが所有している場合は使いません。
+例外は `reset-key` が中断中のパス purge を片付けるときだけです。直後に捨てる古い鍵なので、権限や所有者に問題があっても読めれば照合に使います（symlink は使いません）。
+`repo-knowledge doctor` の `conversations.store` が状態と対処方法を表示します。
+会話データ領域の directory は mode 700、file は mode 600 で作成します。
+
+`utterances.jsonl` に壊れた行があると、purge は `CONVERSATION_DATA_CORRUPT` で止まります。新しい条件を指定した purge だった場合は `purge-progress.json` が残ります（`--resume` や保存済みの条件の再指定では新しく作られません。前の失敗で残ったものはそのまま残ります）。
+この状態では、中断した purge を先に片付けようとする `reset-key` も同じエラーで止まります。
+保存済みの発言を作り直してよい場合は、`purge-progress.json` を消してから `reset-key` を実行します。
+条件は purge の 2 段目で保存済みなので、消しても以後の取り込みには適用されます。
+
+### 多めにマスクされるもの
+
+マスクは漏れを防ぐことを優先するため、秘密情報でないものも置換されることがあります。
+
+- `password`、`token`、`secret` などを含むキー名への代入は、短い値でも置換します。会話に貼ったコードの `const token = getToken()` や `password: string` も、値の部分が `[REDACTED]` になります。
+  `PWD=/tmp/work` や `token_count: 5` のように、秘密でない値を持つキー名も対象です。比較や矢印（`token == null`、`token := f()`、`password => …`）と、次の行に続く YAML の入れ子（`secret:` の下のキー）は対象外です。
+- コマンド引数の規則は、同じ形の別の意味の引数も置換します。`docker run -u 1000:1000` や `sort -u a:b` の `:` より後、`mysql -h host -port 3306` の `-p` より後が `[REDACTED]` になります。
+- `npm-`、`hf_`、`pypi-` などの接頭辞で始まり、数字を含む 8 文字以上の名前（`npm-run-all2`、`hf_hub_download_v2`、`pypi-publish1`）はトークンとして置換します。
+- `/users/42` のように `/users/` や `/home/` で始まる Web のパスも、ホームディレクトリと区別できないため `~` に置き換えます。
+- 符号化ディレクトリ名の規則は大文字小文字を区別しないため、`-Users-are-happy` のような箇条書きや `-home-dir` のようなフラグも、`-Users-` や `-home-` の後の語が `[REDACTED]` になります。
+- 秘密鍵ブロックの BEGIN 行（`-----BEGIN PGP PRIVATE KEY BLOCK-----` など）に対応する END 行がない場合、BEGIN 行から本文の最後までを置換します。BEGIN 行に触れただけの文でも、それ以降は残りません。
+- `redactTerms` の照合は大文字小文字の差を畳み込むため、トルコ語の点のない `ı` と `I` のように、通常は区別する文字どうしも一致します。
+
+### マスクされないもの
+
+マスクは既知の形の秘密情報とユーザー名を含むパスを対象にしており、次のものは残ることがあります。
+残したくない語は `redactTerms` に登録してください。
+
+- `password`、`token`、`secret`、`pwd`、`api_key`、`private_key` などを含まないキー名への代入（`pin=1234` など）と、これらの語の直後に `_` や `-` を挟まず文字が続くキー名への代入。`password`、`passwd`、`secret`、`token`、`api_key` の場合は 16 文字未満の値だけが残り（`tokens=abc`、`passwordHash=x`、`secretKey=abc`）、`pwd`、`passphrase`、`private_key` の場合は、英字と数字を両方含む 32 文字以上の値（別の規則で置換されます）を除いて残ります（`pwdHash=…`、`privateKeyId=…`）
+- `-u user:pass` と MySQL の `-p<pass>` 以外の形でコマンド引数に書いた認証情報
+- 既知の接頭辞（`glpat-`、`hf_`、`sk_live_` など）がなく、区切り文字で 32 文字未満に分かれるトークン。接頭辞があっても数字を含まないもの
+- `Authorization` header の外にある `Bearer` の後の、8 文字未満の値や英字だけの値
+- `/Users`、`/home`、`/usr/home`、`/var/home`、`/mnt/<drive>/Users`、`/Volumes/<disk>/Users`、`C:\Users` など、既知の置き場所以外にあるホームディレクトリのパス
+- 符号化ディレクトリ名で、アカウント名に `-` や `.` を含む場合の後半（`-Users-john-doe-repo` は `-Users-[REDACTED]-doe-repo` になります）。符号化した後は名前とパスの境目を区別できないためです
+- 第三者の氏名や社名（自動の氏名検出は行いません）
+
 ## storage と直接編集
 
 ```text
@@ -632,6 +725,9 @@ npm run quality:gate
     ├── transactions/
     └── index.sqlite
 ```
+
+会話ログ蒸留を使う場合は、同じ root に `conversation-distillation.json` と `conversations/` も作成します。
+`conversations/` は canonical data ではありません。構成と管理方法は[会話データの管理](#conversation-data)を参照してください。
 
 knowledge Markdown、raw JSONL、event JSONL、repository registry は canonical data です。
 `index.sqlite` は派生 projection なので、削除後に `reindex` で再構築できます。

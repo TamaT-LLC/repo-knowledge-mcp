@@ -1,3 +1,4 @@
+import type { PurgeCriteria } from "./conversation-records.js";
 import type { TerminalActivityUpdate } from "./terminal-progress.js";
 import type { GuidedSetupPrompt } from "./setup-service.js";
 import { parseRepoKnowledgeCliArguments } from "./cli-args.js";
@@ -92,6 +93,17 @@ Commands:
   always-return list            Show settings, origin, date and rule status
   serve --allow-always-return-changes
                                 Enable the personal rule settings tool
+  conversations status [--json] Show conversation settings and stored counts
+                                (never utterance text)
+  conversations purge (--session <id> | --before <iso> | --source <name> |
+                       --project <owner/name|path> | --resume) [--yes]
+                                Permanently delete stored utterances and keep
+                                the condition so they are never ingested again;
+                                --resume finishes an interrupted purge
+  conversations reset-key [--yes] [--restart]
+                                Replace the conversation key and discard stored
+                                utterances; --restart starts over when the new
+                                key of an interrupted reset is gone
   doctor [repo]                 Diagnose installation and canonical state
 
 Repository selection:
@@ -216,6 +228,10 @@ async function executeCliCommand(
       else writeJson(options.io, await store.listAlwaysReturn());
       return;
     }
+    case "conversations-status":
+    case "conversations-purge":
+    case "conversations-reset-key":
+      return executeConversationCommand(command, options);
     case "doctor": {
       const result = await options.doctor.run(command.selection);
       writeJson(options.io, result);
@@ -464,6 +480,95 @@ function scheduleSpec(
       : { maxPullRequests: command.maxPullRequests }),
     repo: command.repo,
   };
+}
+
+/** Names the condition being saved, or the resume, in the prompt. */
+function purgeConfirmation(criteria: PurgeCriteria | null): string {
+  if (criteria === null) {
+    return "Finish the interrupted purge and delete stored conversation utterances that match the saved conditions? No condition is added.";
+  }
+  const condition = Object.entries(criteria)
+    .map(([name, value]) => `${name}=${String(value)}`)
+    .join(", ");
+  return `Permanently delete stored conversation utterances matching ${condition}? The condition is kept, so matching utterances are never ingested again.`;
+}
+const RESET_KEY_CONFIRMATION =
+  "Replace the conversation key and discard stored utterances, episodes, checkpoints and the route cache? Purge conditions are kept; the next ingest re-reads the sources, so only utterances whose source logs still exist come back.";
+
+async function executeConversationCommand(
+  command: Extract<
+    ParsedCliCommand,
+    {
+      readonly kind:
+        | "conversations-purge"
+        | "conversations-reset-key"
+        | "conversations-status";
+    }
+  >,
+  options: RunRepoKnowledgeCliOptions,
+): Promise<number | undefined> {
+  const conversations = options.conversations;
+  if (conversations === undefined) {
+    throw new RepoKnowledgeCliError(
+      "CLI_COMMAND_UNAVAILABLE",
+      "conversations is unavailable in this runtime",
+      REPO_KNOWLEDGE_CLI_EXIT.failure,
+    );
+  }
+  switch (command.kind) {
+    case "conversations-status": {
+      const report = await conversations.status();
+      writeJson(options.io, report);
+      return "data_error" in report || "error" in report.config
+        ? REPO_KNOWLEDGE_CLI_EXIT.failure
+        : undefined;
+    }
+    case "conversations-purge":
+      return runConfirmed(
+        options.io,
+        command.yes,
+        "conversations.purge",
+        purgeConfirmation(command.criteria),
+        () => conversations.purge(command.criteria),
+      );
+    case "conversations-reset-key":
+      return runConfirmed(
+        options.io,
+        command.yes,
+        "conversations.reset-key",
+        RESET_KEY_CONFIRMATION,
+        () => conversations.resetKey({ restart: command.restart }),
+      );
+  }
+}
+
+/**
+ * Runs a data-deleting operation after `--yes` or a terminal confirmation;
+ * a declined prompt prints `{"confirmed":false}` and changes nothing.
+ */
+async function runConfirmed(
+  io: RepoKnowledgeCliIo,
+  yes: boolean,
+  id: string,
+  message: string,
+  operation: () => Promise<unknown>,
+): Promise<undefined> {
+  if (!yes) {
+    if (!io.stdinIsTTY || !io.stdoutIsTTY || io.confirm === undefined) {
+      throw new RepoKnowledgeCliError(
+        "CLI_TTY_REQUIRED",
+        "this command deletes data; confirm in a terminal or pass --yes",
+        // Same exit code as the other CLI_TTY_REQUIRED refusals.
+        REPO_KNOWLEDGE_CLI_EXIT.failure,
+      );
+    }
+    if (!(await io.confirm({ defaultValue: false, id, message }))) {
+      writeJson(io, { confirmed: false });
+      return;
+    }
+  }
+  writeJson(io, await operation());
+  return;
 }
 
 function assertAdminTerminal(io: RepoKnowledgeCliIo): void {

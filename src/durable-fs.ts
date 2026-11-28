@@ -1,4 +1,5 @@
-import { lstat, open, readFile } from "node:fs/promises";
+import { lstat, open, readFile, type FileHandle } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
 
 import { CanonicalStoreError } from "./canonical-path-validation.js";
 import { computeByteSha256 } from "./knowledge-document.js";
@@ -90,6 +91,68 @@ export async function assertRegularFileOrMissing(
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+}
+
+/**
+ * `lstat` that never follows a symlink: `null` when the path is missing, its
+ * stats when it is a real file or directory of the expected kind, and
+ * `unsafe()` thrown for a symlink or any other type.
+ */
+export async function lstatNoFollow(
+  path: string,
+  kind: "directory" | "file",
+  unsafe: () => Error,
+): Promise<Stats | null> {
+  let status: Stats;
+  try {
+    status = await lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  // lstat reports a symlink as neither a file nor a directory.
+  if (!(kind === "file" ? status.isFile() : status.isDirectory())) {
+    throw unsafe();
+  }
+  return status;
+}
+
+/**
+ * Opens a regular file without following a symlink (read-only unless
+ * `access` is "read-write"), so checks
+ * on the returned stats and the reads that follow see the same file.
+ * O_NONBLOCK keeps a FIFO in its place from blocking the open. `null` when
+ * the file is missing; `unsafe()` for a symlink or any other type. The
+ * caller closes the handle.
+ */
+export async function openRegularFileNoFollow(
+  path: string,
+  unsafe: () => Error,
+  access: "read" | "read-write" = "read",
+): Promise<{ readonly handle: FileHandle; readonly status: Stats } | null> {
+  let handle: FileHandle;
+  try {
+    handle = await open(
+      path,
+      (access === "read" ? constants.O_RDONLY : constants.O_RDWR) |
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK,
+    );
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return null;
+    if (code === "ELOOP") throw unsafe();
+    throw error;
+  }
+  // The handle is the caller's only once it is returned.
+  try {
+    const status = await handle.stat();
+    if (!status.isFile()) throw unsafe();
+    return { handle, status };
+  } catch (error) {
+    await handle.close();
     throw error;
   }
 }

@@ -15,6 +15,20 @@ export const coverageFileThresholds = {
     statements: 94,
   },
   "src/cli.ts": { branches: 95, functions: 100, lines: 100, statements: 100 },
+  // Conversation masking and the data area guard what is persisted and
+  // deleted, so a drop in their coverage must not hide behind other files.
+  "src/conversation-redaction.ts": {
+    branches: 95,
+    functions: 100,
+    lines: 100,
+    statements: 100,
+  },
+  "src/conversation-store.ts": {
+    branches: 90,
+    functions: 95,
+    lines: 95,
+    statements: 95,
+  },
   "src/setup-service.ts": {
     branches: 80,
     functions: 95,

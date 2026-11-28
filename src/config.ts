@@ -83,16 +83,31 @@ export function parseRepoKnowledgeConfig(
   const result = RepoKnowledgeConfigSchema.safeParse(value);
   if (result.success) return result.data;
 
-  const details = result.error.issues
+  throw new RepoKnowledgeConfigError(
+    "CONFIG_INVALID",
+    path,
+    formatConfigIssues(result.error.issues),
+    { cause: result.error },
+  );
+}
+
+/**
+ * Config validation issues as `location: message` pairs. Only locations and
+ * messages are included, never the offending values.
+ */
+export function formatConfigIssues(
+  issues: readonly {
+    readonly message: string;
+    readonly path: readonly PropertyKey[];
+  }[],
+): string {
+  return issues
     .map((issue) => {
       const location =
-        issue.path.length === 0 ? "<root>" : issue.path.join(".");
+        issue.path.length === 0 ? "<root>" : issue.path.map(String).join(".");
       return `${location}: ${issue.message}`;
     })
     .join("; ");
-  throw new RepoKnowledgeConfigError("CONFIG_INVALID", path, details, {
-    cause: result.error,
-  });
 }
 
 /** Loads and strictly validates a UTF-8 JSON config file. */

@@ -22,6 +22,7 @@ import {
   inspectCanonicalState,
   inspectTransactions,
 } from "./doctor/checks-canonical.js";
+import { inspectConversationStore } from "./doctor/checks-conversations.js";
 import { inspectSqliteProjection } from "./doctor/checks-projection.js";
 import {
   DoctorReportBuilder,
@@ -140,6 +141,7 @@ export class RepoKnowledgeDoctor implements RepoKnowledgeDoctorLike {
           "Make the global directory a real directory inside the storage root (not a symbolic link); `repo-knowledge add --global` creates an empty one",
       });
     }
+    await inspectConversationStore(report, this.storageRoot);
     const config = storageExists
       ? await inspectConfig(report, this.storageRoot)
       : null;

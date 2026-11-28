@@ -16,6 +16,7 @@ import {
 } from "./cli.js";
 import { CanonicalCliRepositoryOperationsResolver } from "./cli-maintenance-service.js";
 import { initializeStorage, updateRepoKnowledgeConfig } from "./config.js";
+import { ConversationAdminService } from "./conversation-admin-service.js";
 import { loadDistillationPrompt } from "./distillation-prompt.js";
 import { reduceDomainRecords } from "./domain-projection.js";
 import type { RepoKnowledgeConfig } from "./domain-schemas.js";
@@ -170,6 +171,7 @@ export async function runDefaultRepoKnowledgeCli(
   return runRepoKnowledgeCli({
     globalStore: new GlobalStore(storageRoot),
     argv: options.argv ?? process.argv.slice(2),
+    conversations: new ConversationAdminService(storageRoot),
     doctor: new RepoKnowledgeDoctor({
       ghRunner,
       storageRoot,
